@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+bin/
+
+backend/go.work
+backend/internal/web/dist/
+
+coverage/
+*.coverprofile
+*.log
+*.tmp
+.DS_Store
+
+frontend/dist/
+frontend/node_modules/

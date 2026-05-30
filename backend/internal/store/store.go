@@ -1,0 +1,169 @@
+package store
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+var ErrNotFound = errors.New("not found")
+
+type Conversation struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type Message struct {
+	ID             string    `json:"id"`
+	ConversationID string    `json:"conversationId"`
+	Role           string    `json:"role"`
+	Content        string    `json:"content"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+type Store interface {
+	ListConversations(context.Context) ([]Conversation, error)
+	CreateConversation(context.Context, string) (Conversation, error)
+	UpdateConversationTitle(context.Context, string, string) (Conversation, error)
+	DeleteConversation(context.Context, string) error
+	ListMessages(context.Context, string) ([]Message, error)
+	AddMessage(context.Context, string, string, string) (Message, error)
+}
+
+func NewID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return strings.ReplaceAll(time.Now().UTC().Format(time.RFC3339Nano), ":", "")
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	dst := make([]byte, 36)
+	hex.Encode(dst[0:8], b[0:4])
+	dst[8] = '-'
+	hex.Encode(dst[9:13], b[4:6])
+	dst[13] = '-'
+	hex.Encode(dst[14:18], b[6:8])
+	dst[18] = '-'
+	hex.Encode(dst[19:23], b[8:10])
+	dst[23] = '-'
+	hex.Encode(dst[24:], b[10:])
+	return string(dst)
+}
+
+func TitleFromMessage(content string) string {
+	title := strings.Join(strings.Fields(content), " ")
+	if title == "" {
+		return "Untitled"
+	}
+	if len(title) > 60 {
+		return strings.TrimSpace(title[:57]) + "..."
+	}
+	return title
+}
+
+func displayTitle(title string, firstUserMessage *string) string {
+	if strings.TrimSpace(title) != "Untitled" || firstUserMessage == nil {
+		return title
+	}
+	return TitleFromMessage(*firstUserMessage)
+}
+
+type MemoryStore struct {
+	mu            sync.RWMutex
+	conversations map[string]Conversation
+	messages      map[string][]Message
+}
+
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{
+		conversations: map[string]Conversation{},
+		messages:      map[string][]Message{},
+	}
+}
+
+func (s *MemoryStore) ListConversations(context.Context) ([]Conversation, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]Conversation, 0, len(s.conversations))
+	for _, conversation := range s.conversations {
+		for _, message := range s.messages[conversation.ID] {
+			if message.Role == "user" {
+				conversation.Title = displayTitle(conversation.Title, &message.Content)
+				break
+			}
+		}
+		items = append(items, conversation)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) CreateConversation(_ context.Context, title string) (Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	conversation := Conversation{ID: NewID(), Title: title, CreatedAt: now, UpdatedAt: now}
+	s.conversations[conversation.ID] = conversation
+	return conversation, nil
+}
+
+func (s *MemoryStore) UpdateConversationTitle(_ context.Context, conversationID, title string) (Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conversation, ok := s.conversations[conversationID]
+	if !ok {
+		return Conversation{}, ErrNotFound
+	}
+	conversation.Title = title
+	conversation.UpdatedAt = time.Now().UTC()
+	s.conversations[conversationID] = conversation
+	return conversation, nil
+}
+
+func (s *MemoryStore) DeleteConversation(_ context.Context, conversationID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.conversations[conversationID]; !ok {
+		return ErrNotFound
+	}
+	delete(s.conversations, conversationID)
+	delete(s.messages, conversationID)
+	return nil
+}
+
+func (s *MemoryStore) ListMessages(_ context.Context, conversationID string) ([]Message, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.conversations[conversationID]; !ok {
+		return nil, ErrNotFound
+	}
+	messages := append([]Message(nil), s.messages[conversationID]...)
+	if messages == nil {
+		messages = []Message{}
+	}
+	return messages, nil
+}
+
+func (s *MemoryStore) AddMessage(_ context.Context, conversationID, role, content string) (Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conversation, ok := s.conversations[conversationID]
+	if !ok {
+		return Message{}, ErrNotFound
+	}
+	now := time.Now().UTC()
+	message := Message{ID: NewID(), ConversationID: conversationID, Role: role, Content: content, CreatedAt: now}
+	s.messages[conversationID] = append(s.messages[conversationID], message)
+	conversation.UpdatedAt = now
+	s.conversations[conversationID] = conversation
+	return message, nil
+}
