@@ -8,7 +8,7 @@ This file keeps setup details out of the main README.
 | --- | --- |
 | Go | 1.25+ |
 | Node.js | 22+ |
-| PostgreSQL | 15+ |
+| PostgreSQL | 16+ |
 | Model access | Gemini, Cerebras, SambaNova, or Ollama |
 
 # Install
@@ -16,8 +16,8 @@ This file keeps setup details out of the main README.
 Homebrew formula: `Formula/linea.rb`
 
 ```sh
-brew tap bniladridas/linea https://github.com/bniladridas/linea
-brew install --HEAD --fetch-HEAD --build-from-source linea
+brew tap bniladridas/linea
+brew install linea
 ```
 
 # Config
@@ -70,7 +70,7 @@ cp .env.example .env
 cd backend
 go run ./cmd/server -migrate
 cd ../frontend
-npm install
+npm ci
 npm run build
 cd ../backend
 go run ./cmd/server
@@ -101,6 +101,8 @@ Vite runs at `http://localhost:5173`.
 Push a tag named `v*`.
 
 The release workflow builds the frontend, builds the Apple Silicon binary, and uploads checksums.
+
+After a release, update `Formula/linea.rb` with the release source SHA.
 
 UI checks need Chrome. Message checks need one working text model.
 
