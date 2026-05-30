@@ -11,8 +11,10 @@ class Linea < Formula
   depends_on "postgresql@16"
 
   def install
-    system "npm", "ci", chdir: "frontend"
-    system "npm", "run", "build", chdir: "frontend"
+    cd "frontend" do
+      system "npm", "ci"
+      system "npm", "run", "build"
+    end
 
     cd "backend" do
       system "go", "build", *std_go_args(

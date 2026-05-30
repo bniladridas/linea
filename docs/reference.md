@@ -16,8 +16,8 @@ This file keeps setup details out of the main README.
 Homebrew formula: `Formula/linea.rb`
 
 ```sh
-brew install bniladridas/tap/linea
-brew install --build-from-source ./Formula/linea.rb
+brew tap bniladridas/linea https://github.com/bniladridas/linea
+brew install --HEAD --fetch-HEAD --build-from-source linea
 ```
 
 # Config
@@ -90,10 +90,17 @@ Vite runs at `http://localhost:5173`.
 | Check | Command |
 | --- | --- |
 | Setup | `linea -check` |
+| Homebrew formula | `make install-check` |
 | Server | `linea -check-server http://localhost:8080` |
 | UI | `make ui-check` |
 | UI with message | `make ui-check-full` |
 | Models | `make model-check` |
+
+# Release
+
+Push a tag named `v*`.
+
+The release workflow builds the frontend, builds the Apple Silicon binary, and uploads checksums.
 
 UI checks need Chrome. Message checks need one working text model.
 

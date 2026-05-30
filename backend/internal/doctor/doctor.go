@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ const (
 func Run(ctx context.Context, cfg config.Config) []Result {
 	var results []Result
 	results = append(results, checkConfig(cfg)...)
+	results = append(results, checkConfigFile())
 	results = append(results, checkEmbeddedWeb())
 	results = append(results, checkDatabase(ctx, cfg.DatabaseURL)...)
 	results = append(results, checkMigrations(ctx, cfg.DatabaseURL)...)
@@ -63,6 +65,24 @@ func Run(ctx context.Context, cfg config.Config) []Result {
 		results = append(results, Result{Name: "ollama generation", Status: Warn, Message: "disabled"})
 	}
 	return results
+}
+
+func checkConfigFile() Result {
+	if _, err := os.Stat(".env"); err == nil {
+		return Result{Name: "config file", Status: Pass, Message: ".env"}
+	}
+	path := config.DefaultEnvFilePath()
+	if path == "" {
+		return Result{Name: "config file", Status: Warn, Message: "using shell variables and defaults"}
+	}
+	_, err := os.Stat(path)
+	if err == nil {
+		return Result{Name: "config file", Status: Pass, Message: path}
+	}
+	if os.IsNotExist(err) {
+		return Result{Name: "config file", Status: Warn, Message: path + " not found; using shell variables and defaults"}
+	}
+	return Result{Name: "config file", Status: Warn, Message: err.Error()}
 }
 
 func checkMigrations(ctx context.Context, databaseURL string) []Result {

@@ -20,6 +20,8 @@ Open `http://localhost:8080`.
 
 Run `linea -check` to check setup.
 
+Run `make install-check` to test the Homebrew formula from `HEAD`.
+
 # Models
 
 Gemini is primary.
