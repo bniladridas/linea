@@ -2,7 +2,7 @@ class Linea < Formula
   desc "Local-first AI assistant"
   homepage "https://github.com/bniladridas/linea"
   url "https://github.com/bniladridas/linea/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "REPLACE_WITH_RELEASE_SHA256"
+  sha256 "1579d8028435687b072a943a278170ea3bb5e8ddcd5779c4cfcf8b228ced76de"
   license "MIT"
   head "https://github.com/bniladridas/linea.git", branch: "main"
 
