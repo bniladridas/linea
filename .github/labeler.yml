@@ -1,0 +1,32 @@
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - backend/**
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - frontend/**
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - README.md
+          - docs/**
+          - assets/**
+          - .github/assets/**
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+
+formula:
+  - changed-files:
+      - any-glob-to-any-file:
+          - Formula/**
+
+scripts:
+  - changed-files:
+      - any-glob-to-any-file:
+          - scripts/**
