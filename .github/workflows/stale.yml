@@ -1,0 +1,29 @@
+name: stale
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "39 4 * * 1"
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/stale@v10
+        with:
+          days-before-stale: 45
+          days-before-close: 14
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: pinned,security
+          exempt-pr-labels: pinned,security
+          stale-issue-message: "Still needed?"
+          stale-pr-message: "Still needed?"
+          close-issue-message: "Closing for now."
+          close-pr-message: "Closing for now."
+          operations-per-run: 20

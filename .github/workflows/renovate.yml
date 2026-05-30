@@ -1,0 +1,30 @@
+name: renovate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "24 4 * * 1"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    env:
+      RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: renovatebot/github-action@v46.1.14
+        if: env.RENOVATE_TOKEN != ''
+        with:
+          configurationFile: renovate.json
+          token: ${{ env.RENOVATE_TOKEN }}
+
+      - name: Not configured
+        if: env.RENOVATE_TOKEN == ''
+        run: echo "RENOVATE_TOKEN is not set."
