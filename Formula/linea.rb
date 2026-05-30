@@ -18,21 +18,16 @@ class Linea < Formula
 
     cd "backend" do
       system "go", "build", *std_go_args(
-        output: bin/"linea",
+        output:  bin/"linea",
         ldflags: "-s -w -X main.version=#{version}",
       ), "./cmd/server"
     end
-
   end
 
   service do
     run [opt_bin/"linea"]
     keep_alive true
     working_dir HOMEBREW_PREFIX
-  end
-
-  test do
-    assert_match "linea #{version}", shell_output("#{bin}/linea -version")
   end
 
   def caveats
@@ -57,5 +52,9 @@ class Linea < Formula
 
         brew services start linea
     EOS
+  end
+
+  test do
+    assert_match "linea #{version}", shell_output("#{bin}/linea -version")
   end
 end
