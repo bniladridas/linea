@@ -11,10 +11,21 @@ DIST_DIR="$ROOT_DIR/dist/macos"
 APP_DIR="$DIST_DIR/Linea.app"
 DMG_ROOT="$DIST_DIR/dmg-root"
 DMG_PATH="$DIST_DIR/Linea.dmg"
+RW_DMG_PATH="$DIST_DIR/Linea-rw.dmg"
 ICON_SOURCE="$ROOT_DIR/assets/linea-icon.png"
 ICONSET="$DIST_DIR/Linea.iconset"
+MACOS_SOURCE="$ROOT_DIR/macos/Linea/main.swift"
+MOUNT_DIR=""
 
-rm -rf "$APP_DIR" "$DMG_ROOT" "$DMG_PATH" "$ICONSET"
+cleanup() {
+  if [[ -n "$MOUNT_DIR" && -d "$MOUNT_DIR" ]]; then
+    hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true
+    rm -rf "$MOUNT_DIR"
+  fi
+}
+trap cleanup EXIT
+
+rm -rf "$APP_DIR" "$DMG_ROOT" "$DMG_PATH" "$RW_DMG_PATH" "$ICONSET"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$DMG_ROOT"
 
 cd "$ROOT_DIR/frontend"
@@ -23,7 +34,13 @@ npm run build
 
 cd "$ROOT_DIR/backend"
 go build -ldflags="-s -w -X main.version=$LINEA_VERSION" -o "$APP_DIR/Contents/Resources/linea" ./cmd/server
-go build -ldflags="-s -w" -o "$APP_DIR/Contents/MacOS/Linea" ./cmd/macoslauncher
+swiftc \
+  -Osize \
+  -target arm64-apple-macos13.0 \
+  -framework Cocoa \
+  -framework WebKit \
+  -o "$APP_DIR/Contents/MacOS/Linea" \
+  "$MACOS_SOURCE"
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -37,7 +54,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key>
   <string>Linea</string>
   <key>CFBundleIconFile</key>
-  <string>Linea</string>
+  <string>Linea.icns</string>
   <key>CFBundleIdentifier</key>
   <string>com.bniladridas.linea</string>
   <key>CFBundleInfoDictionaryVersion</key>
@@ -54,9 +71,15 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
 </dict>
 </plist>
 PLIST
+printf "APPL????" > "$APP_DIR/Contents/PkgInfo"
 
 if [[ -f "$ICON_SOURCE" ]]; then
   mkdir -p "$ICONSET"
@@ -71,11 +94,47 @@ if [[ -f "$ICON_SOURCE" ]]; then
   sips -z 512 512 "$ICON_SOURCE" --out "$ICONSET/icon_512x512.png" >/dev/null
   cp "$ICON_SOURCE" "$ICONSET/icon_512x512@2x.png"
   iconutil -c icns "$ICONSET" -o "$APP_DIR/Contents/Resources/Linea.icns"
+  cp "$APP_DIR/Contents/Resources/Linea.icns" "$DMG_ROOT/.VolumeIcon.icns"
+  SetFile -a B "$APP_DIR" 2>/dev/null || true
 fi
 
-cp -R "$APP_DIR" "$DMG_ROOT/"
-hdiutil create -volname "Linea" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH" >/dev/null
-rm -rf "$DMG_ROOT" "$ICONSET"
+ditto --rsrc --extattr "$APP_DIR" "$DMG_ROOT/Linea.app"
+SetFile -a B "$DMG_ROOT/Linea.app" 2>/dev/null || true
+ln -s /Applications "$DMG_ROOT/Applications"
+hdiutil create -volname "Linea" -srcfolder "$DMG_ROOT" -ov -format UDRW "$RW_DMG_PATH" >/dev/null
+
+MOUNT_DIR="$(mktemp -d "$DIST_DIR/linea-dmg.XXXXXX")"
+hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse >/dev/null
+SetFile -a C "$MOUNT_DIR" 2>/dev/null || true
+if ! osascript <<APPLESCRIPT
+set dmgFolder to POSIX file "$MOUNT_DIR" as alias
+tell application "Finder"
+  open dmgFolder
+  set theWindow to container window of dmgFolder
+  tell theWindow
+    set current view of theWindow to icon view
+    set toolbar visible of theWindow to false
+    set statusbar visible of theWindow to false
+    set bounds of theWindow to {100, 100, 700, 420}
+    set theOptions to icon view options of theWindow
+    set arrangement of theOptions to not arranged
+    set icon size of theOptions to 96
+    set position of item "Linea.app" of theWindow to {190, 160}
+    set position of item "Applications" of theWindow to {470, 160}
+    close
+  end tell
+  update dmgFolder without registering applications
+  delay 1
+end tell
+APPLESCRIPT
+then
+  echo "warning: could not apply Finder DMG layout" >&2
+fi
+hdiutil detach "$MOUNT_DIR" >/dev/null
+rm -rf "$MOUNT_DIR"
+MOUNT_DIR=""
+hdiutil convert "$RW_DMG_PATH" -ov -format UDZO -o "$DMG_PATH" >/dev/null
+rm -rf "$DMG_ROOT" "$RW_DMG_PATH" "$ICONSET"
 
 echo "$APP_DIR"
 echo "$DMG_PATH"

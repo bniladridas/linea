@@ -1,6 +1,6 @@
 # macOS
 
-This is the first non-web client target.
+This is the macOS package shape.
 
 # Goal
 
@@ -14,15 +14,17 @@ The app should:
 * keep PostgreSQL and provider config outside the app bundle
 * package as a `.dmg`
 
-# First Version
+# Desktop Shell
 
 Use a thin desktop shell.
 
-The shell may wrap the existing web UI.
+The shell wraps the existing web UI.
 
 The Go backend stays the source of truth.
 
 No native rewrite yet.
+
+<img src="../.github/assets/linea-macos-window.png" alt="Linea macOS window" width="720">
 
 # App Shape
 
@@ -65,7 +67,9 @@ make macos-package
 
 The app bundle includes the Linea server binary.
 
-The launcher is a small Go binary. It starts the server, waits for `/healthz`, opens the local UI, and stops the server when the app quits.
+The launcher is a small Swift app. It starts the server, waits for `/healthz`, opens the local UI in a WebView window, and stops the server when the app quits.
+
+Open the DMG and drag `Linea.app` to `Applications`.
 
 # Checks
 
@@ -86,7 +90,7 @@ Manual check:
 * image input works when Gemini quota allows it
 * quit stops the local server
 
-# Not Now
+# Later
 
 Do not build Android during this step.
 

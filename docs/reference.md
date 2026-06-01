@@ -102,7 +102,7 @@ Vite runs at `http://localhost:5173`.
 
 API contract: [client-api.md](./client-api.md).
 
-macOS plan: [macos.md](./macos.md).
+macOS app: [macos.md](./macos.md).
 
 # Release
 
