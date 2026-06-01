@@ -108,7 +108,7 @@ macOS app: [macos.md](./macos.md).
 
 Push a tag named `v*`.
 
-The release workflow builds the frontend, builds the Apple Silicon binary, and uploads checksums.
+The release workflow builds the frontend, builds the Apple Silicon binary, packages the DMG, and uploads checksums.
 
 After a release, update `Formula/linea.rb` with the release source SHA.
 
