@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -158,5 +159,8 @@ func TestTitleFromMessage(t *testing.T) {
 	}
 	if got := TitleFromMessage(""); got != "Untitled" {
 		t.Fatalf("TitleFromMessage(empty) = %q", got)
+	}
+	if got := TitleFromMessage(strings.Repeat("😀", 61)); len([]rune(got)) != 60 {
+		t.Fatalf("TitleFromMessage(unicode) length = %d, want 60", len([]rune(got)))
 	}
 }

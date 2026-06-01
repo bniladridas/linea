@@ -62,8 +62,9 @@ func TitleFromMessage(content string) string {
 	if title == "" {
 		return "Untitled"
 	}
-	if len(title) > 60 {
-		return strings.TrimSpace(title[:57]) + "..."
+	runes := []rune(title)
+	if len(runes) > 60 {
+		return strings.TrimSpace(string(runes[:57])) + "..."
 	}
 	return title
 }
