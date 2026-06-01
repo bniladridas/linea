@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Why Linea is local-first.">
+    <title>Why Linea is local-first</title>
+    <link rel="stylesheet" href="../styles.css">
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f0f0f0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='24' height='24' rx='6' fill='%23151514' stroke='none'/%3E%3Ccircle cx='6' cy='19' r='3'/%3E%3Cpath d='M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15'/%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3C/svg%3E"
+    >
+  </head>
+  <body>
+    <main class="page">
+      <header class="site-header" aria-label="Linea">
+        <a class="home-link" href="../index.html">
+          <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="6" cy="19" r="3"></circle>
+            <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"></path>
+            <circle cx="18" cy="5" r="3"></circle>
+          </svg>
+          <span>Linea</span>
+        </a>
+      </header>
+
+      <article class="article">
+        <p class="kicker">1 Jun 2026</p>
+        <h1>Why Linea is local-first</h1>
+
+        <p>
+          A local assistant should start with the machine in front of the user.
+        </p>
+
+        <p>
+          The interface is served by one Go process. The browser is the client. Conversation data stays in PostgreSQL when a database is configured, and memory storage remains available for a smaller setup.
+        </p>
+
+        <p>
+          Model access is external when needed. Gemini is the primary provider. Cerebras and SambaNova use OpenAI-compatible endpoints. Ollama gives a local fallback when remote quota or traffic gets in the way.
+        </p>
+
+        <p>
+          This shape keeps the system inspectable. The user can run the server, check the health endpoint, read the API, and replace parts without learning a larger platform.
+        </p>
+
+        <p>
+          Local-first does not mean offline-only. It means the tool has a clear center. The local server owns the app. Providers are replaceable. The interface stays small.
+        </p>
+      </article>
+    </main>
+  </body>
+</html>
