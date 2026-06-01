@@ -1,4 +1,4 @@
-.PHONY: build test check install-check release-check model-check ui-check ui-check-full
+.PHONY: build test check install-check release-check macos-package model-check ui-check ui-check-full
 
 build:
 	cd frontend && npm ci && npm run build
@@ -29,6 +29,9 @@ release-check:
 	linea -migrate
 	linea -check
 	$(MAKE) test
+
+macos-package:
+	./scripts/package-macos.sh
 
 model-check:
 	node scripts/model-smoke.mjs --configured
