@@ -1,0 +1,166 @@
+:root {
+  color-scheme: light dark;
+  --background: #f7f7f4;
+  --text: #242321;
+  --muted: #77736d;
+  --line: #dfddd7;
+  --soft: #efeee9;
+  --accent: #151514;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #10100f;
+    --text: #f4f3ef;
+    --muted: #aaa6a0;
+    --line: #262522;
+    --soft: #181817;
+    --accent: #fafaf9;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: var(--background);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+a {
+  color: inherit;
+}
+
+.page {
+  width: min(100% - 40px, 760px);
+  margin: 0 auto;
+  padding: 48px 0 72px;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  margin-bottom: 96px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+
+.mark {
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.intro {
+  max-width: 680px;
+}
+
+.kicker {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0;
+  max-width: 680px;
+  font-size: clamp(42px, 7vw, 72px);
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.intro p:not(.kicker) {
+  max-width: 620px;
+  margin: 28px 0 0;
+  color: var(--muted);
+  font-size: 21px;
+  line-height: 1.55;
+}
+
+.notes {
+  margin-top: 96px;
+  border-top: 1px solid var(--line);
+}
+
+.note-link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+}
+
+.note-link:hover .note-title {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.note-title {
+  font-weight: 700;
+}
+
+.note-date {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.article {
+  max-width: 700px;
+}
+
+.article h1 {
+  margin-bottom: 56px;
+}
+
+.article p:not(.kicker) {
+  margin: 0 0 28px;
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 17px;
+  }
+
+  .page {
+    width: min(100% - 32px, 760px);
+    padding-top: 32px;
+  }
+
+  .site-header {
+    margin-bottom: 72px;
+  }
+
+  h1 {
+    font-size: 42px;
+  }
+
+  .intro p:not(.kicker) {
+    font-size: 19px;
+  }
+
+  .note-link {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

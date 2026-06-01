@@ -10,6 +10,8 @@
 
 Local AI chat.
 
+Public notes: [bniladridas.github.io/linea](https://bniladridas.github.io/linea/).
+
 Runs as one Go server with a React UI.
 
 Stores conversations in PostgreSQL when `DATABASE_URL` is set.
