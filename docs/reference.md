@@ -97,6 +97,12 @@ Vite runs at `http://localhost:5173`.
 | UI with message | `make ui-check-full` |
 | Models | `make model-check` |
 
+# Client Docs
+
+API contract: [client-api.md](./client-api.md).
+
+macOS plan: [macos.md](./macos.md).
+
 # Release
 
 Push a tag named `v*`.
