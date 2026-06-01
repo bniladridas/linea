@@ -48,7 +48,7 @@ Setup and checks: [docs/reference.md](./docs/reference.md).
 
 Client API: [docs/client-api.md](./docs/client-api.md).
 
-macOS plan: [docs/macos.md](./docs/macos.md).
+macOS app: [docs/macos.md](./docs/macos.md).
 
 # License
 
