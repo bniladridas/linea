@@ -22,6 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ secrets.LINEA_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
+
       - name: Resolve tag
         id: tag
         run: |
@@ -38,10 +44,12 @@ jobs:
           curl -fsSL "$url" -o source.tar.gz
           sha="$(sha256sum source.tar.gz | awk '{print $1}')"
           TAG="$tag" SHA="$sha" ruby -0pi -e 'gsub(/url "https:\/\/github\.com\/bniladridas\/linea\/archive\/refs\/tags\/v[^"]+\.tar\.gz"/, "url \"https://github.com/bniladridas/linea/archive/refs/tags/#{ENV.fetch("TAG")}.tar.gz\""); gsub(/sha256 "[0-9a-f]{64}"/, "sha256 \"#{ENV.fetch("SHA")}\"")' Formula/linea.rb
+          rm source.tar.gz
 
       - name: Open pull request
         uses: peter-evans/create-pull-request@v8
         with:
+          token: ${{ steps.app-token.outputs.token }}
           branch: formula-sha-${{ steps.tag.outputs.tag }}
           delete-branch: true
           title: "chore: formula sha"
