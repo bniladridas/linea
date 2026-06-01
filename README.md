@@ -42,7 +42,11 @@ Put keys in `~/.config/linea/linea.env` or shell variables.
 
 # More
 
-Setup, config, checks, and API paths: [docs/reference.md](./docs/reference.md).
+Setup and checks: [docs/reference.md](./docs/reference.md).
+
+Client API: [docs/client-api.md](./docs/client-api.md).
+
+macOS plan: [docs/macos.md](./docs/macos.md).
 
 # License
 
