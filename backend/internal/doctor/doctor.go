@@ -249,11 +249,11 @@ func checkOllama(ctx context.Context, cfg config.Config) Result {
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return Result{Name: "ollama local model", Status: Fail, Message: err.Error()}
+		return Result{Name: "ollama local model", Status: Warn, Message: err.Error()}
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return Result{Name: "ollama local model", Status: Fail, Message: res.Status}
+		return Result{Name: "ollama local model", Status: Warn, Message: res.Status}
 	}
 
 	var payload struct {
@@ -269,7 +269,7 @@ func checkOllama(ctx context.Context, cfg config.Config) Result {
 			return Result{Name: "ollama local model", Status: Pass, Message: cfg.OllamaModel + " available"}
 		}
 	}
-	return Result{Name: "ollama local model", Status: Fail, Message: cfg.OllamaModel + " is not installed"}
+	return Result{Name: "ollama local model", Status: Warn, Message: cfg.OllamaModel + " is not installed"}
 }
 
 func checkGemini(ctx context.Context, cfg config.Config, hasFallback bool) Result {
