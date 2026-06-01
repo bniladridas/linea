@@ -96,6 +96,7 @@ Vite runs at `http://localhost:5173`.
 | UI | `make ui-check` |
 | UI with message | `make ui-check-full` |
 | Models | `make model-check` |
+| macOS package | `make macos-package` |
 
 # Client Docs
 

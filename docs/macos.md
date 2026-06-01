@@ -49,13 +49,23 @@ Data:
 Target:
 
 ```text
-Linea.app
-Linea.dmg
+dist/macos/Linea.app
+dist/macos/Linea.dmg
 ```
 
 First package can be unsigned for local testing.
 
 Signing and notarization come after the app starts reliably.
+
+Build:
+
+```sh
+make macos-package
+```
+
+The app bundle includes the Linea server binary.
+
+The launcher starts the server, waits for `/healthz`, opens the local UI, and stops the server when the app quits.
 
 # Checks
 

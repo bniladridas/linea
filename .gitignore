@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 bin/
+dist/
 
 backend/go.work
 backend/internal/web/dist/

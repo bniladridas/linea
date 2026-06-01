@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"linea/backend/internal/api"
@@ -141,7 +142,7 @@ func main() {
 		}
 	}()
 
-	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	<-shutdownCtx.Done()
 
