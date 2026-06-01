@@ -1173,7 +1173,6 @@ textarea {
 
 .panel-toggle-icon {
   transform-origin: center;
-  transition: transform 120ms ease;
 }
 
 .panel-toggle-icon.collapsed {
