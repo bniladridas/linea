@@ -1,4 +1,4 @@
-.PHONY: build test check install-check model-check ui-check ui-check-full
+.PHONY: build test check install-check release-check model-check ui-check ui-check-full
 
 build:
 	cd frontend && npm ci && npm run build
@@ -19,6 +19,16 @@ install-check:
 	brew install --HEAD --fetch-HEAD --build-from-source linea
 	brew upgrade --fetch-HEAD --build-from-source linea
 	linea -version
+
+release-check:
+	git pull --ff-only
+	git -C "$$(brew --repo bniladridas/linea)" pull --ff-only
+	brew info bniladridas/linea/linea
+	brew upgrade bniladridas/linea/linea
+	linea -version
+	linea -migrate
+	linea -check
+	$(MAKE) test
 
 model-check:
 	node scripts/model-smoke.mjs --configured

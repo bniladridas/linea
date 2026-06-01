@@ -26,6 +26,8 @@ Run `linea -check` to check setup.
 
 Run `make install-check` to test the Homebrew formula from `HEAD`.
 
+Run `make release-check` after a release.
+
 # Models
 
 Gemini is primary.

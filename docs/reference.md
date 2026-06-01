@@ -91,6 +91,7 @@ Vite runs at `http://localhost:5173`.
 | --- | --- |
 | Setup | `linea -check` |
 | Homebrew formula | `make install-check` |
+| Release install | `make release-check` |
 | Server | `linea -check-server http://localhost:8080` |
 | UI | `make ui-check` |
 | UI with message | `make ui-check-full` |
@@ -103,6 +104,8 @@ Push a tag named `v*`.
 The release workflow builds the frontend, builds the Apple Silicon binary, and uploads checksums.
 
 After a release, update `Formula/linea.rb` with the release source SHA.
+
+Run `make release-check`.
 
 UI checks need Chrome. Message checks need one working text model.
 
