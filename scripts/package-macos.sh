@@ -33,7 +33,7 @@ npm ci
 npm run build
 
 cd "$ROOT_DIR/backend"
-go build -ldflags="-s -w -X main.version=$LINEA_VERSION" -o "$APP_DIR/Contents/Resources/linea" ./cmd/server
+GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=$LINEA_VERSION" -o "$APP_DIR/Contents/Resources/linea" ./cmd/server
 swiftc \
   -Osize \
   -target arm64-apple-macos13.0 \
