@@ -680,7 +680,7 @@ function App() {
             {activeSearchResults.length > 0 && (
               <button
                 aria-label={areSourcesVisible ? 'Hide sources' : 'Show sources'}
-                className="sources-toggle has-tooltip"
+                className="sources-toggle has-tooltip tooltip-align-left"
                 data-tooltip={areSourcesVisible ? 'Hide sources' : 'Show sources'}
                 type="button"
                 onClick={() => setAreSourcesVisible((visible) => !visible)}

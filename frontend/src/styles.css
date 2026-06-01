@@ -1453,6 +1453,7 @@ textarea:focus {
 :root[data-theme="light"] .conversation span,
 :root[data-theme="light"] .conversation-rename,
 :root[data-theme="light"] .theme-panel button.active,
+:root[data-theme="light"] .sources-heading,
 :root[data-theme="light"] .source-card span {
   color: #252522;
 }
@@ -1460,6 +1461,7 @@ textarea:focus {
 :root[data-theme="light"] .mark,
 :root[data-theme="light"] .icon-button.subtle,
 :root[data-theme="light"] .panel-toggle-icon,
+:root[data-theme="light"] .sources-toggle,
 :root[data-theme="light"] .system-button,
 :root[data-theme="light"] .composer-row .icon-button,
 :root[data-theme="light"] .composer-row .send-button,
@@ -1484,6 +1486,8 @@ textarea:focus {
 }
 
 :root[data-theme="light"] .new-chat:hover,
+:root[data-theme="light"] .sources-toggle:hover,
+:root[data-theme="light"] .sources-toggle:focus-visible,
 :root[data-theme="light"] .system-button:hover,
 :root[data-theme="light"] .system-button:focus-visible,
 :root[data-theme="light"] .conversation-menu-button:hover,
@@ -1529,6 +1533,22 @@ textarea:focus {
   color: #767670;
 }
 
+:root[data-theme="light"] .sources-panel {
+  background: #f6f6f2;
+}
+
+:root[data-theme="light"] .sources-heading {
+  color: #5f5f59;
+}
+
+:root[data-theme="light"] .source-card small {
+  color: #777771;
+}
+
+:root[data-theme="light"] .source-card p {
+  color: #5f5f59;
+}
+
 :root[data-theme="light"] .message.user,
 :root[data-theme="light"] .model-badge,
 :root[data-theme="light"] .sleep-alert,
@@ -1544,6 +1564,7 @@ textarea:focus {
 
 :root[data-theme="light"] .system-button,
 :root[data-theme="light"] .icon-button,
+:root[data-theme="light"] .sources-toggle,
 :root[data-theme="light"] .send-button {
   border: 1px solid #deded8;
   background: #ffffff;
