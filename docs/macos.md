@@ -65,7 +65,7 @@ make macos-package
 
 The app bundle includes the Linea server binary.
 
-The launcher starts the server, waits for `/healthz`, opens the local UI, and stops the server when the app quits.
+The launcher is a small Go binary. It starts the server, waits for `/healthz`, opens the local UI, and stops the server when the app quits.
 
 # Checks
 

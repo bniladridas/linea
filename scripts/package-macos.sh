@@ -23,6 +23,7 @@ npm run build
 
 cd "$ROOT_DIR/backend"
 go build -ldflags="-s -w -X main.version=$LINEA_VERSION" -o "$APP_DIR/Contents/Resources/linea" ./cmd/server
+go build -ldflags="-s -w" -o "$APP_DIR/Contents/MacOS/Linea" ./cmd/macoslauncher
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -71,46 +72,6 @@ if [[ -f "$ICON_SOURCE" ]]; then
   cp "$ICON_SOURCE" "$ICONSET/icon_512x512@2x.png"
   iconutil -c icns "$ICONSET" -o "$APP_DIR/Contents/Resources/Linea.icns"
 fi
-
-cat > "$APP_DIR/Contents/MacOS/Linea" <<'LAUNCHER'
-#!/bin/zsh
-set -eu
-
-APP_DIR="${0:A:h:h}"
-LINEA_BIN="$APP_DIR/Resources/linea"
-LOG_DIR="$HOME/Library/Logs/Linea"
-mkdir -p "$LOG_DIR"
-
-export API_ADDR="${API_ADDR:-127.0.0.1:8080}"
-
-case "$API_ADDR" in
-  :*) LINEA_URL="http://127.0.0.1${API_ADDR}" ;;
-  *:*) LINEA_URL="http://${API_ADDR}" ;;
-  *) LINEA_URL="http://127.0.0.1:${API_ADDR}" ;;
-esac
-
-"$LINEA_BIN" >> "$LOG_DIR/linea.log" 2>&1 &
-LINEA_PID=$!
-
-cleanup() {
-  kill "$LINEA_PID" 2>/dev/null || true
-  wait "$LINEA_PID" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
-
-for _ in {1..80}; do
-  if curl -fsS "$LINEA_URL/healthz" >/dev/null 2>&1; then
-    open "$LINEA_URL/"
-    wait "$LINEA_PID"
-    exit $?
-  fi
-  sleep 0.25
-done
-
-open "$LOG_DIR/linea.log"
-exit 1
-LAUNCHER
-chmod +x "$APP_DIR/Contents/MacOS/Linea"
 
 cp -R "$APP_DIR" "$DMG_ROOT/"
 hdiutil create -volname "Linea" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH" >/dev/null
