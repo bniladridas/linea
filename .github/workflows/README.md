@@ -48,7 +48,9 @@ Adds labels to pull requests.
 
 `auto-merge.yml`
 
-Merges approved dependency pull requests when checks pass.
+Enables auto-merge for Dependabot and Renovate pull requests.
+
+Branch protection still decides when a pull request can merge.
 
 `stale.yml`
 
