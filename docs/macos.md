@@ -69,6 +69,8 @@ The app bundle includes the Linea server binary.
 
 The launcher is a small Swift app. It starts the server, waits for `/healthz`, opens the local UI in a WebView window, and stops the server when the app quits.
 
+The window remembers its size. The menus include reload, window controls, and normal quit behavior.
+
 Open the DMG and drag `Linea.app` to `Applications`.
 
 # Checks
