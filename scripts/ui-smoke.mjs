@@ -17,6 +17,7 @@ const port = Number(process.env.LINEA_UI_SMOKE_PORT ?? 9300 + (process.pid % 500
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
+  const cleanupStartedAt = new Date().toISOString();
   const profileDir = await mkdtemp(join(tmpdir(), 'linea-ui-smoke-'));
   const chrome = spawn(chromePath, [
     '--headless=new',
@@ -106,6 +107,7 @@ async function main() {
     }
   } finally {
     chrome.kill('SIGTERM');
+    await cleanupSmokeConversations(cleanupStartedAt);
   }
 }
 
@@ -554,6 +556,31 @@ async function runProbe() {
     attachmentWorks: !checkAttachment || attachmentObserved?.result?.result?.value === true,
     errorCount: events.filter((event) => event.method === 'Runtime.exceptionThrown').length,
   };
+}
+
+async function cleanupSmokeConversations(startedAt) {
+  const titles = new Set(['Reply with only ok.', 'search OpenAI']);
+  try {
+    const response = await fetch(`${trimSlash(baseURL)}/api/conversations`);
+    if (!response.ok) return;
+    const conversations = await response.json();
+    await Promise.all(
+      conversations
+        .filter((conversation) => titles.has(conversation.title))
+        .filter((conversation) => new Date(conversation.createdAt).getTime() >= new Date(startedAt).getTime())
+        .map((conversation) =>
+          fetch(`${trimSlash(baseURL)}/api/conversations/${conversation.id}`, {
+            method: 'DELETE',
+          }),
+        ),
+    );
+  } catch {
+    // Best-effort cleanup.
+  }
+}
+
+function trimSlash(value) {
+  return value.replace(/\/$/, '');
 }
 
 main().catch((error) => {
