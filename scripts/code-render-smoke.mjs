@@ -13,47 +13,51 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
   const conversation = await createConversation();
-  await sendMessage(conversation.id);
-
-  const profileDir = await mkdtemp(join(tmpdir(), 'linea-code-smoke-'));
-  const chrome = spawn(chromePath, [
-    '--headless=new',
-    '--disable-gpu',
-    '--no-first-run',
-    `--user-data-dir=${profileDir}`,
-    `--remote-debugging-port=${port}`,
-    'about:blank',
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-  let stderr = '';
-  chrome.stderr.on('data', (chunk) => {
-    stderr += chunk.toString();
-  });
-
   try {
-    await waitForDevTools(() => stderr);
-    const result = await checkCodeRender(conversation.title);
-    if (!result.clicked) {
-      throw new Error('Could not find the code smoke conversation in the sidebar.');
+    await sendMessage(conversation.id);
+
+    const profileDir = await mkdtemp(join(tmpdir(), 'linea-code-smoke-'));
+    const chrome = spawn(chromePath, [
+      '--headless=new',
+      '--disable-gpu',
+      '--no-first-run',
+      `--user-data-dir=${profileDir}`,
+      `--remote-debugging-port=${port}`,
+      'about:blank',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stderr = '';
+    chrome.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    try {
+      await waitForDevTools(() => stderr);
+      const result = await checkCodeRender(conversation.title);
+      if (!result.clicked) {
+        throw new Error('Could not find the code smoke conversation in the sidebar.');
+      }
+      if (!result.hasCode) {
+        throw new Error('Fenced code did not render as a code block.');
+      }
+      if (result.hasFenceInBody) {
+        throw new Error('Fenced code markers are visible in the rendered message.');
+      }
+      if (!result.hasCodeMeta) {
+        throw new Error(`Code metadata did not render. Saw: ${result.codeMetaText || 'none'}`);
+      }
+      if (!result.hasLineNumbers) {
+        throw new Error('Code line numbers did not render.');
+      }
+      if (!result.previewWorks) {
+        throw new Error('HTML code preview did not open.');
+      }
+      console.log('PASS ui code render - fenced code rendered with metadata and preview');
+    } finally {
+      chrome.kill('SIGTERM');
     }
-    if (!result.hasCode) {
-      throw new Error('Fenced code did not render as a code block.');
-    }
-    if (result.hasFenceInBody) {
-      throw new Error('Fenced code markers are visible in the rendered message.');
-    }
-    if (!result.hasCodeMeta) {
-      throw new Error(`Code metadata did not render. Saw: ${result.codeMetaText || 'none'}`);
-    }
-    if (!result.hasLineNumbers) {
-      throw new Error('Code line numbers did not render.');
-    }
-    if (!result.previewWorks) {
-      throw new Error('HTML code preview did not open.');
-    }
-    console.log('PASS ui code render - fenced code rendered with metadata and preview');
   } finally {
-    chrome.kill('SIGTERM');
+    await deleteConversation(conversation.id);
   }
 }
 
@@ -86,6 +90,16 @@ async function sendMessage(conversationId) {
     throw new Error(`Could not send message: ${response.status}`);
   }
   await response.text();
+}
+
+async function deleteConversation(conversationId) {
+  try {
+    await fetch(`${trimSlash(baseURL)}/api/conversations/${conversationId}`, {
+      method: 'DELETE',
+    });
+  } catch {
+    // Best-effort cleanup.
+  }
 }
 
 async function waitForDevTools(stderr) {
