@@ -259,22 +259,16 @@ function normalizeGeminiModel(model) {
 }
 
 function envBool(value, fallback) {
-  switch (value) {
+  switch (String(value || '').trim().toLowerCase()) {
     case '1':
     case 'true':
-    case 'TRUE':
     case 'yes':
-    case 'YES':
     case 'on':
-    case 'ON':
       return true;
     case '0':
     case 'false':
-    case 'FALSE':
     case 'no':
-    case 'NO':
     case 'off':
-    case 'OFF':
       return false;
     default:
       return fallback;
