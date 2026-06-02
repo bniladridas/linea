@@ -1,6 +1,9 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 type Config struct {
 	APIAddr          string
@@ -52,10 +55,10 @@ func env(key, fallback string) string {
 }
 
 func envBool(key string, fallback bool) bool {
-	switch os.Getenv(key) {
-	case "1", "true", "TRUE", "yes", "YES", "on", "ON":
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
 		return true
-	case "0", "false", "FALSE", "no", "NO", "off", "OFF":
+	case "0", "false", "no", "off":
 		return false
 	default:
 		return fallback
