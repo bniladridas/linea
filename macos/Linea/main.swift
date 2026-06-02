@@ -1,14 +1,16 @@
 import Cocoa
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate {
   private var process: Process?
   private var window: NSWindow?
+  private var webView: WKWebView?
   private var baseURL: URL?
   private var logHandle: FileHandle?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
+    NSWindow.allowsAutomaticWindowTabbing = false
     installMenu()
 
     do {
@@ -98,6 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     )
     let webView = WKWebView(frame: .zero, configuration: config)
     webView.navigationDelegate = self
+    webView.allowsBackForwardNavigationGestures = false
+    webView.wantsLayer = true
+    webView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     webView.load(URLRequest(url: url.appendingPathComponent("")))
 
     let window = NSWindow(
@@ -109,10 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     window.title = "Linea"
     window.titleVisibility = .hidden
     window.minSize = NSSize(width: 780, height: 560)
+    window.delegate = self
+    window.isReleasedWhenClosed = false
+    window.setFrameAutosaveName("main-window")
     window.titlebarAppearsTransparent = true
     window.contentView = webView
     window.center()
     window.makeKeyAndOrderFront(nil)
+    self.webView = webView
     self.window = window
     NSApp.activate(ignoringOtherApps: true)
   }
@@ -163,13 +172,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     let appMenu = NSMenu()
     appMenu.addItem(
       NSMenuItem(
+        title: "About Linea",
+        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+        keyEquivalent: ""
+      )
+    )
+    appMenu.addItem(.separator())
+    appMenu.addItem(
+      NSMenuItem(
+        title: "Hide Linea",
+        action: #selector(NSApplication.hide(_:)),
+        keyEquivalent: "h"
+      )
+    )
+    let hideOthers = NSMenuItem(
+      title: "Hide Others",
+      action: #selector(NSApplication.hideOtherApplications(_:)),
+      keyEquivalent: "h"
+    )
+    hideOthers.keyEquivalentModifierMask = [.command, .option]
+    appMenu.addItem(hideOthers)
+    appMenu.addItem(
+      NSMenuItem(
+        title: "Show All",
+        action: #selector(NSApplication.unhideAllApplications(_:)),
+        keyEquivalent: ""
+      )
+    )
+    appMenu.addItem(.separator())
+    appMenu.addItem(
+      NSMenuItem(
         title: "Quit Linea",
         action: #selector(NSApplication.terminate(_:)),
         keyEquivalent: "q"
       )
     )
     appItem.submenu = appMenu
+
+    let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+    menu.addItem(viewItem)
+    let viewMenu = NSMenu(title: "View")
+    viewMenu.addItem(
+      NSMenuItem(
+        title: "Reload",
+        action: #selector(reloadPage(_:)),
+        keyEquivalent: "r"
+      )
+    )
+    viewItem.submenu = viewMenu
+
+    let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
+    menu.addItem(windowItem)
+    let windowMenu = NSMenu(title: "Window")
+    windowMenu.addItem(
+      NSMenuItem(
+        title: "Minimize",
+        action: #selector(NSWindow.miniaturize(_:)),
+        keyEquivalent: "m"
+      )
+    )
+    windowMenu.addItem(
+      NSMenuItem(
+        title: "Zoom",
+        action: #selector(NSWindow.zoom(_:)),
+        keyEquivalent: ""
+      )
+    )
+    windowMenu.addItem(.separator())
+    windowMenu.addItem(
+      NSMenuItem(
+        title: "Bring All to Front",
+        action: #selector(NSApplication.arrangeInFront(_:)),
+        keyEquivalent: ""
+      )
+    )
+    windowItem.submenu = windowMenu
+    NSApp.windowsMenu = windowMenu
     NSApp.mainMenu = menu
+  }
+
+  @objc private func reloadPage(_ sender: Any?) {
+    webView?.reload()
   }
 
   private func openLog() throws -> FileHandle {
