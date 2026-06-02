@@ -264,6 +264,47 @@ func TestReadAttachmentsPreservesImageBytes(t *testing.T) {
 	}
 }
 
+func TestCreateMessageRejectsInvalidAttachmentBeforePersisting(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	server := NewServer(appStore, fakeAssistant{chunks: []string{"ok"}}, nil, testFiles(), "", Status{}).Handler()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("content", "hello"); err != nil {
+		t.Fatalf("WriteField() error = %v", err)
+	}
+	part, err := writer.CreateFormFile("files", "sample.gif")
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := part.Write([]byte("gif-bytes")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conversation.ID+"/messages", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+	}
+	messages, err := appStore.ListMessages(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatalf("ListMessages() error = %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("message count = %d, want 0", len(messages))
+	}
+}
+
 func postMessage(t *testing.T, handler http.Handler, conversationID, content string) *httptest.ResponseRecorder {
 	t.Helper()
 

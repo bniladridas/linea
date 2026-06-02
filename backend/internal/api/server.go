@@ -166,6 +166,11 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Message content is required.")
 		return
 	}
+	attachments, err := readAttachments(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	conversationID := r.PathValue("id")
 	userMessage, err := s.store.AddMessage(r.Context(), conversationID, "user", content)
@@ -183,11 +188,6 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("load message history", "error", err)
 		writeError(w, http.StatusInternalServerError, "Could not load message history.")
-		return
-	}
-	attachments, err := readAttachments(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	searchResults, err := s.searchIfNeeded(r.Context(), content)
