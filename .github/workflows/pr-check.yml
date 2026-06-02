@@ -1,0 +1,172 @@
+name: pr check
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: build
+    runs-on: macos-15
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache-dependency-path: backend/go.sum
+
+      - name: version
+        id: version
+        run: |
+          version="$(ruby -ne 'if $_ =~ /url ".*\/v([^"]+)\.tar\.gz"/ then puts $1; exit end' Formula/linea.rb)"
+          if [ -z "$version" ]; then
+            version="dev"
+          fi
+          printf "value=%s\n" "$version" >> "$GITHUB_OUTPUT"
+
+      - name: environment
+        id: environment
+        run: |
+          {
+            echo "macos<<EOF"
+            sw_vers
+            echo "EOF"
+            echo "xcode<<EOF"
+            xcodebuild -version
+            echo "EOF"
+            echo "swift<<EOF"
+            swift --version
+            echo "EOF"
+            echo "go<<EOF"
+            go version
+            echo "EOF"
+            echo "node<<EOF"
+            node --version
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: deps
+        run: cd frontend && npm ci
+
+      - name: build
+        id: build
+        continue-on-error: true
+        run: make test
+
+      - name: package
+        id: package
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          APP_VERSION: ${{ steps.version.outputs.value }}
+          BUILD_VERSION: ${{ github.run_number }}
+        run: make macos-package
+
+      - name: verify
+        id: verify
+        continue-on-error: true
+        run: hdiutil verify dist/macos/Linea.dmg
+
+      - name: commit
+        id: commit
+        if: always()
+        run: |
+          {
+            echo "sha=$(git rev-parse --short=12 HEAD)"
+            echo "author=$(git log -1 --format=%an)"
+            echo "subject<<EOF"
+            git log -1 --format=%s
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: summary
+        if: always()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          PACKAGE_RESULT: ${{ steps.package.outcome }}
+          VERIFY_RESULT: ${{ steps.verify.outcome }}
+          VERSION: ${{ steps.version.outputs.value }}
+          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+          COMMIT_AUTHOR: ${{ steps.commit.outputs.author }}
+          COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p pr-ready
+          version_b64="$(printf "%s" "$VERSION" | base64 | tr -d '\n')"
+          commit_subject_b64="$(printf "%s" "$COMMIT_SUBJECT" | base64 | tr -d '\n')"
+          macos_b64="$(sw_vers | base64 | tr -d '\n')"
+          xcode_b64="$(xcodebuild -version | base64 | tr -d '\n')"
+          swift_b64="$(swift --version | base64 | tr -d '\n')"
+          go_b64="$(go version | base64 | tr -d '\n')"
+          node_b64="$(node --version | base64 | tr -d '\n')"
+
+          {
+            printf "PR_NUMBER=%s\n" "$PR_NUMBER"
+            printf "BUILD_RESULT=%s\n" "$BUILD_RESULT"
+            printf "PACKAGE_RESULT=%s\n" "$PACKAGE_RESULT"
+            printf "VERIFY_RESULT=%s\n" "$VERIFY_RESULT"
+            printf "VERSION_B64=%s\n" "$version_b64"
+            printf "COMMIT_SHA=%s\n" "$COMMIT_SHA"
+            printf "COMMIT_AUTHOR_B64=%s\n" "$(printf "%s" "$COMMIT_AUTHOR" | base64 | tr -d '\n')"
+            printf "COMMIT_SUBJECT_B64=%s\n" "$commit_subject_b64"
+            printf "RUN_URL=%s\n" "$RUN_URL"
+            printf "MACOS_B64=%s\n" "$macos_b64"
+            printf "XCODE_B64=%s\n" "$xcode_b64"
+            printf "SWIFT_B64=%s\n" "$swift_b64"
+            printf "GO_B64=%s\n" "$go_b64"
+            printf "NODE_B64=%s\n" "$node_b64"
+          } > pr-ready/summary.env
+
+      - name: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-ready
+          path: pr-ready/summary.env
+
+      - name: report
+        if: always()
+        run: |
+          {
+            echo "## pr check"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| CLI | ${{ steps.version.outputs.value }} |"
+            echo "| Runner | macos-15 |"
+            echo "| Runner macOS | $(sw_vers -productVersion) ($(sw_vers -buildVersion)) |"
+            echo "| Xcode | $(xcodebuild -version | tr '\n' ' ') |"
+            echo "| Swift | $(swift --version | head -n 1) |"
+            echo "| Go | $(go version) |"
+            echo "| Node | $(node --version) |"
+            echo "| Build | ${{ steps.build.outcome }} |"
+            echo "| Package | ${{ steps.package.outcome }} |"
+            echo "| Verify | ${{ steps.verify.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: result
+        if: steps.build.outcome != 'success' || steps.package.outcome != 'success' || steps.verify.outcome != 'success'
+        run: exit 1

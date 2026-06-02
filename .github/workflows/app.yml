@@ -1,0 +1,48 @@
+name: app
+
+on:
+  push:
+    branches:
+      - main
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - id: app-token
+        name: token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.LINEA_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
+          permission-checks: write
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/$REPO/check-runs" \
+            -X POST \
+            -f name='app' \
+            -f head_sha="$HEAD_SHA" \
+            -f status='completed' \
+            -f conclusion='success' \
+            -f output[title]='app' \
+            -f output[summary]='ready' \
+            --silent

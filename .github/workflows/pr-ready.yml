@@ -1,0 +1,150 @@
+name: pr ready
+
+on:
+  workflow_run:
+    workflows:
+      - pr check
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  comment:
+    name: comment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: download
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const { owner, repo } = context.repo;
+            const run_id = context.payload.workflow_run.id;
+
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner,
+              repo,
+              run_id
+            });
+
+            const artifact = artifacts.data.artifacts.find((item) => item.name === "pr-ready");
+            if (!artifact) {
+              core.setFailed("Missing pr-ready artifact");
+              return;
+            }
+
+            const download = await github.rest.actions.downloadArtifact({
+              owner,
+              repo,
+              artifact_id: artifact.id,
+              archive_format: "zip"
+            });
+
+            fs.mkdirSync("pr-ready", { recursive: true });
+            fs.writeFileSync("pr-ready.zip", Buffer.from(download.data));
+
+      - name: extract
+        run: unzip -o pr-ready.zip -d pr-ready
+
+      - name: token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.LINEA_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          source pr-ready/summary.env
+          VERSION="$(printf "%s" "$VERSION_B64" | base64 -d)"
+          COMMIT_SUBJECT="$(printf "%s" "$COMMIT_SUBJECT_B64" | base64 -d)"
+          MACOS="$(printf "%s" "$MACOS_B64" | base64 -d)"
+          GO="$(printf "%s" "$GO_B64" | base64 -d)"
+          NODE="$(printf "%s" "$NODE_B64" | base64 -d)"
+
+          result_for() {
+            if [ "$1" = "success" ]; then
+              printf "passed"
+            else
+              printf "failed"
+            fi
+          }
+
+          sw_vers_value() {
+            printf "%s" "$MACOS" | awk -F: -v key="$1" '$1 == key { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2 }'
+          }
+
+          macos_version="$(sw_vers_value ProductVersion)"
+          macos_build="$(sw_vers_value BuildVersion)"
+          if [ -n "$macos_version" ] && [ -n "$macos_build" ]; then
+            runner_macos="$macos_version ($macos_build)"
+          else
+            runner_macos="$(printf "%s" "$MACOS" | tr '\n' ' ')"
+          fi
+
+          ready="true"
+          if [ "$BUILD_RESULT" != "success" ] || [ "$PACKAGE_RESULT" != "success" ] || [ "$VERIFY_RESULT" != "success" ]; then
+            ready="false"
+          fi
+
+          if [ "$ready" = "true" ]; then
+            title="Ready"
+            summary="Build, package, and verify passed."
+          else
+            title="Not ready"
+            summary="A required check failed."
+          fi
+
+          body="$(mktemp)"
+          {
+            echo "<!-- linea-pr-ready -->"
+            echo "## $title"
+            echo
+            echo "$summary"
+            echo
+            echo "CLI: \`$VERSION\`"
+            echo "Commit: \`$COMMIT_SHA\`"
+            echo "Subject: $COMMIT_SUBJECT"
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "macOS: $runner_macos"
+            echo "Go: $GO"
+            echo "Node: $NODE"
+            echo
+            echo "Build: $(result_for "$BUILD_RESULT")"
+            echo "Package: $(result_for "$PACKAGE_RESULT")"
+            echo "Verify: $(result_for "$VERIFY_RESULT")"
+          } > "$body"
+
+          existing_id="$(
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+              --jq '.[] | select(.body | contains("<!-- linea-pr-ready -->")) | .id' \
+              | tail -n 1
+          )"
+
+          if [ -n "$existing_id" ]; then
+            gh api "repos/$REPO/issues/comments/$existing_id" \
+              -X PATCH \
+              -f body="$(cat "$body")" \
+              --silent
+          else
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+              -X POST \
+              -f body="$(cat "$body")" \
+              --silent
+          fi
