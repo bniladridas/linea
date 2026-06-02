@@ -17,22 +17,10 @@ async function main() {
     await sendMessage(conversation.id);
 
     const profileDir = await mkdtemp(join(tmpdir(), 'linea-code-smoke-'));
-    const chrome = spawn(chromePath, [
-      '--headless=new',
-      '--disable-gpu',
-      '--no-first-run',
-      `--user-data-dir=${profileDir}`,
-      `--remote-debugging-port=${port}`,
-      'about:blank',
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    let stderr = '';
-    chrome.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
+    const chrome = launchChrome(profileDir, port);
 
     try {
-      await waitForDevTools(() => stderr);
+      await waitForDevTools(() => chrome.stderrText());
       const result = await checkCodeRender(conversation.title);
       if (!result.clicked) {
         throw new Error('Could not find the code smoke conversation in the sidebar.');
@@ -54,10 +42,47 @@ async function main() {
       }
       console.log('PASS ui code render - fenced code rendered with metadata and preview');
     } finally {
-      chrome.kill('SIGTERM');
+      await closeBrowser(port);
+      chrome.kill();
     }
   } finally {
     await deleteConversation(conversation.id);
+  }
+}
+
+function launchChrome(profileDir, remotePort) {
+  const args = [
+    '--headless=new',
+    '--disable-gpu',
+    '--no-first-run',
+    '--no-default-browser-check',
+    `--user-data-dir=${profileDir}`,
+    `--remote-debugging-port=${remotePort}`,
+    'about:blank',
+  ];
+  const child = spawn(chromePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+  return {
+    kill: () => child.kill('SIGTERM'),
+    stderrText: () => stderr,
+  };
+}
+
+async function closeBrowser(remotePort) {
+  try {
+    const version = await fetch(`http://127.0.0.1:${remotePort}/json/version`).then((res) => res.json());
+    if (!version.webSocketDebuggerUrl) return;
+    const ws = new WebSocket(version.webSocketDebuggerUrl);
+    await new Promise((resolve) => ws.addEventListener('open', resolve, { once: true }));
+    ws.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+    await sleep(100);
+    ws.close();
+  } catch {
+    // Best-effort browser cleanup.
   }
 }
 
