@@ -110,7 +110,7 @@ Push a tag named `v*`.
 
 The release workflow builds the frontend, builds the Apple Silicon binary, packages the DMG, and uploads checksums.
 
-After a release, update `Formula/linea.rb` with the release source SHA.
+After a release, `formula-sha.yml` opens a pull request for `Formula/linea.rb`.
 
 Run `make release-check`.
 
