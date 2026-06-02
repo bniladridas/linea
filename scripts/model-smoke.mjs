@@ -47,21 +47,21 @@ for (const provider of providers) {
   if (selectedProviders.size > 0 && !selectedProviders.has(provider.name)) {
     continue;
   }
-	const header = provider.baseURL ? `${provider.name} (${provider.baseURL})` : provider.name;
-	console.log(header);
+  const header = provider.baseURL ? `${provider.name} (${provider.baseURL})` : provider.name;
+  console.log(header);
   if (provider.enabled === false && selectedProviders.size === 0) {
     console.log('  WARN disabled');
     continue;
   }
-	if ('key' in provider && !provider.key) {
-		console.log('  WARN key not set');
-		continue;
-	}
+  if ('key' in provider && !provider.key) {
+    console.log('  WARN key not set');
+    continue;
+  }
 
-	let models;
-	try {
-		models = configuredOnly ? [] : await provider.list(provider);
-	} catch (error) {
+  let models;
+  try {
+    models = configuredOnly ? [] : await provider.list(provider);
+  } catch (error) {
     hasFailure = true;
     console.log(`  FAIL list models - ${redact(error.message)}`);
     continue;
@@ -85,12 +85,20 @@ for (const provider of providers) {
     try {
       const text = await provider.test(provider, model);
       if (text.trim() === '') {
+        if (isOptionalUnavailable(provider)) {
+          console.log(`  WARN ${model} - empty response`);
+          continue;
+        }
         hasFailure = true;
         console.log(`  FAIL ${model} - empty response`);
       } else {
         console.log(`  PASS ${model}`);
       }
     } catch (error) {
+      if (isOptionalUnavailable(provider)) {
+        console.log(`  WARN ${model} - ${redact(error.message)}`);
+        continue;
+      }
       hasFailure = true;
       console.log(`  FAIL ${model} - ${redact(error.message)}`);
     }
@@ -128,12 +136,12 @@ async function loadEnv(path) {
 }
 
 async function listGemini(provider) {
-	const payload = await requestJSON(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(provider.key)}`);
-	return (payload.models || [])
-		.filter((model) => Array.isArray(model.supportedGenerationMethods) && model.supportedGenerationMethods.includes('generateContent'))
-		.map((model) => model.name)
-		.filter((name) => name && /^models\/(gemini|gemma)/i.test(name))
-		.filter((name) => !/embedding|aqa|tts|image|robotics|computer|deep-research|banana|antigravity|lyria/i.test(name));
+  const payload = await requestJSON(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(provider.key)}`);
+  return (payload.models || [])
+    .filter((model) => Array.isArray(model.supportedGenerationMethods) && model.supportedGenerationMethods.includes('generateContent'))
+    .map((model) => model.name)
+    .filter((name) => name && /^models\/(gemini|gemma)/i.test(name))
+    .filter((name) => !/embedding|aqa|tts|image|robotics|computer|deep-research|banana|antigravity|lyria/i.test(name));
 }
 
 async function testGemini(provider, model) {
@@ -160,20 +168,20 @@ async function listOpenAICompatible(provider) {
 }
 
 async function testOpenAICompatible(provider, model) {
-	const text = await requestText(`${trimSlash(provider.baseURL)}/chat/completions`, {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${provider.key}`,
-			'Content-Type': 'application/json',
-		},
-		body: JSON.stringify({
-			model,
-			messages: [{ role: 'user', content: prompt }],
-			temperature: 0,
-			stream: true,
-		}),
-	});
-	return streamContent(text);
+  const text = await requestText(`${trimSlash(provider.baseURL)}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${provider.key}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0,
+      stream: true,
+    }),
+  });
+  return streamContent(text);
 }
 
 async function listOllama(provider) {
@@ -196,58 +204,58 @@ async function testOllama(provider, model) {
 }
 
 async function requestJSON(url, options = {}) {
-	const text = await requestText(url, options);
-	if (!text) return {};
-	try {
-		return JSON.parse(text);
-	} catch {
-		throw new Error(`invalid json: ${text.slice(0, 240)}`);
-	}
+  const text = await requestText(url, options);
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`invalid json: ${text.slice(0, 240)}`);
+  }
 }
 
 async function requestText(url, options = {}) {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 30_000);
-	try {
-		const res = await fetch(url, { ...options, signal: controller.signal });
-		const text = await res.text();
-		if (!res.ok) {
-			let payload = {};
-			try {
-				payload = JSON.parse(text);
-			} catch {
-				// Keep the raw body below.
-			}
-			const detail = payload.error?.message || payload.message || text || res.statusText;
-			throw new Error(`${res.status} ${res.statusText}: ${detail}`);
-		}
-		return text;
-	} finally {
-		clearTimeout(timeout);
-	}
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const text = await res.text();
+    if (!res.ok) {
+      let payload = {};
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        // Keep the raw body below.
+      }
+      const detail = payload.error?.message || payload.message || text || res.statusText;
+      throw new Error(`${res.status} ${res.statusText}: ${detail}`);
+    }
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function streamContent(text) {
-	let output = '';
-	for (const line of text.split(/\r?\n/)) {
-		const trimmed = line.trim();
-		if (!trimmed.startsWith('data:')) continue;
-		const data = trimmed.slice(5).trim();
-		if (!data || data === '[DONE]') continue;
-		const payload = JSON.parse(data);
-		if (payload.error?.message) {
-			throw new Error(payload.error.message);
-		}
-		for (const choice of payload.choices || []) {
-			output += choice.delta?.content || choice.message?.content || choice.text || '';
-		}
-	}
-	return output;
+  let output = '';
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) continue;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === '[DONE]') continue;
+    const payload = JSON.parse(data);
+    if (payload.error?.message) {
+      throw new Error(payload.error.message);
+    }
+    for (const choice of payload.choices || []) {
+      output += choice.delta?.content || choice.message?.content || choice.text || '';
+    }
+  }
+  return output;
 }
 
 function normalizeGeminiModel(model) {
-	if (!model) return model;
-	return model.startsWith('models/') ? model : `models/${model}`;
+  if (!model) return model;
+  return model.startsWith('models/') ? model : `models/${model}`;
 }
 
 function envBool(value, fallback) {
@@ -275,6 +283,10 @@ function envBool(value, fallback) {
 
 function trimSlash(value) {
   return String(value || '').replace(/\/+$/, '');
+}
+
+function isOptionalUnavailable(provider) {
+  return provider.name === 'ollama' && !selectedProviders.has(provider.name);
 }
 
 function redact(message) {
