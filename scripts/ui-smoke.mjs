@@ -11,6 +11,7 @@ const sendMessage = process.argv.includes('--send');
 const checkSearchSources = process.argv.includes('--search-sources');
 const checkLightTheme = process.argv.includes('--light-theme');
 const checkMobile = process.argv.includes('--mobile');
+const checkAttachment = process.argv.includes('--attachment');
 const port = Number(process.env.LINEA_UI_SMOKE_PORT ?? 9300 + (process.pid % 500));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -75,6 +76,9 @@ async function main() {
     if (checkSearchSources && !result.sourcesWork) {
       throw new Error('UI search smoke did not render the sources panel.');
     }
+    if (checkAttachment && !result.attachmentWorks) {
+      throw new Error('UI attachment smoke did not render the selected file.');
+    }
     if (checkLightTheme && !result.lightThemeWorks) {
       throw new Error(`Light theme still has dark leaked state. ${result.lightThemeDetail}`);
     }
@@ -96,6 +100,9 @@ async function main() {
     }
     if (checkMobile) {
       console.log('PASS ui mobile - layout fits narrow viewport');
+    }
+    if (checkAttachment) {
+      console.log('PASS ui attachment - selected file rendered');
     }
   } finally {
     chrome.kill('SIGTERM');
@@ -445,6 +452,28 @@ async function runProbe() {
     });
   }
 
+  let attachmentObserved = null;
+  if (checkAttachment) {
+    await send('Runtime.evaluate', {
+      expression: `(() => {
+        document.querySelector('.new-chat')?.click();
+        const input = document.querySelector('input[type="file"]');
+        if (!input) return false;
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['hello from smoke'], 'linea-smoke.txt', { type: 'text/plain' }));
+        input.files = transfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    await sleep(300);
+    attachmentObserved = await send('Runtime.evaluate', {
+      expression: `document.body.innerText.includes('linea-smoke.txt')`,
+      returnByValue: true,
+    });
+  }
+
   let mobileObserved = null;
   if (checkMobile) {
     mobileObserved = await send('Runtime.evaluate', {
@@ -522,6 +551,7 @@ async function runProbe() {
     loadingWorks: !sendMessage || loadingObserved?.result?.result?.value === true,
     modelBadgeWorks: !sendMessage || modelBadgeObserved?.result?.result?.value === true,
     sourcesWork: !checkSearchSources || sourcesObserved?.result?.result?.value === true,
+    attachmentWorks: !checkAttachment || attachmentObserved?.result?.result?.value === true,
     errorCount: events.filter((event) => event.method === 'Runtime.exceptionThrown').length,
   };
 }
