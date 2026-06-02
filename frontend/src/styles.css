@@ -22,10 +22,6 @@ body {
   overflow: hidden;
 }
 
-:root[data-theme="light"] body {
-  background: #f7f7f5;
-}
-
 button,
 input,
 textarea {
@@ -60,51 +56,6 @@ textarea {
   background: #0f0f0f;
   padding: 16px;
   overflow: hidden;
-}
-
-:root[data-theme="light"] .sidebar,
-:root[data-theme="light"] .chat-header,
-:root[data-theme="light"] .sources-panel {
-  border-color: #ddddda;
-  background: #f2f2ef;
-}
-
-:root[data-theme="light"] .chat {
-  background: #f8f8f6;
-}
-
-:root[data-theme="light"] .brand h1,
-:root[data-theme="light"] .chat-header h2,
-:root[data-theme="light"] .message p,
-:root[data-theme="light"] .conversation span,
-:root[data-theme="light"] .system-row strong {
-  color: #242424;
-}
-
-:root[data-theme="light"] .new-chat,
-:root[data-theme="light"] .message,
-:root[data-theme="light"] .composer-row,
-:root[data-theme="light"] .system-panel,
-:root[data-theme="light"] .theme-panel,
-:root[data-theme="light"] .attachments span {
-  border-color: #deded9;
-  background: #ffffff;
-}
-
-:root[data-theme="light"] .message.user,
-:root[data-theme="light"] .system-button,
-:root[data-theme="light"] .icon-button,
-:root[data-theme="light"] .send-button {
-  background: #eeeeea;
-}
-
-:root[data-theme="light"] textarea,
-:root[data-theme="light"] .conversation time,
-:root[data-theme="light"] .conversation-section-title,
-:root[data-theme="light"] .system-row,
-:root[data-theme="light"] .system-row span,
-:root[data-theme="light"] .system-muted {
-  color: #686864;
 }
 
 .sidebar-top,
