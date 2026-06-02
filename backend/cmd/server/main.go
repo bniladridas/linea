@@ -115,14 +115,9 @@ func main() {
 		llmClient = llm.NewFallbackClient(llmClient, llm.NewCooldownClient("ollama", llm.NewOllamaClient(cfg.OllamaBaseURL, cfg.OllamaModel), providerCooldown))
 	}
 	appStatus := api.Status{
-		Storage: "PostgreSQL",
-		Search:  "DuckDuckGo",
-		Providers: []api.ProviderStatus{
-			{Name: "Gemini", Model: cfg.GeminiModel, Enabled: cfg.GeminiAPIKey != "", Role: "primary"},
-			{Name: "SambaNova", Model: cfg.SambaNovaModel, Enabled: cfg.SambaNovaEnabled && cfg.SambaNovaAPIKey != "", Role: "fallback"},
-			{Name: "Cerebras", Model: cfg.CerebrasModel, Enabled: cfg.CerebrasEnabled && cfg.CerebrasAPIKey != "", Role: "fallback"},
-			{Name: "Ollama", Model: cfg.OllamaModel, Enabled: cfg.OllamaFallback, Role: "local"},
-		},
+		Storage:   "PostgreSQL",
+		Search:    "DuckDuckGo",
+		Providers: providerStatuses(ctx, cfg),
 	}
 	if cfg.DatabaseURL == "" {
 		appStatus.Storage = "Memory"
@@ -152,4 +147,65 @@ func main() {
 		slog.Error("shutdown", "error", err)
 		os.Exit(1)
 	}
+}
+
+func providerStatuses(ctx context.Context, cfg config.Config) []api.ProviderStatus {
+	ollama := doctor.Result{Status: doctor.Warn, Message: "fallback disabled"}
+	if cfg.OllamaFallback {
+		ollama = doctor.CheckOllamaLocalModel(ctx, cfg)
+	}
+	ollamaEnabled := ollama.Status == doctor.Pass
+	if cfg.OllamaFallback {
+		ollama.Message = localFallbackMessage(ollama.Message)
+	}
+	ollamaState := localFallbackState(cfg.OllamaFallback, ollamaEnabled)
+
+	return []api.ProviderStatus{
+		configuredProviderStatus("Gemini", cfg.GeminiModel, "primary", cfg.GeminiAPIKey != ""),
+		configuredProviderStatus("SambaNova", cfg.SambaNovaModel, "fallback", cfg.SambaNovaEnabled && cfg.SambaNovaAPIKey != ""),
+		configuredProviderStatus("Cerebras", cfg.CerebrasModel, "fallback", cfg.CerebrasEnabled && cfg.CerebrasAPIKey != ""),
+		{Name: "Ollama", Model: cfg.OllamaModel, Enabled: ollamaEnabled, Role: "local", State: ollamaState, Message: ollama.Message},
+	}
+}
+
+func configuredProviderStatus(name, model, role string, enabled bool) api.ProviderStatus {
+	return api.ProviderStatus{
+		Name:    name,
+		Model:   model,
+		Enabled: enabled,
+		Role:    role,
+		State:   state(enabled),
+		Message: configuredMessage(enabled),
+	}
+}
+
+func localFallbackState(fallbackEnabled, ready bool) string {
+	if ready {
+		return "ready"
+	}
+	if fallbackEnabled {
+		return "sleeping"
+	}
+	return "off"
+}
+
+func localFallbackMessage(message string) string {
+	if message != "" {
+		return message
+	}
+	return "local fallback unavailable"
+}
+
+func state(enabled bool) string {
+	if enabled {
+		return "ready"
+	}
+	return "off"
+}
+
+func configuredMessage(enabled bool) string {
+	if enabled {
+		return "configured"
+	}
+	return "not configured"
 }

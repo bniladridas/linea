@@ -237,6 +237,10 @@ func checkSearch(ctx context.Context) Result {
 }
 
 func checkOllama(ctx context.Context, cfg config.Config) Result {
+	return CheckOllamaLocalModel(ctx, cfg)
+}
+
+func CheckOllamaLocalModel(ctx context.Context, cfg config.Config) Result {
 	if !cfg.OllamaFallback {
 		return Result{Name: "ollama local model", Status: Warn, Message: "fallback disabled"}
 	}
