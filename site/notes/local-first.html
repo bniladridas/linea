@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Why Linea is local-first.">
-    <title>Why Linea is local-first</title>
+    <meta name="description" content="Linea local-first note.">
+    <title>Local-first</title>
     <link rel="stylesheet" href="../styles.css">
     <link
       rel="icon"
@@ -26,26 +26,26 @@
 
       <article class="article">
         <p class="kicker">1 Jun 2026</p>
-        <h1>Why Linea is local-first</h1>
+        <h1>Local-first</h1>
 
         <p>
-          A local assistant should start with the machine in front of the user.
+          Linea starts on the user machine.
         </p>
 
         <p>
-          The interface is served by one Go process. The web UI is the client. Conversation data stays in PostgreSQL when a database is configured, and memory storage remains available for a smaller setup.
+          One Go process serves the API and the web UI. PostgreSQL stores conversations when configured. Memory storage works without a database.
         </p>
 
         <p>
-          Model access is external when needed. Gemini is the primary provider. Cerebras and SambaNova use OpenAI-compatible endpoints. Ollama gives a local fallback when remote quota or traffic gets in the way.
+          Gemini is primary. Cerebras and SambaNova use OpenAI-compatible endpoints. Ollama is the local fallback.
         </p>
 
         <p>
-          This shape keeps the system inspectable. The user can run the server, check the health endpoint, read the API, and replace parts without learning a larger platform.
+          The app can be checked from the command line. Run the server. Check `/healthz`. Read the API. Replace a provider.
         </p>
 
         <p>
-          Local-first does not mean offline-only. It means the tool has a clear center. The local server owns the app. Providers are replaceable. The interface stays small.
+          Local-first does not mean offline-only. It means the local server is the center.
         </p>
       </article>
     </main>
