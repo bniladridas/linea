@@ -56,6 +56,30 @@ func TestProviderStatusesMarksOllamaSleeping(t *testing.T) {
 	if status.Message == "" {
 		t.Fatal("expected a status message")
 	}
+	if status.Detail != "Run: ollama pull qwen2.5-coder:1.5b" {
+		t.Fatalf("detail = %q", status.Detail)
+	}
+}
+
+func TestProviderStatusesShowsOllamaStartInstruction(t *testing.T) {
+	status := localProviderStatus(t, config.Config{
+		OllamaFallback: true,
+		OllamaBaseURL:  "http://127.0.0.1:1",
+		OllamaModel:    "qwen2.5-coder:1.5b",
+	})
+
+	if status.Enabled {
+		t.Fatal("expected Ollama to be disabled")
+	}
+	if status.State != "sleeping" {
+		t.Fatalf("expected sleeping state, got %q", status.State)
+	}
+	if status.Message != "Ollama not running" {
+		t.Fatalf("message = %q", status.Message)
+	}
+	if status.Detail != "Start with: ollama serve" {
+		t.Fatalf("detail = %q", status.Detail)
+	}
 }
 
 func TestProviderStatusesMarksOllamaOff(t *testing.T) {

@@ -220,6 +220,13 @@ textarea {
   white-space: nowrap;
 }
 
+.system-detail {
+  padding: 2px 2px 4px 22px;
+  color: #9a9a9a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .theme-panel {
   display: grid;
   width: 100%;
@@ -1494,6 +1501,7 @@ textarea:focus {
 :root[data-theme="light"] .system-row,
 :root[data-theme="light"] .system-row span,
 :root[data-theme="light"] .system-muted,
+:root[data-theme="light"] .system-detail,
 :root[data-theme="light"] .theme-panel button,
 :root[data-theme="light"] .theme-panel label,
 :root[data-theme="light"] .source-card small,
