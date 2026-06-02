@@ -7,7 +7,6 @@ import {
   Bookmark,
   Brush,
   Check,
-  Cloud,
   Crown,
   Cpu,
   Database,
@@ -29,6 +28,7 @@ import {
   Plus,
   Route,
   Search as SearchIcon,
+  Server,
   Share2,
   Smile,
   Trash2,
@@ -1186,12 +1186,12 @@ function SystemPanel({ status }: { status: SystemStatus | null }) {
   return (
     <div className="system-panel" role="status" aria-label="System status">
       <SystemRow Icon={Check} label="Tuned" value={primary?.model ?? 'Model ready'} />
-      <SystemRow Icon={Database} label="Synced" value={status?.storage ?? 'Storage'} />
+      <SystemRow Icon={Database} label="Storage" value={status?.storage ?? 'Ready'} />
       <SystemRow Icon={SearchIcon} label="Search" value={status?.search ?? 'Ready'} />
       <SystemRow Icon={Eye} label="Vision" value={primary?.name === 'Gemini' ? 'Gemini' : 'Off'} />
       <SystemRow
-        Icon={Cloud}
-        label="Cloud"
+        Icon={Server}
+        label="Remote"
         value={enabledProviders.filter((provider) => provider.role !== 'local').map((provider) => provider.name).join(', ') || 'Off'}
       />
       <SystemRow
