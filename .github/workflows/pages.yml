@@ -26,8 +26,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/configure-pages@v5
+
+      - name: edits
+        run: node scripts/site-edits.mjs
 
       - uses: actions/upload-pages-artifact@v4
         with:

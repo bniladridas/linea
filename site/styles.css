@@ -71,6 +71,17 @@ code {
   text-decoration: none;
 }
 
+.plain-link {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.plain-link:hover {
+  color: var(--text);
+}
+
 .mark {
   width: 24px;
   height: 24px;
@@ -145,6 +156,82 @@ h1 {
   margin: 0 0 28px;
 }
 
+.edits {
+  display: grid;
+  gap: 40px;
+}
+
+.edit {
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+
+.edit h2 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.edit-meta {
+  margin: 0 0 22px;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.diff-card {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--soft);
+}
+
+.diff-card h3 {
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.diff {
+  margin: 0;
+  padding: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff code {
+  display: grid;
+  gap: 1px;
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.diff span {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-add {
+  color: #238636;
+}
+
+.diff-remove {
+  color: #da3633;
+}
+
+.diff-context {
+  color: var(--muted);
+}
+
 @media (max-width: 640px) {
   body {
     font-size: 17px;
@@ -170,5 +257,19 @@ h1 {
   .note-link {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .diff {
+    padding: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .edit h2 {
+    font-size: 21px;
+  }
+
+  .diff-card h3 {
+    padding: 10px 12px;
   }
 }
