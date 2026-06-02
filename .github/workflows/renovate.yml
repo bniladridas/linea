@@ -14,17 +14,20 @@ jobs:
   renovate:
     runs-on: ubuntu-latest
     env:
-      RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+      RENOVATE_REPOSITORIES: bniladridas/linea
 
     steps:
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ secrets.LINEA_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
+
       - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - uses: renovatebot/github-action@v46.1.14
-        if: env.RENOVATE_TOKEN != ''
         with:
           configurationFile: renovate.json
-          token: ${{ env.RENOVATE_TOKEN }}
-
-      - name: Not configured
-        if: env.RENOVATE_TOKEN == ''
-        run: echo "RENOVATE_TOKEN is not set."
+          token: ${{ steps.app-token.outputs.token }}
