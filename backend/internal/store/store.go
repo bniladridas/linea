@@ -76,6 +76,14 @@ func displayTitle(title string, firstUserMessage *string) string {
 	return TitleFromMessage(*firstUserMessage)
 }
 
+func nextTimestamp(after time.Time) time.Time {
+	now := time.Now().UTC()
+	if now.After(after) {
+		return now
+	}
+	return after.Add(time.Nanosecond)
+}
+
 type MemoryStore struct {
 	mu            sync.RWMutex
 	conversations map[string]Conversation
@@ -125,7 +133,7 @@ func (s *MemoryStore) UpdateConversationTitle(_ context.Context, conversationID,
 		return Conversation{}, ErrNotFound
 	}
 	conversation.Title = title
-	conversation.UpdatedAt = time.Now().UTC()
+	conversation.UpdatedAt = nextTimestamp(conversation.UpdatedAt)
 	s.conversations[conversationID] = conversation
 	return conversation, nil
 }
@@ -161,7 +169,7 @@ func (s *MemoryStore) AddMessage(_ context.Context, conversationID, role, conten
 	if !ok {
 		return Message{}, ErrNotFound
 	}
-	now := time.Now().UTC()
+	now := nextTimestamp(conversation.UpdatedAt)
 	message := Message{ID: NewID(), ConversationID: conversationID, Role: role, Content: content, CreatedAt: now}
 	s.messages[conversationID] = append(s.messages[conversationID], message)
 	conversation.UpdatedAt = now
