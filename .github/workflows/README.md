@@ -1,6 +1,6 @@
 # GitHub Actions
 
-These workflows keep checks, releases, and small maintenance tasks in one place.
+Updated 2 Jun 2026.
 
 # Required secrets
 
@@ -8,9 +8,33 @@ These workflows keep checks, releases, and small maintenance tasks in one place.
 
 `LINEA_BOT_PRIVATE_KEY`
 
-These let the Linea GitHub App open pull requests and publish releases that can trigger follow-up workflows.
+Used by the Linea GitHub App.
+
+# App permissions
+
+Checks: read and write
+
+Contents: read and write
+
+Issues: read and write
+
+Pull requests: read and write
+
+Dependabot alerts: read
 
 # Workflows
+
+`app.yml`
+
+Publishes the app check.
+
+`pr-check.yml`
+
+Builds, packages, and verifies the DMG on pull requests.
+
+`pr-ready.yml`
+
+Updates one pull request comment with the check result.
 
 `ci.yml`
 
@@ -22,11 +46,19 @@ Runs when a `v*` tag is pushed.
 
 Builds the Apple Silicon binary, packages the macOS DMG, writes checksums, and publishes the GitHub release.
 
+`nightly.yml`
+
+Builds a dated prerelease.
+
+Does not update the Homebrew formula.
+
 `formula-sha.yml`
 
 Runs after a release is published.
 
 Updates `Formula/linea.rb` with the release source SHA and opens a pull request.
+
+Skips prereleases.
 
 Can also be run by hand with a tag.
 

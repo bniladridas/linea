@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   update:
+    if: github.event_name != 'release' || github.event.release.prerelease == false
     runs-on: ubuntu-latest
 
     steps:
