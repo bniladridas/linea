@@ -40,7 +40,7 @@ model-check:
 	node scripts/model-smoke.mjs --configured
 
 ui-check:
-	node scripts/ui-smoke.mjs
+	node scripts/ui-smoke.mjs --attachment --light-theme --mobile
 
 ui-check-full:
-	node scripts/ui-smoke.mjs --send
+	node scripts/ui-smoke.mjs --send --search-sources --attachment --light-theme --mobile
