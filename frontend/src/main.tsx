@@ -138,6 +138,7 @@ function App() {
   const renameCancelledRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const activeIdRef = useRef<string | null>(null);
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeId),
@@ -213,6 +214,7 @@ function App() {
   }, [isSystemPanelOpen, isThemePanelOpen]);
 
   useEffect(() => {
+    activeIdRef.current = activeId;
     if (!activeId) {
       setMessages([]);
       return;
@@ -262,7 +264,9 @@ function App() {
   async function loadMessages(conversationId: string) {
     setError(null);
     const data = await request<Message[]>(`/api/conversations/${conversationId}/messages`);
-    setMessages(Array.isArray(data) ? data : []);
+    if (activeIdRef.current === conversationId) {
+      setMessages(Array.isArray(data) ? data : []);
+    }
   }
 
   async function createConversation(initialTitle = 'Untitled', activate = true) {
