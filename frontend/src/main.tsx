@@ -77,6 +77,8 @@ type ProviderStatus = {
   model?: string;
   enabled: boolean;
   role: string;
+  state?: string;
+  message?: string;
 };
 
 type ProviderInfo = {
@@ -733,7 +735,7 @@ function App() {
                             responseProviders[key] ??
                             statusProviderInfo(systemStatus?.providers.find((provider) => provider.enabled && provider.role === 'primary'))
                           }
-                          sleepingProviders={systemStatus?.providers.filter((provider) => !provider.enabled) ?? []}
+                          sleepingProviders={systemStatus?.providers.filter((provider) => provider.state === 'sleeping') ?? []}
                         />
                         <FeedbackRow
                           selected={messageFeedback[key]}
@@ -1182,6 +1184,7 @@ function SystemPanel({ status }: { status: SystemStatus | null }) {
   const primary = status?.providers.find((provider) => provider.role === 'primary');
   const enabledProviders = status?.providers.filter((provider) => provider.enabled) ?? [];
   const disabledProviders = status?.providers.filter((provider) => !provider.enabled) ?? [];
+  const localProvider = status?.providers.find((provider) => provider.role === 'local');
 
   return (
     <div className="system-panel" role="status" aria-label="System status">
@@ -1197,7 +1200,7 @@ function SystemPanel({ status }: { status: SystemStatus | null }) {
       <SystemRow
         Icon={Cpu}
         label="Local"
-        value={enabledProviders.find((provider) => provider.role === 'local')?.model ?? 'Off'}
+        value={localProvider ? providerStatusText(localProvider) : 'Off'}
       />
       {disabledProviders.length > 0 && (
         <div className="system-muted">
@@ -1206,6 +1209,16 @@ function SystemPanel({ status }: { status: SystemStatus | null }) {
       )}
     </div>
   );
+}
+
+function providerStatusText(provider: ProviderStatus) {
+  if (provider.enabled) {
+    return provider.model ?? 'Ready';
+  }
+  if (provider.state === 'sleeping') {
+    return 'Sleeping';
+  }
+  return 'Off';
 }
 
 function ThemePanel({
@@ -1292,6 +1305,7 @@ function ResponseMeta({
   sleepingProviders: ProviderStatus[];
 }) {
   const sleepingNames = sleepingProviders.map((item) => item.name).join(', ');
+  const sleepingDetail = sleepingProviders.map((item) => item.message || `${item.name} sleeping`).join(', ');
   if (!prefs.showModelBadge && (!prefs.showSleepAlert || sleepingProviders.length === 0)) {
     return null;
   }
@@ -1304,7 +1318,7 @@ function ResponseMeta({
         </span>
       )}
       {prefs.showSleepAlert && sleepingProviders.length > 0 && (
-        <span className="sleep-alert has-tooltip tooltip-above" data-tooltip={`${sleepingNames} sleeping`}>
+        <span className="sleep-alert has-tooltip tooltip-above" data-tooltip={sleepingDetail || `${sleepingNames} sleeping`}>
           <BellOff size={13} strokeWidth={ICON_STROKE} />
         </span>
       )}

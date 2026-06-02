@@ -38,6 +38,8 @@ type ProviderStatus struct {
 	Model   string `json:"model,omitempty"`
 	Enabled bool   `json:"enabled"`
 	Role    string `json:"role"`
+	State   string `json:"state,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 type Assistant interface {
