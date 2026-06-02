@@ -22,8 +22,8 @@ jobs:
           stale-pr-label: stale
           exempt-issue-labels: pinned,security
           exempt-pr-labels: pinned,security
-          stale-issue-message: "Still needed?"
-          stale-pr-message: "Still needed?"
+          stale-issue-message: "This has been quiet for a while. Please add a note if it should stay open."
+          stale-pr-message: "This has been quiet for a while. Please add a note if it should stay open."
           close-issue-message: "Closing for now."
           close-pr-message: "Closing for now."
           operations-per-run: 20

@@ -1,6 +1,6 @@
 # GitHub Actions
 
-Updated 2 Jun 2026.
+Updated 3 Jun 2026.
 
 # Required secrets
 
