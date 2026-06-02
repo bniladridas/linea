@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -114,18 +115,9 @@ func main() {
 	if cfg.OllamaFallback {
 		llmClient = llm.NewFallbackClient(llmClient, llm.NewCooldownClient("ollama", llm.NewOllamaClient(cfg.OllamaBaseURL, cfg.OllamaModel), providerCooldown))
 	}
-	appStatus := api.Status{
-		Storage:   "PostgreSQL",
-		Search:    "DuckDuckGo",
-		Providers: providerStatuses(ctx, cfg),
-	}
-	if cfg.DatabaseURL == "" {
-		appStatus.Storage = "Memory"
-	}
-
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.NewServer(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, appStatus).Handler(),
+		Handler:           api.NewServerWithStatus(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg) }).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -152,9 +144,12 @@ func main() {
 func providerStatuses(ctx context.Context, cfg config.Config) []api.ProviderStatus {
 	ollama := doctor.Result{Status: doctor.Warn, Message: "fallback disabled"}
 	if cfg.OllamaFallback {
-		ollama = doctor.CheckOllamaLocalModel(ctx, cfg)
+		statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		ollama = doctor.CheckOllamaLocalModel(statusCtx, cfg)
 	}
 	ollamaEnabled := ollama.Status == doctor.Pass
+	ollamaDetail := localFallbackDetail(cfg, ollama)
 	if cfg.OllamaFallback {
 		ollama.Message = localFallbackMessage(ollama.Message)
 	}
@@ -164,8 +159,20 @@ func providerStatuses(ctx context.Context, cfg config.Config) []api.ProviderStat
 		configuredProviderStatus("Gemini", cfg.GeminiModel, "primary", cfg.GeminiAPIKey != ""),
 		configuredProviderStatus("SambaNova", cfg.SambaNovaModel, "fallback", cfg.SambaNovaEnabled && cfg.SambaNovaAPIKey != ""),
 		configuredProviderStatus("Cerebras", cfg.CerebrasModel, "fallback", cfg.CerebrasEnabled && cfg.CerebrasAPIKey != ""),
-		{Name: "Ollama", Model: cfg.OllamaModel, Enabled: ollamaEnabled, Role: "local", State: ollamaState, Message: ollama.Message},
+		{Name: "Ollama", Model: cfg.OllamaModel, Enabled: ollamaEnabled, Role: "local", State: ollamaState, Message: ollama.Message, Detail: ollamaDetail},
 	}
+}
+
+func appStatus(ctx context.Context, cfg config.Config) api.Status {
+	status := api.Status{
+		Storage:   "PostgreSQL",
+		Search:    "DuckDuckGo",
+		Providers: providerStatuses(ctx, cfg),
+	}
+	if cfg.DatabaseURL == "" {
+		status.Storage = "Memory"
+	}
+	return status
 }
 
 func configuredProviderStatus(name, model, role string, enabled bool) api.ProviderStatus {
@@ -190,10 +197,40 @@ func localFallbackState(fallbackEnabled, ready bool) string {
 }
 
 func localFallbackMessage(message string) string {
+	if isOllamaNotRunning(message) {
+		return "Ollama not running"
+	}
+	if strings.Contains(message, "is not installed") {
+		return "Model not installed"
+	}
 	if message != "" {
 		return message
 	}
 	return "local fallback unavailable"
+}
+
+func localFallbackDetail(cfg config.Config, result doctor.Result) string {
+	if !cfg.OllamaFallback {
+		return "Local fallback is off."
+	}
+	if result.Status == doctor.Pass {
+		return cfg.OllamaModel + " is available."
+	}
+	if isOllamaNotRunning(result.Message) {
+		return "Start with: ollama serve"
+	}
+	if strings.Contains(result.Message, "is not installed") {
+		return "Run: ollama pull " + cfg.OllamaModel
+	}
+	return result.Message
+}
+
+func isOllamaNotRunning(message string) bool {
+	message = strings.ToLower(message)
+	return strings.Contains(message, "connection refused") ||
+		strings.Contains(message, "connect: operation timed out") ||
+		strings.Contains(message, "client.timeout") ||
+		strings.Contains(message, "context deadline exceeded")
 }
 
 func state(enabled bool) string {

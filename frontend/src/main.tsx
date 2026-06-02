@@ -79,6 +79,7 @@ type ProviderStatus = {
   role: string;
   state?: string;
   message?: string;
+  detail?: string;
 };
 
 type ProviderInfo = {
@@ -1202,6 +1203,9 @@ function SystemPanel({ status }: { status: SystemStatus | null }) {
         label="Local"
         value={localProvider ? providerStatusText(localProvider) : 'Off'}
       />
+      {localProvider?.detail && localProvider.state !== 'ready' && (
+        <div className="system-detail">{localProvider.detail}</div>
+      )}
       {disabledProviders.length > 0 && (
         <div className="system-muted">
           {disabledProviders.map((provider) => provider.name).join(', ')} off
@@ -1305,7 +1309,7 @@ function ResponseMeta({
   sleepingProviders: ProviderStatus[];
 }) {
   const sleepingNames = sleepingProviders.map((item) => item.name).join(', ');
-  const sleepingDetail = sleepingProviders.map((item) => item.message || `${item.name} sleeping`).join(', ');
+  const sleepingDetail = sleepingProviders.map((item) => item.detail || item.message || `${item.name} sleeping`).join(', ');
   if (!prefs.showModelBadge && (!prefs.showSleepAlert || sleepingProviders.length === 0)) {
     return null;
   }

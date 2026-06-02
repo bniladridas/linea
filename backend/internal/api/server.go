@@ -19,12 +19,12 @@ import (
 )
 
 type Server struct {
-	store        store.Store
-	llmClient    Assistant
-	searchClient WebSearcher
-	staticFiles  http.FileSystem
-	origin       string
-	status       Status
+	store          store.Store
+	llmClient      Assistant
+	searchClient   WebSearcher
+	staticFiles    http.FileSystem
+	origin         string
+	statusProvider StatusProvider
 }
 
 type Status struct {
@@ -40,7 +40,10 @@ type ProviderStatus struct {
 	Role    string `json:"role"`
 	State   string `json:"state,omitempty"`
 	Message string `json:"message,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
+
+type StatusProvider func(context.Context) Status
 
 type Assistant interface {
 	GenerateStream(ctx context.Context, messages []store.Message, attachments []llm.Attachment, searchResults []llm.SearchResult, onChunk func(string) error) error
@@ -51,7 +54,13 @@ type WebSearcher interface {
 }
 
 func NewServer(store store.Store, llmClient Assistant, searchClient WebSearcher, staticFiles http.FileSystem, origin string, status Status) *Server {
-	return &Server{store: store, llmClient: llmClient, searchClient: searchClient, staticFiles: staticFiles, origin: origin, status: status}
+	return NewServerWithStatus(store, llmClient, searchClient, staticFiles, origin, func(context.Context) Status {
+		return status
+	})
+}
+
+func NewServerWithStatus(store store.Store, llmClient Assistant, searchClient WebSearcher, staticFiles http.FileSystem, origin string, statusProvider StatusProvider) *Server {
+	return &Server{store: store, llmClient: llmClient, searchClient: searchClient, staticFiles: staticFiles, origin: origin, statusProvider: statusProvider}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -72,8 +81,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) getStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.status)
+func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.statusProvider(r.Context()))
 }
 
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
