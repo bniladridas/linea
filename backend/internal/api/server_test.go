@@ -68,6 +68,40 @@ func TestCreateMessageStreamsProviderWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestCreateMessageFallsBackThroughStream(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	assistant := llm.NewFallbackClient(
+		fakeAssistant{err: llm.ErrQuotaExceeded},
+		providerAssistant{name: "Ollama", model: "local", chunks: []string{"local ok"}},
+	)
+	server := NewServer(appStore, assistant, nil, testFiles(), "", Status{}).Handler()
+
+	res := postMessage(t, server, conversation.ID, "hello")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "event: provider") || !strings.Contains(body, "Ollama") {
+		t.Fatalf("stream body missing fallback provider event:\n%s", body)
+	}
+	if !strings.Contains(body, "local ok") || !strings.Contains(body, "event: done") {
+		t.Fatalf("stream body missing fallback response:\n%s", body)
+	}
+
+	messages, err := appStore.ListMessages(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatalf("ListMessages() error = %v", err)
+	}
+	if len(messages) != 2 || messages[1].Role != "assistant" || messages[1].Content != "local ok" {
+		t.Fatalf("persisted messages = %#v", messages)
+	}
+}
+
 func TestCreateMessagePersistsMissingKeyFallback(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	conversation, err := appStore.CreateConversation(context.Background(), "Test")
@@ -337,10 +371,20 @@ type fakeAssistant struct {
 
 type providerAssistant struct {
 	chunks []string
+	name   string
+	model  string
 }
 
 func (f providerAssistant) GenerateStream(ctx context.Context, _ []store.Message, _ []llm.Attachment, _ []llm.SearchResult, onChunk func(string) error) error {
-	llm.NotifyProvider(ctx, llm.ProviderInfo{Name: "Test", Model: "TestModel"})
+	name := f.name
+	if name == "" {
+		name = "Test"
+	}
+	model := f.model
+	if model == "" {
+		model = "TestModel"
+	}
+	llm.NotifyProvider(ctx, llm.ProviderInfo{Name: name, Model: model})
 	for _, chunk := range f.chunks {
 		if err := onChunk(chunk); err != nil {
 			return err
