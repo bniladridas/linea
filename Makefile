@@ -16,8 +16,11 @@ check: build
 install-check:
 	brew tap bniladridas/linea https://github.com/bniladridas/linea
 	git -C "$$(brew --prefix)/Library/Taps/bniladridas/homebrew-linea" pull --ff-only
-	brew install --HEAD --fetch-HEAD --build-from-source linea
-	brew upgrade --fetch-HEAD --build-from-source linea
+	if brew list --formula bniladridas/linea/linea >/dev/null 2>&1; then \
+		brew test bniladridas/linea/linea; \
+	else \
+		brew install bniladridas/linea/linea; \
+	fi
 	linea -version
 
 release-check:
