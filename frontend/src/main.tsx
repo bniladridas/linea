@@ -154,6 +154,7 @@ function App() {
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme());
   const [isThemePanelOpen, setIsThemePanelOpen] = useState(false);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+  const [areTooltipsSuppressed, setAreTooltipsSuppressed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarFooterRef = useRef<HTMLDivElement | null>(null);
   const renameCancelledRef = useRef(false);
@@ -188,6 +189,7 @@ function App() {
     'shell',
     !isSidebarOpen ? 'sidebar-collapsed' : '',
     showSources ? 'sources-open' : '',
+    (areTooltipsSuppressed || isSystemPanelOpen || isThemePanelOpen || isSettingsPanelOpen) ? 'tooltips-suppressed' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -236,6 +238,20 @@ function App() {
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [isSystemPanelOpen, isThemePanelOpen, isSettingsPanelOpen]);
+
+  useEffect(() => {
+    if (!areTooltipsSuppressed) {
+      return;
+    }
+
+    const restoreTooltips = () => setAreTooltipsSuppressed(false);
+    window.addEventListener('pointermove', restoreTooltips, { once: true });
+    window.addEventListener('keydown', restoreTooltips, { once: true });
+    return () => {
+      window.removeEventListener('pointermove', restoreTooltips);
+      window.removeEventListener('keydown', restoreTooltips);
+    };
+  }, [areTooltipsSuppressed]);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -685,6 +701,7 @@ function App() {
                 className="system-button has-tooltip tooltip-above"
                 data-tooltip={isSystemPanelOpen ? 'Hide status' : 'System status'}
                 type="button"
+                onPointerDown={() => setAreTooltipsSuppressed(true)}
                 onClick={() => {
                   setIsSystemPanelOpen((open) => !open);
                   setIsThemePanelOpen(false);
@@ -701,6 +718,7 @@ function App() {
                 className="system-button has-tooltip tooltip-above"
                 data-tooltip="Theme"
                 type="button"
+                onPointerDown={() => setAreTooltipsSuppressed(true)}
                 onClick={() => {
                   setIsThemePanelOpen((open) => !open);
                   setIsSystemPanelOpen(false);
@@ -714,6 +732,7 @@ function App() {
                 className="system-button has-tooltip tooltip-above"
                 data-tooltip="Settings"
                 type="button"
+                onPointerDown={() => setAreTooltipsSuppressed(true)}
                 onClick={() => {
                   setIsSettingsPanelOpen((open) => !open);
                   setIsSystemPanelOpen(false);
@@ -738,6 +757,7 @@ function App() {
               className="icon-button subtle has-tooltip tooltip-align-left"
               data-tooltip={isSidebarOpen ? 'Hide conversations' : 'Show conversations'}
               type="button"
+              onPointerDown={() => setAreTooltipsSuppressed(true)}
               onClick={() => setIsSidebarOpen((open) => !open)}
             >
               <PanelRight
@@ -755,6 +775,7 @@ function App() {
                 className="sources-toggle has-tooltip tooltip-align-left"
                 data-tooltip={areSourcesVisible ? 'Hide sources' : 'Show sources'}
                 type="button"
+                onPointerDown={() => setAreTooltipsSuppressed(true)}
                 onClick={() => setAreSourcesVisible((visible) => !visible)}
               >
                 <FileText size={14} strokeWidth={ICON_STROKE} />
@@ -787,6 +808,7 @@ function App() {
                         className="message-edit has-tooltip tooltip-above"
                         data-tooltip="Edit"
                         type="button"
+                        onPointerDown={() => setAreTooltipsSuppressed(true)}
                         onClick={() => editMessage(message)}
                       >
                         <PenLine size={14} strokeWidth={ICON_STROKE} />
@@ -841,6 +863,7 @@ function App() {
               className="icon-button has-tooltip tooltip-above"
               data-tooltip="Attach"
               type="button"
+              onPointerDown={() => setAreTooltipsSuppressed(true)}
               onClick={() => fileInputRef.current?.click()}
             >
               <Paperclip size={16} strokeWidth={ICON_STROKE} />
@@ -868,6 +891,7 @@ function App() {
               data-tooltip="Send"
               disabled={isSending || !content.trim()}
               type="submit"
+              onPointerDown={() => setAreTooltipsSuppressed(true)}
             >
               <ArrowUpRight size={14} strokeWidth={ICON_STROKE} />
             </button>
