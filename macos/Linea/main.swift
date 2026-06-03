@@ -1,7 +1,7 @@
 import Cocoa
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
   private var process: Process?
   private var window: NSWindow?
   private var webView: WKWebView?
@@ -100,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     )
     let webView = WKWebView(frame: .zero, configuration: config)
     webView.navigationDelegate = self
+    webView.uiDelegate = self
     webView.allowsBackForwardNavigationGestures = false
     webView.wantsLayer = true
     webView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
@@ -124,6 +125,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     self.webView = webView
     self.window = window
     NSApp.activate(ignoringOtherApps: true)
+  }
+
+  func webView(
+    _ webView: WKWebView,
+    runOpenPanelWith parameters: WKOpenPanelParameters,
+    initiatedByFrame frame: WKFrameInfo,
+    completionHandler: @escaping ([URL]?) -> Void
+  ) {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+
+    if let window {
+      panel.beginSheetModal(for: window) { response in
+        completionHandler(response == .OK ? panel.urls : nil)
+      }
+    } else {
+      let response = panel.runModal()
+      completionHandler(response == .OK ? panel.urls : nil)
+    }
   }
 
   private func waitForServer(_ url: URL) -> Bool {
@@ -208,6 +230,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       )
     )
     appItem.submenu = appMenu
+
+    let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+    menu.addItem(editItem)
+    let editMenu = NSMenu(title: "Edit")
+    editMenu.addItem(
+      NSMenuItem(
+        title: "Undo",
+        action: Selector(("undo:")),
+        keyEquivalent: "z"
+      )
+    )
+    editMenu.addItem(
+      NSMenuItem(
+        title: "Redo",
+        action: Selector(("redo:")),
+        keyEquivalent: "Z"
+      )
+    )
+    editMenu.addItem(.separator())
+    editMenu.addItem(
+      NSMenuItem(
+        title: "Cut",
+        action: #selector(NSText.cut(_:)),
+        keyEquivalent: "x"
+      )
+    )
+    editMenu.addItem(
+      NSMenuItem(
+        title: "Copy",
+        action: #selector(NSText.copy(_:)),
+        keyEquivalent: "c"
+      )
+    )
+    editMenu.addItem(
+      NSMenuItem(
+        title: "Paste",
+        action: #selector(NSText.paste(_:)),
+        keyEquivalent: "v"
+      )
+    )
+    editMenu.addItem(
+      NSMenuItem(
+        title: "Select All",
+        action: #selector(NSText.selectAll(_:)),
+        keyEquivalent: "a"
+      )
+    )
+    editItem.submenu = editMenu
 
     let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
     menu.addItem(viewItem)
