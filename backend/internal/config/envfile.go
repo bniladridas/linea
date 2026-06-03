@@ -72,3 +72,13 @@ func DefaultEnvFilePath() string {
 	}
 	return ""
 }
+
+func DefaultSettingsFilePath() string {
+	if path := os.Getenv("LINEA_SETTINGS_FILE"); path != "" {
+		return path
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".config", "linea", "settings.json")
+	}
+	return ""
+}

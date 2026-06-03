@@ -24,6 +24,8 @@ brew install linea
 
 Linea reads `~/.config/linea/linea.env`. Shell variables override file values.
 
+Provider order and fallback toggles are saved in `~/.config/linea/settings.json`.
+
 ```sh
 API_ADDR=:8080
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable

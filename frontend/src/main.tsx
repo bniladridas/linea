@@ -2,6 +2,8 @@ import React, { FormEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useMe
 import { createRoot } from 'react-dom/client';
 import {
   ArrowUpRight,
+  ArrowDown,
+  ArrowUp,
   BadgeHelp,
   BellOff,
   Bookmark,
@@ -30,6 +32,7 @@ import {
   Search as SearchIcon,
   Server,
   Share2,
+  SlidersHorizontal,
   Smile,
   Trash2,
   Sun,
@@ -87,6 +90,19 @@ type ProviderInfo = {
   model: string;
 };
 
+type AppSettings = {
+  providers: ProviderSetting[];
+};
+
+type ProviderSetting = {
+  id: string;
+  name: string;
+  model?: string;
+  role: string;
+  enabled: boolean;
+  configured: boolean;
+};
+
 type StreamChunk = {
   content: string;
   provider?: ProviderInfo;
@@ -121,6 +137,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !isNarrowViewport());
   const [isSystemPanelOpen, setIsSystemPanelOpen] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [openConversationMenu, setOpenConversationMenu] = useState<string | null>(null);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
@@ -136,6 +153,7 @@ function App() {
   const [uiPrefs, setUIPrefs] = useState<UIPrefs>(() => loadUIPrefs());
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme());
   const [isThemePanelOpen, setIsThemePanelOpen] = useState(false);
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarFooterRef = useRef<HTMLDivElement | null>(null);
   const renameCancelledRef = useRef(false);
@@ -176,6 +194,7 @@ function App() {
   useEffect(() => {
     void loadConversations();
     void loadSystemStatus();
+    void loadAppSettings();
   }, []);
 
   useEffect(() => {
@@ -185,20 +204,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isSystemPanelOpen && !isThemePanelOpen) {
+    if (!isSystemPanelOpen && !isThemePanelOpen && !isSettingsPanelOpen) {
       return;
     }
 
     const closeFooterPanels = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Element && sidebarFooterRef.current?.contains(target)) {
-        const interactiveFooterArea = target.closest('.system-panel, .theme-panel, .footer-actions');
+        const interactiveFooterArea = target.closest('.system-panel, .theme-panel, .settings-panel, .footer-actions');
         if (interactiveFooterArea && sidebarFooterRef.current.contains(interactiveFooterArea)) {
           return;
         }
       }
       setIsSystemPanelOpen(false);
       setIsThemePanelOpen(false);
+      setIsSettingsPanelOpen(false);
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') {
@@ -206,6 +226,7 @@ function App() {
       }
       setIsSystemPanelOpen(false);
       setIsThemePanelOpen(false);
+      setIsSettingsPanelOpen(false);
     };
 
     window.addEventListener('pointerdown', closeFooterPanels, true);
@@ -214,7 +235,7 @@ function App() {
       window.removeEventListener('pointerdown', closeFooterPanels, true);
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [isSystemPanelOpen, isThemePanelOpen]);
+  }, [isSystemPanelOpen, isThemePanelOpen, isSettingsPanelOpen]);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -261,6 +282,29 @@ function App() {
       setSystemStatus(data);
     } catch {
       setSystemStatus(null);
+    }
+  }
+
+  async function loadAppSettings() {
+    try {
+      const data = await request<AppSettings>('/api/settings');
+      setAppSettings(data);
+    } catch {
+      setAppSettings(null);
+    }
+  }
+
+  async function saveAppSettings(next: AppSettings) {
+    try {
+      const data = await request<AppSettings>('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      });
+      setAppSettings(data);
+      await loadSystemStatus();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save settings.');
     }
   }
 
@@ -632,6 +676,9 @@ function App() {
           <div className="sidebar-footer" ref={sidebarFooterRef}>
             {isSystemPanelOpen && <SystemPanel status={systemStatus} />}
             {isThemePanelOpen && <ThemePanel prefs={uiPrefs} systemTheme={systemTheme} onChange={setUIPrefs} />}
+            {isSettingsPanelOpen && appSettings && (
+              <SettingsPanel settings={appSettings} onChange={(next) => void saveAppSettings(next)} />
+            )}
             <div className="footer-actions">
               <button
                 aria-label={isSystemPanelOpen ? 'Hide system status' : 'Show system status'}
@@ -641,6 +688,7 @@ function App() {
                 onClick={() => {
                   setIsSystemPanelOpen((open) => !open);
                   setIsThemePanelOpen(false);
+                  setIsSettingsPanelOpen(false);
                   if (!systemStatus) {
                     void loadSystemStatus();
                   }
@@ -656,9 +704,26 @@ function App() {
                 onClick={() => {
                   setIsThemePanelOpen((open) => !open);
                   setIsSystemPanelOpen(false);
+                  setIsSettingsPanelOpen(false);
                 }}
               >
                 <Brush size={14} strokeWidth={ICON_STROKE} />
+              </button>
+              <button
+                aria-label={isSettingsPanelOpen ? 'Hide settings' : 'Show settings'}
+                className="system-button has-tooltip tooltip-above"
+                data-tooltip="Settings"
+                type="button"
+                onClick={() => {
+                  setIsSettingsPanelOpen((open) => !open);
+                  setIsSystemPanelOpen(false);
+                  setIsThemePanelOpen(false);
+                  if (!appSettings) {
+                    void loadAppSettings();
+                  }
+                }}
+              >
+                <SlidersHorizontal size={14} strokeWidth={ICON_STROKE} />
               </button>
             </div>
           </div>
@@ -734,7 +799,7 @@ function App() {
                           provider={
                             message.provider ??
                             responseProviders[key] ??
-                            statusProviderInfo(systemStatus?.providers.find((provider) => provider.enabled && provider.role === 'primary'))
+                            statusProviderInfo(defaultResponseProvider(systemStatus))
                           }
                           sleepingProviders={systemStatus?.providers.filter((provider) => provider.state === 'sleeping') ?? []}
                         />
@@ -1275,8 +1340,74 @@ function ThemePanel({
           type="checkbox"
           onChange={(event) => onChange((current) => ({ ...current, showSleepAlert: event.target.checked }))}
         />
-        Sleeping alert
+        Fallback status
       </label>
+    </div>
+  );
+}
+
+function SettingsPanel({
+  settings,
+  onChange,
+}: {
+  settings: AppSettings;
+  onChange: (settings: AppSettings) => void;
+}) {
+  const updateProvider = (providerId: string, enabled: boolean) => {
+    onChange({
+      providers: settings.providers.map((provider) =>
+        provider.id === providerId ? { ...provider, enabled } : provider,
+      ),
+    });
+  };
+
+  const moveProvider = (providerId: string, direction: -1 | 1) => {
+    const index = settings.providers.findIndex((provider) => provider.id === providerId);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= settings.providers.length) {
+      return;
+    }
+    const providers = [...settings.providers];
+    const [provider] = providers.splice(index, 1);
+    providers.splice(nextIndex, 0, provider);
+    onChange({ providers });
+  };
+
+  return (
+    <div className="settings-panel" aria-label="Provider settings">
+      <div className="settings-panel-title">Providers</div>
+      {settings.providers.map((provider, index) => (
+        <div className={!provider.configured ? 'settings-provider muted' : 'settings-provider'} key={provider.id}>
+          <label>
+            <input
+              checked={provider.enabled}
+              disabled={!provider.configured}
+              type="checkbox"
+              onChange={(event) => updateProvider(provider.id, event.target.checked)}
+            />
+            <span>{provider.name}</span>
+          </label>
+          <small>{provider.configured ? provider.model || provider.role : 'Not configured'}</small>
+          <div className="settings-provider-actions">
+            <button
+              aria-label={`Move ${provider.name} up`}
+              disabled={index === 0}
+              type="button"
+              onClick={() => moveProvider(provider.id, -1)}
+            >
+              <ArrowUp size={12} strokeWidth={ICON_STROKE} />
+            </button>
+            <button
+              aria-label={`Move ${provider.name} down`}
+              disabled={index === settings.providers.length - 1}
+              type="button"
+              onClick={() => moveProvider(provider.id, 1)}
+            >
+              <ArrowDown size={12} strokeWidth={ICON_STROKE} />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1498,6 +1629,13 @@ function statusProviderInfo(provider?: ProviderStatus): ProviderInfo | undefined
     return undefined;
   }
   return { name: provider.name, model: provider.model };
+}
+
+function defaultResponseProvider(status: SystemStatus | null): ProviderStatus | undefined {
+  return (
+    status?.providers.find((provider) => provider.enabled && provider.role === 'primary') ??
+    status?.providers.find((provider) => provider.enabled)
+  );
 }
 
 function SourcesPanel({ results }: { results: SearchResult[] }) {

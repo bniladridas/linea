@@ -25,6 +25,7 @@ type Server struct {
 	staticFiles    http.FileSystem
 	origin         string
 	statusProvider StatusProvider
+	settingsStore  SettingsStore
 }
 
 type Status struct {
@@ -45,6 +46,24 @@ type ProviderStatus struct {
 
 type StatusProvider func(context.Context) Status
 
+type Settings struct {
+	Providers []ProviderSetting `json:"providers"`
+}
+
+type ProviderSetting struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Model      string `json:"model,omitempty"`
+	Role       string `json:"role"`
+	Enabled    bool   `json:"enabled"`
+	Configured bool   `json:"configured"`
+}
+
+type SettingsStore interface {
+	GetSettings() Settings
+	UpdateSettings(Settings) (Settings, error)
+}
+
 type Assistant interface {
 	GenerateStream(ctx context.Context, messages []store.Message, attachments []llm.Attachment, searchResults []llm.SearchResult, onChunk func(string) error) error
 }
@@ -60,13 +79,35 @@ func NewServer(store store.Store, llmClient Assistant, searchClient WebSearcher,
 }
 
 func NewServerWithStatus(store store.Store, llmClient Assistant, searchClient WebSearcher, staticFiles http.FileSystem, origin string, statusProvider StatusProvider) *Server {
-	return &Server{store: store, llmClient: llmClient, searchClient: searchClient, staticFiles: staticFiles, origin: origin, statusProvider: statusProvider}
+	return NewServerWithStatusAndSettings(store, llmClient, searchClient, staticFiles, origin, statusProvider, nil)
+}
+
+func NewServerWithStatusAndSettings(
+	store store.Store,
+	llmClient Assistant,
+	searchClient WebSearcher,
+	staticFiles http.FileSystem,
+	origin string,
+	statusProvider StatusProvider,
+	settingsStore SettingsStore,
+) *Server {
+	return &Server{
+		store:          store,
+		llmClient:      llmClient,
+		searchClient:   searchClient,
+		staticFiles:    staticFiles,
+		origin:         origin,
+		statusProvider: statusProvider,
+		settingsStore:  settingsStore,
+	}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/status", s.getStatus)
+	mux.HandleFunc("GET /api/settings", s.getSettings)
+	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
 	mux.HandleFunc("GET /api/conversations", s.listConversations)
 	mux.HandleFunc("POST /api/conversations", s.createConversation)
 	mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
@@ -83,6 +124,32 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.statusProvider(r.Context()))
+}
+
+func (s *Server) getSettings(w http.ResponseWriter, _ *http.Request) {
+	if s.settingsStore == nil {
+		writeJSON(w, http.StatusOK, Settings{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.settingsStore.GetSettings())
+}
+
+func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
+	if s.settingsStore == nil {
+		writeError(w, http.StatusNotFound, "Settings are not available.")
+		return
+	}
+	var next Settings
+	if err := json.NewDecoder(r.Body).Decode(&next); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	updated, err := s.settingsStore.UpdateSettings(next)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {

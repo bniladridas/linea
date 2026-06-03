@@ -40,6 +40,33 @@ Returns storage, search, and provider state.
 }
 ```
 
+# Settings
+
+`GET /api/settings`
+
+Returns provider order and enabled state.
+
+```json
+{
+  "providers": [
+    {"id":"gemini","name":"Gemini","model":"gemini-2.5-flash-lite","role":"primary","enabled":true,"configured":true}
+  ]
+}
+```
+
+`PATCH /api/settings`
+
+Updates provider order and enabled state. At least one configured provider must stay enabled.
+
+```json
+{
+  "providers": [
+    {"id":"gemini","enabled":true},
+    {"id":"ollama","enabled":false}
+  ]
+}
+```
+
 # Conversations
 
 `GET /api/conversations`
