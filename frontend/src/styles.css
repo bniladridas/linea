@@ -1035,12 +1035,16 @@ textarea {
 }
 
 .error {
-  margin: 0 32px 12px;
+  max-width: min(760px, 72vw);
+  margin: 0 auto 10px;
   border: 1px solid #4a2424;
   border-radius: 10px;
   background: #201313;
   color: #e6b8b8;
   padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  pointer-events: auto;
 }
 
 .dialog-backdrop {
@@ -1162,7 +1166,8 @@ textarea {
 }
 
 .shell.sources-open .composer-row,
-.shell.sources-open .attachments {
+.shell.sources-open .attachments,
+.shell.sources-open .error {
   max-width: min(760px, 70vw);
 }
 
@@ -1536,6 +1541,12 @@ textarea:focus {
 :root[data-theme="light"] .conversation-rename {
   border-color: #deded8;
   background: #ffffff;
+}
+
+:root[data-theme="light"] .error {
+  border-color: #e2d1ce;
+  background: #fff7f5;
+  color: #7a3b35;
 }
 
 :root[data-theme="light"] .new-chat {

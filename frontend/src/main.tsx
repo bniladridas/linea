@@ -823,9 +823,8 @@ function App() {
           <div ref={messageEndRef} />
         </div>
 
-        {error && <div className="error">{error}</div>}
-
         <form className="composer" onSubmit={sendMessage}>
+          {error && <div className="error">{error}</div>}
           {files.length > 0 && (
             <div className="attachments">
               {files.map((file) => (
