@@ -636,6 +636,11 @@ textarea {
   opacity: 1;
 }
 
+.tooltips-suppressed .has-tooltip::after,
+.has-tooltip:active::after {
+  opacity: 0;
+}
+
 .tooltip-above::after {
   top: auto;
   bottom: calc(100% + 8px);
