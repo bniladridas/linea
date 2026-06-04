@@ -1322,8 +1322,9 @@ function SystemPanel({ status, agentStatus }: { status: SystemStatus | null; age
   const enabledProviders = status?.providers.filter((provider) => provider.enabled) ?? [];
   const disabledProviders = status?.providers.filter((provider) => !provider.enabled) ?? [];
   const localProvider = status?.providers.find((provider) => provider.role === 'local');
+  const enabledAgentTools = agentStatus?.tools.filter((tool) => tool.access !== 'off').length ?? 0;
   const agentValue = agentStatus
-    ? `${agentStatus.rules.loaded ? 'Rules' : 'Rules off'}, ${agentStatus.tools.length} tools`
+    ? `${agentStatus.rules.loaded ? 'Rules' : 'Rules off'}, ${enabledAgentTools} tools`
     : 'Ready';
   const plannedHooks = agentStatus?.hooks.filter((hook) => hook.state === 'planned').length ?? 0;
   const traceCount = agentStatus?.traceEvents.length ?? 0;

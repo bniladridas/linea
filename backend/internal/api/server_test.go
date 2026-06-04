@@ -8,6 +8,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -360,6 +362,72 @@ func TestCreateAgentTraceRejectsEmptyEvent(t *testing.T) {
 	}
 }
 
+func TestAgentWorkspaceReadFileEndpoint(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/workspace/file?path=notes.md", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var got agent.FileResult
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if got.Path != "notes.md" || got.Content != "agent notes" {
+		t.Fatalf("file result = %#v", got)
+	}
+}
+
+func TestAgentWorkspaceSearchEndpoint(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes\nother")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/workspace/search?q=agent", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var got []agent.SearchResult
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(got) != 1 || got[0].Path != "notes.md" {
+		t.Fatalf("search result = %#v", got)
+	}
+}
+
+func TestAgentWorkspaceDisabledReturnsNotFound(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("")
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/workspace/search?q=agent", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusNotFound, res.Body.String())
+	}
+}
+
 func TestReadAttachmentsPreservesImageBytes(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -456,6 +524,13 @@ func testFiles() http.FileSystem {
 	return http.FS(fstest.MapFS{
 		"index.html": {Data: []byte("<!doctype html><html><body>Linea</body></html>")},
 	})
+}
+
+func writeAPITestFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
 }
 
 type fakeAssistant struct {

@@ -12,9 +12,10 @@ import (
 )
 
 type Runtime struct {
-	mu        sync.RWMutex
-	rulesPath string
-	traces    []Trace
+	mu            sync.RWMutex
+	rulesPath     string
+	traces        []Trace
+	workspaceRoot string
 }
 
 type Status struct {
@@ -67,18 +68,24 @@ type TraceInput struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-func NewRuntime(rulesPath string) *Runtime {
+func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 	if strings.TrimSpace(rulesPath) == "" {
 		rulesPath = "AGENTS.md"
 	}
-	return &Runtime{rulesPath: rulesPath}
+	runtime := &Runtime{rulesPath: rulesPath}
+	for _, option := range options {
+		if option != nil {
+			option(runtime)
+		}
+	}
+	return runtime
 }
 
 func (r *Runtime) Status(ctx context.Context) Status {
 	return Status{
 		Mode:        "local",
 		Rules:       r.loadRules(ctx),
-		Tools:       defaultTools(),
+		Tools:       r.tools(),
 		Hooks:       defaultHooks(),
 		Skills:      defaultSkills(),
 		Boundaries:  defaultBoundaries(),
@@ -202,6 +209,20 @@ func defaultTools() []Tool {
 		{ID: "run_command", Name: "Run commands", Access: "allowlist", Approval: "required by boundary"},
 		{ID: "diagnostics", Name: "Read diagnostics", Access: "workspace", Approval: "not required"},
 	}
+}
+
+func (r *Runtime) tools() []Tool {
+	tools := defaultTools()
+	if r.WorkspaceEnabled() {
+		return tools
+	}
+	for index := range tools {
+		if tools[index].Access == "workspace" {
+			tools[index].Access = "off"
+			tools[index].Approval = "workspace not set"
+		}
+	}
+	return tools
 }
 
 func defaultHooks() []Hook {

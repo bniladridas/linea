@@ -55,6 +55,8 @@ type AgentRuntime interface {
 	Status(context.Context) agent.Status
 	ListTraces(context.Context) []agent.Trace
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
+	ReadFile(context.Context, string) (agent.FileResult, error)
+	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 }
 
 type Settings struct {
@@ -156,6 +158,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent", s.getAgentStatus)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
+	mux.HandleFunc("GET /api/agent/workspace/file", s.readAgentWorkspaceFile)
+	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
 	mux.HandleFunc("GET /api/conversations", s.listConversations)
@@ -212,6 +216,43 @@ func (s *Server) createAgentTrace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, trace)
+}
+
+func (s *Server) readAgentWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent workspace is not available.")
+		return
+	}
+	result, err := s.agentRuntime.ReadFile(r.Context(), r.URL.Query().Get("path"))
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) searchAgentWorkspace(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent workspace is not available.")
+		return
+	}
+	results, err := s.agentRuntime.SearchFiles(r.Context(), r.URL.Query().Get("q"))
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
+func writeAgentToolError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, agent.ErrWorkspaceDisabled):
+		writeError(w, http.StatusNotFound, "Workspace tools are off.")
+	case errors.Is(err, agent.ErrPathOutsideRoot):
+		writeError(w, http.StatusBadRequest, "Path must stay inside the workspace.")
+	default:
+		writeError(w, http.StatusBadRequest, err.Error())
+	}
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, _ *http.Request) {

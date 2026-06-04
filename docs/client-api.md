@@ -97,6 +97,35 @@ Records an agent trace event.
 }
 ```
 
+`GET /api/agent/workspace/file?path=README.md`
+
+Reads a text file from `LINEA_WORKSPACE_DIR`.
+
+Workspace tools are off when `LINEA_WORKSPACE_DIR` is empty.
+
+```json
+{
+  "path": "README.md",
+  "content": "# Linea",
+  "size": 8,
+  "truncated": false
+}
+```
+
+`GET /api/agent/workspace/search?q=Linea`
+
+Searches text files in `LINEA_WORKSPACE_DIR`.
+
+```json
+[
+  {
+    "path": "README.md",
+    "line": 1,
+    "text": "# Linea"
+  }
+]
+```
+
 # Settings
 
 `GET /api/settings`
