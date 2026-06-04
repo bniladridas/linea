@@ -45,6 +45,9 @@ const PIN_ICON_SIZE = 13;
 const PINNED_STORAGE_KEY = 'linea:pinned-conversations';
 const SEARCH_RESULTS_STORAGE_KEY = 'linea:search-results';
 const UI_PREFS_STORAGE_KEY = 'linea:ui-prefs';
+const ACCEPTED_ATTACHMENT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'log', 'png', 'jpg', 'jpeg', 'webp']);
+const ACCEPTED_ATTACHMENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const ATTACHMENT_ACCEPT = '.txt,.md,.csv,.json,.log,image/png,image/jpeg,image/webp';
 
 type Conversation = {
   id: string;
@@ -218,6 +221,8 @@ type StreamChunk = {
 type UIPrefs = {
   showModelBadge: boolean;
   showSleepAlert: boolean;
+  showComposerShimmer: boolean;
+  showScrollCue: boolean;
   theme: ThemeChoice;
 };
 
@@ -239,6 +244,7 @@ function App() {
   const [content, setContent] = useState('');
   const [draftContent, setDraftContent] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !isNarrowViewport());
@@ -270,8 +276,11 @@ function App() {
   const sidebarFooterRef = useRef<HTMLDivElement | null>(null);
   const renameCancelledRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const activeIdRef = useRef<string | null>(null);
+  const [hasScrollableMessages, setHasScrollableMessages] = useState(false);
+  const [isAtMessageEnd, setIsAtMessageEnd] = useState(true);
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeId),
@@ -378,7 +387,19 @@ function App() {
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    window.setTimeout(updateMessageScrollState, 80);
   }, [messages, isSending]);
+
+  useEffect(() => {
+    updateMessageScrollState();
+    const node = messagesRef.current;
+    if (!node) {
+      return;
+    }
+    const observer = new ResizeObserver(updateMessageScrollState);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [messages.length, showSources, isSidebarOpen]);
 
   useEffect(() => {
     resizeComposer(textareaRef.current);
@@ -538,6 +559,36 @@ function App() {
     }
   }
 
+  function attachFiles(nextFiles: FileList | File[]) {
+    const accepted = Array.from(nextFiles).filter(isAcceptedAttachment);
+    setFiles(accepted);
+  }
+
+  function handleComposerDragOver(event: React.DragEvent<HTMLFormElement>) {
+    if (!hasDraggedFiles(event.dataTransfer)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setIsDraggingFiles(true);
+  }
+
+  function handleComposerDragLeave(event: React.DragEvent<HTMLFormElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+    setIsDraggingFiles(false);
+  }
+
+  function handleComposerDrop(event: React.DragEvent<HTMLFormElement>) {
+    if (!hasDraggedFiles(event.dataTransfer)) {
+      return;
+    }
+    event.preventDefault();
+    setIsDraggingFiles(false);
+    attachFiles(event.dataTransfer.files);
+  }
+
   function requestDeleteConversation(conversation: Conversation) {
     setOpenConversationMenu(null);
     setDeleteTarget(conversation);
@@ -656,7 +707,7 @@ function App() {
       setPendingSourceConversationId(conversation.id);
 
       const form = new FormData();
-      form.append('content', trimmed);
+      form.append('content', content);
       files.forEach((file) => form.append('files', file));
 
       setFiles([]);
@@ -704,6 +755,8 @@ function App() {
           );
         },
       });
+      void loadAgentStatus();
+      void loadAgentEditProposals();
       await loadConversations();
       setActiveId(conversation.id);
       if (!activeId) {
@@ -727,6 +780,22 @@ function App() {
     }
     event.preventDefault();
     void submitMessage();
+  }
+
+  function updateMessageScrollState() {
+    const node = messagesRef.current;
+    if (!node) {
+      setHasScrollableMessages(false);
+      setIsAtMessageEnd(true);
+      return;
+    }
+    setHasScrollableMessages(node.scrollHeight - node.clientHeight > 8);
+    setIsAtMessageEnd(node.scrollHeight - node.scrollTop - node.clientHeight < 28);
+  }
+
+  function scrollToMessageEnd() {
+    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    window.setTimeout(updateMessageScrollState, 160);
   }
 
   function setConversationSearchResults(conversationId: string, results: SearchResult[]) {
@@ -778,7 +847,7 @@ function App() {
             </button>
           </div>
 
-          <button className="new-chat" type="button" onClick={startNewChat}>
+          <button className="new-chat has-tooltip" data-tooltip="New chat" type="button" onClick={startNewChat}>
             <Plus size={14} strokeWidth={ICON_STROKE} />
             New
           </button>
@@ -966,7 +1035,7 @@ function App() {
           </div>
         </header>
 
-        <div className="messages">
+        <div className="messages" ref={messagesRef} onScroll={updateMessageScrollState}>
           {messages.length === 0 ? (
             <div className="empty-state" aria-label="No messages" />
           ) : (
@@ -986,7 +1055,7 @@ function App() {
                     {message.role === 'user' && (
                       <button
                         aria-label="Edit"
-                        className="message-edit has-tooltip tooltip-above"
+                        className="message-edit has-tooltip"
                         data-tooltip="Edit"
                         type="button"
                         onPointerDown={() => setAreTooltipsSuppressed(true)}
@@ -1025,8 +1094,32 @@ function App() {
           )}
           <div ref={messageEndRef} />
         </div>
+        {uiPrefs.showScrollCue && hasScrollableMessages && messages.length > 0 && (
+          <div className={`scroll-note ${isAtMessageEnd ? 'at-end' : 'can-scroll'}`}>
+            {isAtMessageEnd ? (
+              <span>End</span>
+            ) : (
+              <button type="button" onClick={scrollToMessageEnd}>
+                <ArrowDown size={12} strokeWidth={ICON_STROKE} />
+                Scroll
+              </button>
+            )}
+          </div>
+        )}
 
-        <form className="composer" onSubmit={sendMessage}>
+        <form
+          className={[
+            'composer',
+            uiPrefs.showComposerShimmer ? 'has-shimmer' : '',
+            isDraggingFiles ? 'is-dragging' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          onDragLeave={handleComposerDragLeave}
+          onDragOver={handleComposerDragOver}
+          onDrop={handleComposerDrop}
+          onSubmit={sendMessage}
+        >
           {error && <div className="error">{error}</div>}
           {files.length > 0 && (
             <div className="attachments">
@@ -1040,7 +1133,7 @@ function App() {
           )}
           <div className="composer-row">
             <label
-              className="icon-button file-picker has-tooltip tooltip-above"
+              className="icon-button file-picker has-tooltip tooltip-bottom-safe"
               data-tooltip="Attach"
               onPointerDown={() => setAreTooltipsSuppressed(true)}
             >
@@ -1049,9 +1142,9 @@ function App() {
                 aria-label="Attach files"
                 multiple
                 type="file"
-                accept=".txt,.md,.csv,.json,.log,image/png,image/jpeg,image/webp"
+                accept={ATTACHMENT_ACCEPT}
                 onChange={(event) => {
-                  setFiles(Array.from(event.target.files ?? []));
+                  attachFiles(event.target.files ?? []);
                   event.currentTarget.value = '';
                 }}
               />
@@ -1067,7 +1160,7 @@ function App() {
             />
             <button
               aria-label="Send"
-              className="send-button has-tooltip tooltip-above"
+              className="send-button has-tooltip tooltip-bottom-safe"
               data-tooltip="Send"
               disabled={isSending || !content.trim()}
               type="submit"
@@ -1190,10 +1283,20 @@ function MarkdownContent({ content }: { content: string }) {
 
 function CodeBlock({ code, language }: { code: string; language?: string }) {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const previewRef = useRef<HTMLDivElement | null>(null);
   const canPreview = isPreviewableHTML(code, language);
   const lines = useMemo(() => code.split('\n'), [code]);
   const byteCount = useMemo(() => new TextEncoder().encode(code).length, [code]);
   const meta = codeMeta(language, lines.length, byteCount);
+
+  useEffect(() => {
+    if (!isPreviewOpen) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    });
+  }, [isPreviewOpen]);
 
   return (
     <div className="code-shell">
@@ -1222,7 +1325,7 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
         </code>
       </pre>
       {canPreview && isPreviewOpen && (
-        <div className="code-preview-shell">
+        <div className="code-preview-shell" ref={previewRef}>
           <iframe
             className="code-preview"
             sandbox="allow-scripts"
@@ -1341,7 +1444,7 @@ function cleanMarkdownText(value: string): string {
 
 function renderInlineMarkdown(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/[^\s)]+))/g;
+  const pattern = /(`[^`\n]+`|\*\*[^*]+\*\*|\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/[^\s)]+))/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -1351,7 +1454,9 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     }
 
     const token = match[0];
-    if (token.startsWith('**')) {
+    if (token.startsWith('`')) {
+      nodes.push(<code key={`${match.index}-code`}>{token.slice(1, -1)}</code>);
+    } else if (token.startsWith('**')) {
       nodes.push(<strong key={`${match.index}-strong`}>{token.slice(2, -2)}</strong>);
     } else {
       const label = match[2] ?? tidyUrlLabel(token);
@@ -1818,6 +1923,24 @@ function ThemePanel({
         <CheckBoxMark checked={prefs.showSleepAlert} />
         Fallback status
       </label>
+      <label>
+        <input
+          checked={prefs.showComposerShimmer}
+          type="checkbox"
+          onChange={(event) => onChange((current) => ({ ...current, showComposerShimmer: event.target.checked }))}
+        />
+        <CheckBoxMark checked={prefs.showComposerShimmer} />
+        Input shimmer
+      </label>
+      <label>
+        <input
+          checked={prefs.showScrollCue}
+          type="checkbox"
+          onChange={(event) => onChange((current) => ({ ...current, showScrollCue: event.target.checked }))}
+        />
+        <CheckBoxMark checked={prefs.showScrollCue} />
+        Scroll cue
+      </label>
     </div>
   );
 }
@@ -2077,7 +2200,7 @@ function FeedbackRow({
       {FEEDBACK_OPTIONS.map(({ id, label, Icon }) => (
         <button
           aria-label={label}
-          className={`feedback-button has-tooltip tooltip-above ${selected === id ? 'active' : ''}`}
+          className={`feedback-button has-tooltip ${selected === id ? 'active' : ''}`}
           data-tooltip={label}
           key={id}
           type="button"
@@ -2240,6 +2363,18 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function hasDraggedFiles(dataTransfer: DataTransfer) {
+  return Array.from(dataTransfer.types).includes('Files');
+}
+
+function isAcceptedAttachment(file: File) {
+  if (ACCEPTED_ATTACHMENT_TYPES.has(file.type)) {
+    return true;
+  }
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  return extension ? ACCEPTED_ATTACHMENT_EXTENSIONS.has(extension) : false;
+}
+
 function loadPinnedConversationIds() {
   try {
     const value = window.localStorage.getItem(PINNED_STORAGE_KEY);
@@ -2260,11 +2395,19 @@ function loadUIPrefs(): UIPrefs {
     return {
       showModelBadge: true,
       showSleepAlert: true,
+      showComposerShimmer: true,
+      showScrollCue: true,
       ...parsed,
       theme: isThemeChoice(parsed.theme) ? parsed.theme : 'system',
     };
   } catch {
-    return { showModelBadge: true, showSleepAlert: true, theme: 'system' };
+    return {
+      showModelBadge: true,
+      showSleepAlert: true,
+      showComposerShimmer: true,
+      showScrollCue: true,
+      theme: 'system',
+    };
   }
 }
 
