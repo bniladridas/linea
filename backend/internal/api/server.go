@@ -57,6 +57,8 @@ type AgentRuntime interface {
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
+	ListEditProposals(context.Context) []agent.EditProposal
+	ProposeEdit(context.Context, agent.EditProposalInput) (agent.EditProposal, error)
 }
 
 type Settings struct {
@@ -160,6 +162,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
 	mux.HandleFunc("GET /api/agent/workspace/file", s.readAgentWorkspaceFile)
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
+	mux.HandleFunc("GET /api/agent/edit-proposals", s.listAgentEditProposals)
+	mux.HandleFunc("POST /api/agent/edit-proposals", s.createAgentEditProposal)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
 	mux.HandleFunc("GET /api/conversations", s.listConversations)
@@ -244,6 +248,33 @@ func (s *Server) searchAgentWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "search files", "completed", r.URL.Query().Get("q"))
 	writeJSON(w, http.StatusOK, results)
+}
+
+func (s *Server) listAgentEditProposals(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.EditProposal{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListEditProposals(r.Context()))
+}
+
+func (s *Server) createAgentEditProposal(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent edit proposals are not available.")
+		return
+	}
+	var input agent.EditProposalInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	proposal, err := s.agentRuntime.ProposeEdit(r.Context(), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "propose edit", "pending", proposal.Path)
+	writeJSON(w, http.StatusCreated, proposal)
 }
 
 func (s *Server) recordAgentTrace(ctx context.Context, event string, state string, detail string) {

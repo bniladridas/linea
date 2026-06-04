@@ -126,6 +126,38 @@ Searches text files in `LINEA_WORKSPACE_DIR`.
 ]
 ```
 
+`GET /api/agent/edit-proposals`
+
+Returns pending edit proposals.
+
+`POST /api/agent/edit-proposals`
+
+Creates a preview-only edit proposal. It does not write the file.
+
+```json
+{
+  "path": "README.md",
+  "content": "# Linea\n",
+  "summary": "short note"
+}
+```
+
+Returns:
+
+```json
+{
+  "id": "id",
+  "path": "README.md",
+  "summary": "short note",
+  "status": "pending",
+  "diff": [
+    {"type":"remove","oldLine":1,"text":"# Old"},
+    {"type":"add","newLine":1,"text":"# Linea"}
+  ],
+  "createdAt": "2026-06-01T00:00:00Z"
+}
+```
+
 # Settings
 
 `GET /api/settings`
