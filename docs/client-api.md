@@ -59,10 +59,10 @@ Returns the local agent contract. It is read-only.
     {"id":"before_tool","event":"Before tool calls","state":"planned"}
   ],
   "skills": [
-    {"id":"debug_test","name":"Debug failing test","state":"planned"}
+    {"id":"review_change","name":"Review change","state":"ready"}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add skill registry"],
+  "next": ["Add approved command checks"],
   "hookRuns": [],
   "traceEvents": [
     {"id":"runtime-ready","event":"agent runtime","state":"ready","createdAt":"2026-06-01T00:00:00Z"}

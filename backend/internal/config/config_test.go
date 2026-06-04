@@ -23,12 +23,16 @@ func TestEnvBoolUsesFallbackForUnknownValues(t *testing.T) {
 
 func TestLoadReadsAgentRulesPath(t *testing.T) {
 	t.Setenv("LINEA_RULES_FILE", "docs/rules.md")
+	t.Setenv("LINEA_SKILLS_DIR", "docs/skills")
 	t.Setenv("LINEA_WORKSPACE_DIR", "/tmp/linea")
 
 	cfg := Load()
 
 	if cfg.AgentRulesPath != "docs/rules.md" {
 		t.Fatalf("AgentRulesPath = %q, want docs/rules.md", cfg.AgentRulesPath)
+	}
+	if cfg.AgentSkillsDir != "docs/skills" {
+		t.Fatalf("AgentSkillsDir = %q, want docs/skills", cfg.AgentSkillsDir)
 	}
 	if cfg.AgentWorkspaceDir != "/tmp/linea" {
 		t.Fatalf("AgentWorkspaceDir = %q, want /tmp/linea", cfg.AgentWorkspaceDir)
