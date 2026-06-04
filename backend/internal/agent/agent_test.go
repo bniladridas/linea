@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,6 +70,68 @@ func TestRuntimeRejectsEmptyTrace(t *testing.T) {
 	_, err := NewRuntime("").AddTrace(context.Background(), TraceInput{Event: " ", State: "ready"})
 	if err == nil {
 		t.Fatal("AddTrace() error = nil, want error")
+	}
+}
+
+func TestWorkspaceReadsFilesInsideRoot(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "Linea reads local files.")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	result, err := runtime.ReadFile(context.Background(), "notes.md")
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if result.Path != "notes.md" || result.Content != "Linea reads local files." {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestWorkspaceRejectsOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	if _, err := runtime.ReadFile(context.Background(), "../secret.txt"); !errors.Is(err, ErrPathOutsideRoot) {
+		t.Fatalf("ReadFile() error = %v, want ErrPathOutsideRoot", err)
+	}
+}
+
+func TestWorkspaceRejectsSymlinkOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	writeTestFile(t, outside, "secret")
+	if err := os.Symlink(outside, filepath.Join(root, "link.txt")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	if _, err := runtime.ReadFile(context.Background(), "link.txt"); !errors.Is(err, ErrPathOutsideRoot) {
+		t.Fatalf("ReadFile() error = %v, want ErrPathOutsideRoot", err)
+	}
+}
+
+func TestWorkspaceSearchesTextFiles(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "a.txt"), "hello\nagent trace\n")
+	writeTestFile(t, filepath.Join(root, "b.txt"), "nothing\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	results, err := runtime.SearchFiles(context.Background(), "agent")
+	if err != nil {
+		t.Fatalf("SearchFiles() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Path != "a.txt" || results[0].Line != 2 {
+		t.Fatalf("results = %#v", results)
+	}
+}
+
+func TestWorkspaceDisabledByDefault(t *testing.T) {
+	runtime := NewRuntime("")
+	if runtime.WorkspaceEnabled() {
+		t.Fatal("WorkspaceEnabled() = true, want false")
+	}
+	if _, err := runtime.SearchFiles(context.Background(), "agent"); !errors.Is(err, ErrWorkspaceDisabled) {
+		t.Fatalf("SearchFiles() error = %v, want ErrWorkspaceDisabled", err)
 	}
 }
 

@@ -29,6 +29,7 @@ Provider order and fallback toggles are saved in `~/.config/linea/settings.json`
 ```sh
 API_ADDR=:8080
 LINEA_RULES_FILE=AGENTS.md
+LINEA_WORKSPACE_DIR=
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash-lite
@@ -50,6 +51,7 @@ WEB_ORIGIN=http://localhost:5173
 | Name | Use |
 | --- | --- |
 | `LINEA_RULES_FILE` | Agent rules file. |
+| `LINEA_WORKSPACE_DIR` | Enables read-only agent workspace tools. Empty means off. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `GEMINI_API_KEY` | Gemini primary. |
 | `GEMINI_MODEL` | Gemini model. |
@@ -129,6 +131,8 @@ UI checks need Chrome. Message checks need one working text model.
 | `GET` | `/api/agent` |
 | `GET` | `/api/agent/traces` |
 | `POST` | `/api/agent/traces` |
+| `GET` | `/api/agent/workspace/file` |
+| `GET` | `/api/agent/workspace/search` |
 | `GET` | `/api/conversations` |
 | `POST` | `/api/conversations` |
 | `PATCH` | `/api/conversations/{id}` |

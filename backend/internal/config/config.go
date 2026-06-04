@@ -6,46 +6,48 @@ import (
 )
 
 type Config struct {
-	APIAddr          string
-	AgentRulesPath   string
-	DatabaseURL      string
-	GeminiAPIKey     string
-	GeminiModel      string
-	SambaNovaAPIKey  string
-	SambaNovaBaseURL string
-	SambaNovaEnabled bool
-	SambaNovaModel   string
-	CerebrasAPIKey   string
-	CerebrasBaseURL  string
-	CerebrasEnabled  bool
-	CerebrasModel    string
-	OllamaBaseURL    string
-	OllamaModel      string
-	OllamaFallback   bool
-	StaticDir        string
-	WebOrigin        string
+	APIAddr           string
+	AgentRulesPath    string
+	AgentWorkspaceDir string
+	DatabaseURL       string
+	GeminiAPIKey      string
+	GeminiModel       string
+	SambaNovaAPIKey   string
+	SambaNovaBaseURL  string
+	SambaNovaEnabled  bool
+	SambaNovaModel    string
+	CerebrasAPIKey    string
+	CerebrasBaseURL   string
+	CerebrasEnabled   bool
+	CerebrasModel     string
+	OllamaBaseURL     string
+	OllamaModel       string
+	OllamaFallback    bool
+	StaticDir         string
+	WebOrigin         string
 }
 
 func Load() Config {
 	return Config{
-		APIAddr:          env("API_ADDR", ":8080"),
-		AgentRulesPath:   env("LINEA_RULES_FILE", "AGENTS.md"),
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		GeminiAPIKey:     os.Getenv("GEMINI_API_KEY"),
-		GeminiModel:      env("GEMINI_MODEL", "gemini-2.5-flash-lite"),
-		SambaNovaAPIKey:  os.Getenv("SAMBANOVA_API_KEY"),
-		SambaNovaBaseURL: env("SAMBANOVA_BASE_URL", "https://api.sambanova.ai/v1"),
-		SambaNovaEnabled: envBool("SAMBANOVA_ENABLED", true),
-		SambaNovaModel:   env("SAMBANOVA_MODEL", "gpt-oss-120b"),
-		CerebrasAPIKey:   os.Getenv("CEREBRAS_API_KEY"),
-		CerebrasBaseURL:  env("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"),
-		CerebrasEnabled:  envBool("CEREBRAS_ENABLED", true),
-		CerebrasModel:    env("CEREBRAS_MODEL", "gpt-oss-120b"),
-		OllamaBaseURL:    env("OLLAMA_BASE_URL", "http://localhost:11434"),
-		OllamaModel:      env("OLLAMA_MODEL", "qwen2.5-coder:1.5b"),
-		OllamaFallback:   envBool("OLLAMA_FALLBACK", true),
-		StaticDir:        os.Getenv("STATIC_DIR"),
-		WebOrigin:        env("WEB_ORIGIN", "http://localhost:5173"),
+		APIAddr:           env("API_ADDR", ":8080"),
+		AgentRulesPath:    env("LINEA_RULES_FILE", "AGENTS.md"),
+		AgentWorkspaceDir: os.Getenv("LINEA_WORKSPACE_DIR"),
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		GeminiAPIKey:      os.Getenv("GEMINI_API_KEY"),
+		GeminiModel:       env("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+		SambaNovaAPIKey:   os.Getenv("SAMBANOVA_API_KEY"),
+		SambaNovaBaseURL:  env("SAMBANOVA_BASE_URL", "https://api.sambanova.ai/v1"),
+		SambaNovaEnabled:  envBool("SAMBANOVA_ENABLED", true),
+		SambaNovaModel:    env("SAMBANOVA_MODEL", "gpt-oss-120b"),
+		CerebrasAPIKey:    os.Getenv("CEREBRAS_API_KEY"),
+		CerebrasBaseURL:   env("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"),
+		CerebrasEnabled:   envBool("CEREBRAS_ENABLED", true),
+		CerebrasModel:     env("CEREBRAS_MODEL", "gpt-oss-120b"),
+		OllamaBaseURL:     env("OLLAMA_BASE_URL", "http://localhost:11434"),
+		OllamaModel:       env("OLLAMA_MODEL", "qwen2.5-coder:1.5b"),
+		OllamaFallback:    envBool("OLLAMA_FALLBACK", true),
+		StaticDir:         os.Getenv("STATIC_DIR"),
+		WebOrigin:         env("WEB_ORIGIN", "http://localhost:5173"),
 	}
 }
 
