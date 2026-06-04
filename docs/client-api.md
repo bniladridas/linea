@@ -62,7 +62,7 @@ Returns the local agent contract. It is read-only.
     {"id":"review_change","name":"Review change","state":"ready","command":"make test"}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add applied edit approvals"],
+  "next": ["Add persisted agent runs"],
   "hookRuns": [],
   "skillRuns": [],
   "commandApprovals": [],
@@ -327,7 +327,7 @@ Searches text files in `LINEA_WORKSPACE_DIR`.
 
 `GET /api/agent/edit-proposals`
 
-Returns pending edit proposals.
+Returns edit proposals.
 
 `POST /api/agent/edit-proposals`
 
@@ -356,6 +356,19 @@ Returns:
   "createdAt": "2026-06-01T00:00:00Z"
 }
 ```
+
+`PATCH /api/agent/edit-proposals/{id}`
+
+Reviews an edit proposal. It does not write the file.
+
+```json
+{
+  "status": "approved",
+  "detail": "reviewed"
+}
+```
+
+Valid statuses are `approved` and `rejected`.
 
 # Settings
 

@@ -455,6 +455,50 @@ func TestProposeEditStoresPendingDiff(t *testing.T) {
 	}
 }
 
+func TestReviewEditProposalUpdatesStatusWithoutWriting(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "one\ntwo\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "one\nthree\n",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+
+	reviewed, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, EditProposalReviewInput{
+		Status: "approved",
+		Detail: "looks right",
+	})
+	if err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	if reviewed.Status != "approved" || reviewed.ReviewDetail != "looks right" || reviewed.ReviewedAt == nil {
+		t.Fatalf("reviewed = %#v", reviewed)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Status != "approved" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "notes.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "one\ntwo\n" {
+		t.Fatalf("file was changed: %q", string(content))
+	}
+}
+
+func TestReviewEditProposalRejectsInvalidStatus(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+
+	_, err := runtime.ReviewEditProposal(context.Background(), "proposal", EditProposalReviewInput{Status: "applied"})
+	if err == nil {
+		t.Fatal("ReviewEditProposal() error = nil, want error")
+	}
+}
+
 func TestProposeEditRejectsOutsideRoot(t *testing.T) {
 	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
 

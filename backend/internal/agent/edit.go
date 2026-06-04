@@ -17,13 +17,20 @@ type EditProposalInput struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+type EditProposalReviewInput struct {
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
 type EditProposal struct {
-	ID        string     `json:"id"`
-	Path      string     `json:"path"`
-	Summary   string     `json:"summary,omitempty"`
-	Status    string     `json:"status"`
-	Diff      []DiffLine `json:"diff"`
-	CreatedAt time.Time  `json:"createdAt"`
+	ID           string     `json:"id"`
+	Path         string     `json:"path"`
+	Summary      string     `json:"summary,omitempty"`
+	Status       string     `json:"status"`
+	ReviewDetail string     `json:"reviewDetail,omitempty"`
+	Diff         []DiffLine `json:"diff"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	ReviewedAt   *time.Time `json:"reviewedAt,omitempty"`
 }
 
 type DiffLine struct {
@@ -80,6 +87,35 @@ func (r *Runtime) ProposeEdit(ctx context.Context, input EditProposalInput) (Edi
 		r.editProposals = r.editProposals[:25]
 	}
 	return proposal, nil
+}
+
+func (r *Runtime) ReviewEditProposal(_ context.Context, id string, input EditProposalReviewInput) (EditProposal, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return EditProposal{}, errors.New("Edit proposal ID is required.")
+	}
+	status := strings.TrimSpace(input.Status)
+	switch status {
+	case "approved", "rejected":
+	default:
+		return EditProposal{}, errors.New("Edit proposal status is invalid.")
+	}
+	detail := strings.TrimSpace(input.Detail)
+	if len([]rune(detail)) > 240 {
+		detail = string([]rune(detail)[:240])
+	}
+	reviewedAt := time.Now().UTC()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for index := range r.editProposals {
+		if r.editProposals[index].ID == id {
+			r.editProposals[index].Status = status
+			r.editProposals[index].ReviewDetail = detail
+			r.editProposals[index].ReviewedAt = &reviewedAt
+			return r.editProposals[index], nil
+		}
+	}
+	return EditProposal{}, errors.New("Edit proposal was not found.")
 }
 
 func buildDiff(before string, after string) []DiffLine {
