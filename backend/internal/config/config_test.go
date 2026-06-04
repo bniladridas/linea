@@ -20,3 +20,13 @@ func TestEnvBoolUsesFallbackForUnknownValues(t *testing.T) {
 		t.Fatal("envBool(unknown) = false, want fallback true")
 	}
 }
+
+func TestLoadReadsAgentRulesPath(t *testing.T) {
+	t.Setenv("LINEA_RULES_FILE", "docs/rules.md")
+
+	cfg := Load()
+
+	if cfg.AgentRulesPath != "docs/rules.md" {
+		t.Fatalf("AgentRulesPath = %q, want docs/rules.md", cfg.AgentRulesPath)
+	}
+}

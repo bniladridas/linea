@@ -12,6 +12,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"linea/backend/internal/agent"
 	"linea/backend/internal/llm"
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
@@ -263,6 +264,44 @@ func TestGetStatusReturnsSafeSystemState(t *testing.T) {
 	}
 	if got.Storage != "PostgreSQL" || got.Search != "DuckDuckGo" || len(got.Providers) != 1 {
 		t.Fatalf("status body = %#v", got)
+	}
+}
+
+func TestGetAgentStatusReturnsLocalContract(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	agentStatus := agent.Status{
+		Mode: "local",
+		Rules: agent.RuleSet{
+			Source:  "built-in",
+			Loaded:  true,
+			Summary: []string{"Local-first"},
+		},
+		Tools: []agent.Tool{{
+			ID:       "read_file",
+			Name:     "Read files",
+			Access:   "workspace",
+			Approval: "not required",
+		}},
+	}
+	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, func(context.Context) agent.Status {
+		return agentStatus
+	}).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var got agent.Status
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if got.Mode != "local" || !got.Rules.Loaded || len(got.Tools) != 1 {
+		t.Fatalf("agent status = %#v", got)
 	}
 }
 
