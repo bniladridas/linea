@@ -33,6 +33,7 @@ type Status struct {
 	Tools            []Tool            `json:"tools"`
 	Hooks            []Hook            `json:"hooks"`
 	Skills           []Skill           `json:"skills"`
+	Subagents        []Subagent        `json:"subagents"`
 	MCPServers       []MCPServer       `json:"mcpServers"`
 	MCPTools         []MCPTool         `json:"mcpTools"`
 	Boundaries       []string          `json:"boundaries"`
@@ -112,6 +113,14 @@ type SkillExecutionInput struct {
 type SkillExecution struct {
 	SkillRun   SkillRun    `json:"skillRun"`
 	CommandRun *CommandRun `json:"commandRun,omitempty"`
+}
+
+type Subagent struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Purpose string   `json:"purpose"`
+	State   string   `json:"state"`
+	Tools   []string `json:"tools"`
 }
 
 type MCPServer struct {
@@ -215,6 +224,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Tools:            r.tools(),
 		Hooks:            defaultHooks(),
 		Skills:           r.skills(ctx),
+		Subagents:        defaultSubagents(),
 		MCPServers:       r.mcpServers(ctx),
 		MCPTools:         r.mcpTools(ctx),
 		Boundaries:       defaultBoundaries(),
@@ -227,6 +237,10 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		CommandChecks:    r.statusCommandChecks(),
 		CommandRuns:      r.statusCommandRuns(),
 	}
+}
+
+func (r *Runtime) ListSubagents(context.Context) []Subagent {
+	return defaultSubagents()
 }
 
 func (r *Runtime) RunSummary(context.Context) RunSummary {
@@ -625,6 +639,39 @@ func defaultSkills() []Skill {
 		{ID: "debug_test", Name: "Debug failing test", State: "planned"},
 		{ID: "review_change", Name: "Review change", State: "planned"},
 		{ID: "update_docs", Name: "Update docs", State: "planned"},
+	}
+}
+
+func defaultSubagents() []Subagent {
+	return []Subagent{
+		{
+			ID:      "review",
+			Name:    "Review",
+			Purpose: "Inspect changes for bugs, regressions, and missing checks.",
+			State:   "planned",
+			Tools:   []string{"read_file", "search_files", "diagnostics"},
+		},
+		{
+			ID:      "search",
+			Name:    "Search",
+			Purpose: "Find local context and summarize relevant files.",
+			State:   "planned",
+			Tools:   []string{"read_file", "search_files"},
+		},
+		{
+			ID:      "test",
+			Name:    "Test",
+			Purpose: "Run approved checks and report failures.",
+			State:   "planned",
+			Tools:   []string{"run_command", "diagnostics"},
+		},
+		{
+			ID:      "docs",
+			Name:    "Docs",
+			Purpose: "Keep documentation aligned with behavior.",
+			State:   "planned",
+			Tools:   []string{"read_file", "search_files"},
+		},
 	}
 }
 

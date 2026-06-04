@@ -138,6 +138,7 @@ UI checks need Chrome. Message checks need one working text model.
 | `GET` | `/api/agent/run-summary` |
 | `GET` | `/api/agent/runs` |
 | `POST` | `/api/agent/runs` |
+| `GET` | `/api/agent/subagents` |
 | `GET` | `/api/agent/mcp-servers` |
 | `GET` | `/api/agent/mcp-tools` |
 | `GET` | `/api/agent/traces` |

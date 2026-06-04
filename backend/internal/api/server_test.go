@@ -424,6 +424,29 @@ func TestAgentRunEndpointsCreateAndListSnapshots(t *testing.T) {
 	}
 }
 
+func TestAgentSubagentsEndpoint(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("")
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/subagents", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var subagents []agent.Subagent
+	if err := json.NewDecoder(res.Body).Decode(&subagents); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(subagents) != 4 || subagents[0].ID != "review" {
+		t.Fatalf("subagents = %#v", subagents)
+	}
+}
+
 func TestAgentMCPServersEndpoint(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
 	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"},"tools":[{"name":"search_docs","description":"Search docs"}]}}}`)
