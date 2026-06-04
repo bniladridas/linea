@@ -62,8 +62,9 @@ Returns the local agent contract. It is read-only.
     {"id":"review_change","name":"Review change","state":"ready"}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add approved command checks"],
+  "next": ["Add hook execution"],
   "hookRuns": [],
+  "commandChecks": [],
   "traceEvents": [
     {"id":"runtime-ready","event":"agent runtime","state":"ready","createdAt":"2026-06-01T00:00:00Z"}
   ]
@@ -123,6 +124,32 @@ Records a known hook run. It does not execute commands.
   "hookId": "before_tool",
   "state": "completed",
   "detail": "read file"
+}
+```
+
+`GET /api/agent/command-checks`
+
+Returns recent command checks.
+
+```json
+[
+  {
+    "id": "id",
+    "command": "make test",
+    "allowed": true,
+    "reason": "allowed",
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
+]
+```
+
+`POST /api/agent/command-checks`
+
+Checks a command against `LINEA_COMMAND_ALLOWLIST`. It does not execute the command.
+
+```json
+{
+  "command": "make test"
 }
 ```
 

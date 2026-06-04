@@ -135,6 +135,42 @@ func TestStatusReportsEmptySkillsDirectory(t *testing.T) {
 	}
 }
 
+func TestRuntimeChecksCommandsAgainstAllowlist(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test", "go test ./..."}))
+
+	allowed, err := runtime.CheckCommand(context.Background(), CommandCheckInput{Command: " make   test "})
+	if err != nil {
+		t.Fatalf("CheckCommand() error = %v", err)
+	}
+	if !allowed.Allowed || allowed.Command != "make test" || allowed.Reason != "allowed" {
+		t.Fatalf("allowed = %#v", allowed)
+	}
+
+	blocked, err := runtime.CheckCommand(context.Background(), CommandCheckInput{Command: "rm -rf ."})
+	if err != nil {
+		t.Fatalf("CheckCommand() error = %v", err)
+	}
+	if blocked.Allowed || blocked.Reason != "not in allowlist" {
+		t.Fatalf("blocked = %#v", blocked)
+	}
+
+	checks := runtime.ListCommandChecks(context.Background())
+	if len(checks) != 2 || checks[0].ID != blocked.ID || checks[1].ID != allowed.ID {
+		t.Fatalf("checks = %#v", checks)
+	}
+	status := runtime.Status(context.Background())
+	if len(status.CommandChecks) != 2 {
+		t.Fatalf("status command checks = %#v", status.CommandChecks)
+	}
+}
+
+func TestRuntimeRejectsEmptyCommandCheck(t *testing.T) {
+	_, err := NewRuntime("").CheckCommand(context.Background(), CommandCheckInput{Command: " "})
+	if err == nil {
+		t.Fatal("CheckCommand() error = nil, want error")
+	}
+}
+
 func TestWorkspaceReadsFilesInsideRoot(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "Linea reads local files.")

@@ -113,7 +113,12 @@ func main() {
 		os.Exit(1)
 	}
 	llmClient := newRoutingAssistant(cfg, settingsStore)
-	agentRuntime := agent.NewRuntime(cfg.AgentRulesPath, agent.WithWorkspaceRoot(cfg.AgentWorkspaceDir), agent.WithSkillsDir(cfg.AgentSkillsDir))
+	agentRuntime := agent.NewRuntime(
+		cfg.AgentRulesPath,
+		agent.WithWorkspaceRoot(cfg.AgentWorkspaceDir),
+		agent.WithSkillsDir(cfg.AgentSkillsDir),
+		agent.WithCommandAllowlist(cfg.AgentCommandAllowlist),
+	)
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
 		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
