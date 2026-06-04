@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "linea": {
+      "command": "node",
+      "args": ["--version"],
+      "tools": [
+        {
+          "name": "linea_status",
+          "description": "Read local Linea status."
+        }
+      ]
+    }
+  }
+}

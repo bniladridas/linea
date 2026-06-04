@@ -1,4 +1,4 @@
-.PHONY: build test check install-check release-check macos-package model-check ui-check ui-check-full
+.PHONY: build test check install-check release-check macos-package model-check agent-check agent-check-memory ui-check ui-check-full
 
 build:
 	cd frontend && npm ci && npm run build
@@ -38,6 +38,13 @@ macos-package:
 
 model-check:
 	node scripts/model-smoke.mjs --configured
+
+agent-check: build
+	./bin/linea -migrate
+	node scripts/agent-smoke.mjs --start
+
+agent-check-memory: build
+	LINEA_AGENT_SMOKE_MEMORY=1 node scripts/agent-smoke.mjs --start
 
 ui-check:
 	node scripts/ui-smoke.mjs --attachment --light-theme --mobile

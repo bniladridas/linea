@@ -43,6 +43,9 @@ type DiffLine struct {
 func (r *Runtime) ListEditProposals(context.Context) []EditProposal {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if len(r.editProposals) == 0 {
+		return []EditProposal{}
+	}
 	return append([]EditProposal(nil), r.editProposals...)
 }
 

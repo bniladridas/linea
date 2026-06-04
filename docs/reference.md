@@ -105,6 +105,8 @@ Vite runs at `http://localhost:5173`.
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
 | Server | `linea -check-server http://localhost:8080` |
+| Agent API | `make agent-check` |
+| Agent API memory | `make agent-check-memory` |
 | UI | `make ui-check` |
 | UI with message | `make ui-check-full` |
 | Models | `make model-check` |

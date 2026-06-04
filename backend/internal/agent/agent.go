@@ -323,6 +323,9 @@ func (r *Runtime) RunSummary(context.Context) RunSummary {
 func (r *Runtime) ListTraces(context.Context) []Trace {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if len(r.traces) == 0 {
+		return []Trace{}
+	}
 	return append([]Trace(nil), r.traces...)
 }
 
@@ -355,6 +358,9 @@ func (r *Runtime) AddTrace(_ context.Context, input TraceInput) (Trace, error) {
 func (r *Runtime) ListHookRuns(context.Context) []HookRun {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if len(r.hookRuns) == 0 {
+		return []HookRun{}
+	}
 	return append([]HookRun(nil), r.hookRuns...)
 }
 
@@ -427,6 +433,9 @@ func (r *Runtime) RunHook(ctx context.Context, hookID string, input HookExecutio
 func (r *Runtime) ListCommandChecks(context.Context) []CommandCheck {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if len(r.commandChecks) == 0 {
+		return []CommandCheck{}
+	}
 	return append([]CommandCheck(nil), r.commandChecks...)
 }
 
@@ -491,6 +500,9 @@ func (r *Runtime) statusHookRuns() []HookRun {
 func (r *Runtime) ListSkillRuns(context.Context) []SkillRun {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if len(r.skillRuns) == 0 {
+		return []SkillRun{}
+	}
 	return append([]SkillRun(nil), r.skillRuns...)
 }
 

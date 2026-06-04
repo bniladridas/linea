@@ -37,6 +37,9 @@ func normalizeCommands(commands []string) []string {
 func (r *Runtime) ListCommandApprovals(context.Context) []CommandApproval {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if len(r.commandApprovals) == 0 {
+		return []CommandApproval{}
+	}
 	return append([]CommandApproval(nil), r.commandApprovals...)
 }
 
@@ -81,6 +84,9 @@ func (r *Runtime) AddCommandApproval(_ context.Context, input CommandApprovalInp
 func (r *Runtime) ListCommandRuns(context.Context) []CommandRun {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if len(r.commandRuns) == 0 {
+		return []CommandRun{}
+	}
 	return append([]CommandRun(nil), r.commandRuns...)
 }
 
