@@ -12,9 +12,14 @@ const checkSearchSources = process.argv.includes('--search-sources');
 const checkLightTheme = process.argv.includes('--light-theme');
 const checkMobile = process.argv.includes('--mobile');
 const checkAttachment = process.argv.includes('--attachment');
+const checkAgentReview = process.argv.includes('--agent-review');
 const port = Number(process.env.LINEA_UI_SMOKE_PORT ?? 9300 + (process.pid % 500));
+const agentReviewFile = process.env.LINEA_AGENT_REVIEW_FILE ?? 'README.md';
+const agentReviewSummary = 'Agent review smoke';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let agentReviewProposalId = '';
+let agentReviewProposalCreated = false;
 
 async function main() {
   const cleanupStartedAt = new Date().toISOString();
@@ -23,6 +28,9 @@ async function main() {
 
   try {
     await waitForDevTools(() => chrome.stderrText());
+    if (checkAgentReview) {
+      await ensureAgentReviewProposal();
+    }
     const result = await runProbe();
     if (!checkMobile && (!result.bodyText.includes('Linea') || !result.bodyText.includes('New'))) {
       throw new Error(`UI did not render expected Linea text. Body text: ${JSON.stringify(result.bodyText)}`);
@@ -66,6 +74,9 @@ async function main() {
     if (checkAttachment && !result.attachmentWorks) {
       throw new Error('UI attachment smoke did not render the selected file.');
     }
+    if (checkAgentReview && !result.agentReviewWorks) {
+      throw new Error(`UI agent review smoke did not render edit proposals. ${result.agentReviewDetail}`);
+    }
     if (checkLightTheme && !result.lightThemeWorks) {
       throw new Error(`Light theme still has dark leaked state. ${result.lightThemeDetail}`);
     }
@@ -91,9 +102,13 @@ async function main() {
     if (checkAttachment) {
       console.log('PASS ui attachment - selected file rendered');
     }
+    if (checkAgentReview) {
+      console.log('PASS ui agent review - edit proposal rendered');
+    }
   } finally {
     await closeBrowser(port);
     chrome.kill();
+    await cleanupAgentReviewProposal();
     await cleanupSmokeConversations(cleanupStartedAt);
   }
 }
@@ -295,6 +310,41 @@ async function runProbe() {
     expression: `Boolean(document.querySelector('.system-panel'))`,
     returnByValue: true,
   });
+
+  let agentReviewObserved = null;
+  if (checkAgentReview) {
+    await send('Runtime.evaluate', {
+      expression: `(() => {
+        const details = Array.from(document.querySelectorAll('button')).find((button) => button.textContent.includes('Details'));
+        details?.click();
+        return Boolean(details);
+      })()`,
+      returnByValue: true,
+    });
+    await sleep(500);
+    agentReviewObserved = await send('Runtime.evaluate', {
+      expression: `(() => {
+        const dialog = document.querySelector('.details-dialog');
+        const bodyText = dialog?.innerText ?? '';
+        return {
+          ok:
+            Boolean(dialog) &&
+            bodyText.includes('Edit proposals') &&
+            bodyText.includes('Agent review smoke') &&
+            Boolean(dialog.querySelector('.proposal-diff')) &&
+            Boolean(dialog.querySelector('.proposal-actions button')),
+          text: bodyText.slice(0, 600),
+        };
+      })()`,
+      returnByValue: true,
+    });
+    await send('Runtime.evaluate', {
+      expression: `document.querySelector('.details-close')?.click()`,
+      returnByValue: true,
+    });
+    await sleep(150);
+  }
+
   await send('Runtime.evaluate', {
     expression: `document.querySelector('.system-button')?.click()`,
     returnByValue: true,
@@ -577,8 +627,60 @@ async function runProbe() {
     modelBadgeWorks: !sendMessage || modelBadgeObserved?.result?.result?.value === true,
     sourcesWork: !checkSearchSources || sourcesObserved?.result?.result?.value === true,
     attachmentWorks: !checkAttachment || attachmentObserved?.result?.result?.value === true,
+    agentReviewWorks: !checkAgentReview || agentReviewObserved?.result?.result?.value?.ok === true,
+    agentReviewDetail: JSON.stringify(agentReviewObserved?.result?.result?.value ?? {}),
     errorCount: events.filter((event) => event.method === 'Runtime.exceptionThrown').length,
   };
+}
+
+async function ensureAgentReviewProposal() {
+  const proposalsResponse = await fetch(`${trimSlash(baseURL)}/api/agent/edit-proposals`);
+  const proposals = await proposalsResponse.json().catch(() => []);
+  if (proposalsResponse.ok && Array.isArray(proposals)) {
+    const existing = proposals.find((proposal) => proposal.path === agentReviewFile && proposal.summary === agentReviewSummary);
+    if (existing?.id) {
+      agentReviewProposalId = existing.id;
+      return;
+    }
+  }
+
+  const fileResponse = await fetch(`${trimSlash(baseURL)}/api/agent/workspace/file?path=${encodeURIComponent(agentReviewFile)}`);
+  const file = await fileResponse.json().catch(() => ({}));
+  if (!fileResponse.ok) {
+    throw new Error(
+      `Agent review smoke requires a running server with LINEA_WORKSPACE_DIR and ${agentReviewFile}. ` +
+        `File read returned ${fileResponse.status}: ${JSON.stringify(file)}`,
+    );
+  }
+  const proposedContent = `${String(file.content ?? '').replace(/\s*$/, '')}\n\nAgent review smoke proposal.\n`;
+  const proposalResponse = await fetch(`${trimSlash(baseURL)}/api/agent/edit-proposals`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({
+      path: agentReviewFile,
+      content: proposedContent,
+      summary: agentReviewSummary,
+    }),
+  });
+  const proposal = await proposalResponse.json().catch(() => ({}));
+  if (!proposalResponse.ok || !proposal.id) {
+    throw new Error(`Agent edit proposal returned ${proposalResponse.status}: ${JSON.stringify(proposal)}`);
+  }
+  agentReviewProposalId = proposal.id;
+  agentReviewProposalCreated = true;
+}
+
+async function cleanupAgentReviewProposal() {
+  if (!agentReviewProposalId || !agentReviewProposalCreated) return;
+  try {
+    await fetch(`${trimSlash(baseURL)}/api/agent/edit-proposals/${encodeURIComponent(agentReviewProposalId)}`, {
+      method: 'PATCH',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ status: 'rejected', detail: 'smoke cleanup' }),
+    });
+  } catch {
+    // Best-effort cleanup.
+  }
 }
 
 async function cleanupSmokeConversations(startedAt) {
@@ -600,6 +702,10 @@ async function cleanupSmokeConversations(startedAt) {
   } catch {
     // Best-effort cleanup.
   }
+}
+
+function jsonHeaders() {
+  return { 'Content-Type': 'application/json' };
 }
 
 function trimSlash(value) {

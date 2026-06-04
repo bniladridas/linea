@@ -481,6 +481,8 @@ Returns local workspace diagnostics. It currently reports Go syntax errors.
 
 Returns edit proposals.
 
+Approval and rejection only update proposal state. They do not apply changes to disk.
+
 `POST /api/agent/edit-proposals`
 
 Creates a preview-only edit proposal. It does not write the file.

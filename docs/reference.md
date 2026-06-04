@@ -109,6 +109,7 @@ Vite runs at `http://localhost:5173`.
 | Agent API memory | `make agent-check-memory` |
 | UI | `make ui-check` |
 | UI with message | `make ui-check-full` |
+| UI agent review | `node scripts/ui-smoke.mjs --agent-review` with `LINEA_WORKSPACE_DIR` enabled. Set `LINEA_AGENT_REVIEW_FILE` when needed. |
 | Models | `make model-check` |
 | macOS package | `make macos-package` |
 
