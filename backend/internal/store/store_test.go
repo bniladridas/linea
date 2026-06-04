@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -150,6 +151,34 @@ func TestMemoryStoreMissingConversation(t *testing.T) {
 	}
 	if err := s.DeleteConversation(ctx, "missing"); err != ErrNotFound {
 		t.Fatalf("DeleteConversation() error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestMemoryStoreAgentRuns(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+
+	first, err := s.AddAgentRun(ctx, "ready", json.RawMessage(`{"state":"ready"}`))
+	if err != nil {
+		t.Fatalf("AddAgentRun(first) error = %v", err)
+	}
+	second, err := s.AddAgentRun(ctx, "attention", json.RawMessage(`{"state":"attention","commandChecks":1}`))
+	if err != nil {
+		t.Fatalf("AddAgentRun(second) error = %v", err)
+	}
+
+	runs, err := s.ListAgentRuns(ctx)
+	if err != nil {
+		t.Fatalf("ListAgentRuns() error = %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("ListAgentRuns() length = %d, want 2", len(runs))
+	}
+	if runs[0].ID != second.ID || runs[1].ID != first.ID {
+		t.Fatalf("ListAgentRuns() order = %#v", runs)
+	}
+	if string(runs[0].Summary) != `{"state":"attention","commandChecks":1}` {
+		t.Fatalf("summary = %s", runs[0].Summary)
 	}
 }
 

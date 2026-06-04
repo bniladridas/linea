@@ -65,7 +65,7 @@ Returns the local agent contract. It is read-only.
     {"id":"docs","name":"docs","state":"ready","command":"node","args":["server.js"],"envKeys":["TOKEN"]}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add persisted agent runs"],
+  "next": ["Add local LSP diagnostics"],
   "runSummary": {
     "state": "ready",
     "traceEvents": 1,
@@ -119,6 +119,54 @@ Returns counts and state for recent agent runtime activity.
   "commandRuns": 0,
   "editProposals": 0,
   "updatedAt": "2026-06-01T00:00:00Z"
+}
+```
+
+`GET /api/agent/runs`
+
+Returns saved agent run snapshots.
+
+```json
+[
+  {
+    "id": "id",
+    "state": "ready",
+    "summary": {
+      "state": "ready",
+      "traceEvents": 1,
+      "hookRuns": 0,
+      "skillRuns": 0,
+      "commandApprovals": 0,
+      "commandChecks": 0,
+      "commandRuns": 0,
+      "editProposals": 0,
+      "updatedAt": "2026-06-01T00:00:00Z"
+    },
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
+]
+```
+
+`POST /api/agent/runs`
+
+Saves the current agent run summary.
+
+```json
+{
+  "id": "id",
+  "state": "ready",
+  "summary": {
+    "state": "ready",
+    "traceEvents": 1,
+    "hookRuns": 0,
+    "skillRuns": 0,
+    "commandApprovals": 0,
+    "commandChecks": 0,
+    "commandRuns": 0,
+    "editProposals": 0,
+    "updatedAt": "2026-06-01T00:00:00Z"
+  },
+  "createdAt": "2026-06-01T00:00:00Z"
 }
 ```
 

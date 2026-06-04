@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -154,6 +156,46 @@ func (s *PostgresStore) AddMessage(ctx context.Context, conversationID, role, co
 		return Message{}, err
 	}
 	return message, nil
+}
+
+func (s *PostgresStore) ListAgentRuns(ctx context.Context) ([]AgentRun, error) {
+	rows, err := s.pool.Query(ctx, `
+		select id, state, summary, created_at
+		from agent_runs
+		order by created_at desc
+		limit 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	runs := make([]AgentRun, 0)
+	for rows.Next() {
+		var run AgentRun
+		if err := rows.Scan(&run.ID, &run.State, &run.Summary, &run.CreatedAt); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
+func (s *PostgresStore) AddAgentRun(ctx context.Context, state string, summary json.RawMessage) (AgentRun, error) {
+	state = strings.TrimSpace(state)
+	if state == "" {
+		state = "ready"
+	}
+	if len(summary) == 0 {
+		summary = json.RawMessage(`{}`)
+	}
+	run := AgentRun{ID: NewID(), State: state, Summary: append(json.RawMessage(nil), summary...)}
+	err := s.pool.QueryRow(ctx, `
+		insert into agent_runs (id, state, summary)
+		values ($1, $2, $3)
+		returning id, state, summary, created_at`,
+		run.ID, run.State, string(run.Summary),
+	).Scan(&run.ID, &run.State, &run.Summary, &run.CreatedAt)
+	return run, err
 }
 
 func IsNoRows(err error) bool {

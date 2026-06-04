@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -28,6 +29,13 @@ type Message struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
+type AgentRun struct {
+	ID        string          `json:"id"`
+	State     string          `json:"state"`
+	Summary   json.RawMessage `json:"summary"`
+	CreatedAt time.Time       `json:"createdAt"`
+}
+
 type Store interface {
 	ListConversations(context.Context) ([]Conversation, error)
 	CreateConversation(context.Context, string) (Conversation, error)
@@ -35,6 +43,8 @@ type Store interface {
 	DeleteConversation(context.Context, string) error
 	ListMessages(context.Context, string) ([]Message, error)
 	AddMessage(context.Context, string, string, string) (Message, error)
+	ListAgentRuns(context.Context) ([]AgentRun, error)
+	AddAgentRun(context.Context, string, json.RawMessage) (AgentRun, error)
 }
 
 func NewID() string {
@@ -88,6 +98,7 @@ type MemoryStore struct {
 	mu            sync.RWMutex
 	conversations map[string]Conversation
 	messages      map[string][]Message
+	agentRuns     []AgentRun
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -175,4 +186,33 @@ func (s *MemoryStore) AddMessage(_ context.Context, conversationID, role, conten
 	conversation.UpdatedAt = now
 	s.conversations[conversationID] = conversation
 	return message, nil
+}
+
+func (s *MemoryStore) ListAgentRuns(context.Context) ([]AgentRun, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]AgentRun(nil), s.agentRuns...), nil
+}
+
+func (s *MemoryStore) AddAgentRun(_ context.Context, state string, summary json.RawMessage) (AgentRun, error) {
+	state = strings.TrimSpace(state)
+	if state == "" {
+		state = "ready"
+	}
+	if len(summary) == 0 {
+		summary = json.RawMessage(`{}`)
+	}
+	run := AgentRun{
+		ID:        NewID(),
+		State:     state,
+		Summary:   append(json.RawMessage(nil), summary...),
+		CreatedAt: time.Now().UTC(),
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentRuns = append([]AgentRun{run}, s.agentRuns...)
+	if len(s.agentRuns) > 50 {
+		s.agentRuns = s.agentRuns[:50]
+	}
+	return run, nil
 }
