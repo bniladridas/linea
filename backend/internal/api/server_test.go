@@ -426,7 +426,7 @@ func TestAgentRunEndpointsCreateAndListSnapshots(t *testing.T) {
 
 func TestAgentMCPServersEndpoint(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
-	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"}}}}`)
+	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"},"tools":[{"name":"search_docs","description":"Search docs"}]}}}`)
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
 	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
@@ -446,6 +446,31 @@ func TestAgentMCPServersEndpoint(t *testing.T) {
 	}
 	if len(servers) != 1 || servers[0].ID != "docs" || len(servers[0].EnvKeys) != 1 {
 		t.Fatalf("servers = %#v", servers)
+	}
+}
+
+func TestAgentMCPToolsEndpoint(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","tools":[{"name":"search_docs","description":"Search docs"}]}}}`)
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/mcp-tools", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var tools []agent.MCPTool
+	if err := json.NewDecoder(res.Body).Decode(&tools); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(tools) != 1 || tools[0].ID != "docs/search_docs" || tools[0].Description != "Search docs" {
+		t.Fatalf("tools = %#v", tools)
 	}
 }
 

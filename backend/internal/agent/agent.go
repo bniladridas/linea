@@ -34,6 +34,7 @@ type Status struct {
 	Hooks            []Hook            `json:"hooks"`
 	Skills           []Skill           `json:"skills"`
 	MCPServers       []MCPServer       `json:"mcpServers"`
+	MCPTools         []MCPTool         `json:"mcpTools"`
 	Boundaries       []string          `json:"boundaries"`
 	Next             []string          `json:"next"`
 	TraceEvents      []Trace           `json:"traceEvents"`
@@ -122,6 +123,15 @@ type MCPServer struct {
 	EnvKeys []string `json:"envKeys,omitempty"`
 }
 
+type MCPTool struct {
+	ID          string `json:"id"`
+	ServerID    string `json:"serverId"`
+	ServerName  string `json:"serverName"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	State       string `json:"state"`
+}
+
 type CommandCheck struct {
 	ID         string    `json:"id"`
 	Command    string    `json:"command"`
@@ -206,6 +216,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Hooks:            defaultHooks(),
 		Skills:           r.skills(ctx),
 		MCPServers:       r.mcpServers(ctx),
+		MCPTools:         r.mcpTools(ctx),
 		Boundaries:       defaultBoundaries(),
 		Next:             defaultNext(),
 		TraceEvents:      r.statusTraces(),
@@ -628,9 +639,7 @@ func defaultBoundaries() []string {
 }
 
 func defaultNext() []string {
-	return []string{
-		"Add MCP tool listing",
-	}
+	return []string{}
 }
 
 func newTraceID() string {

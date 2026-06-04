@@ -64,8 +64,11 @@ Returns the local agent contract. It is read-only.
   "mcpServers": [
     {"id":"docs","name":"docs","state":"ready","command":"node","args":["server.js"],"envKeys":["TOKEN"]}
   ],
+  "mcpTools": [
+    {"id":"docs/search_docs","serverId":"docs","serverName":"docs","name":"search_docs","description":"Search docs","state":"ready"}
+  ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add MCP tool listing"],
+  "next": [],
   "runSummary": {
     "state": "ready",
     "traceEvents": 1,
@@ -183,6 +186,23 @@ Returns local MCP servers from `LINEA_MCP_CONFIG`. It does not start servers. En
     "command": "node",
     "args": ["server.js"],
     "envKeys": ["TOKEN"]
+  }
+]
+```
+
+`GET /api/agent/mcp-tools`
+
+Returns MCP tool metadata declared in `LINEA_MCP_CONFIG`. It does not start servers.
+
+```json
+[
+  {
+    "id": "docs/search_docs",
+    "serverId": "docs",
+    "serverName": "docs",
+    "name": "search_docs",
+    "description": "Search docs",
+    "state": "ready"
   }
 ]
 ```
