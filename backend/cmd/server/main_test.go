@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
+	"linea/backend/internal/agent"
 	"linea/backend/internal/api"
 	"linea/backend/internal/config"
 	"linea/backend/internal/llm"
@@ -97,6 +101,27 @@ func TestProviderStatusesMarksOllamaOff(t *testing.T) {
 	}
 	if status.State != "off" {
 		t.Fatalf("expected off state, got %q", status.State)
+	}
+}
+
+func TestPrintAgentStatusWritesLocalContract(t *testing.T) {
+	rulesPath := filepath.Join(t.TempDir(), "AGENTS.md")
+	if err := os.WriteFile(rulesPath, []byte("# Linea\n\n* Keep it local.\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	var out bytes.Buffer
+
+	err := printAgentStatus(context.Background(), config.Config{AgentRulesPath: rulesPath}, &out)
+	if err != nil {
+		t.Fatalf("printAgentStatus() error = %v", err)
+	}
+
+	var status agent.Status
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if status.Mode != "local" || !status.Rules.Loaded || len(status.Tools) == 0 || len(status.Boundaries) == 0 {
+		t.Fatalf("status = %#v", status)
 	}
 }
 
