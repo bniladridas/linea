@@ -14,7 +14,9 @@ Linea is a local-first AI assistant.
 
 ## Current Stage
 
-* MVP
+* Post-MVP
+
+The MVP is complete. New work should improve reliability, distribution, and agentic delivery without making the product harder to understand.
 
 ## Target Platform
 
@@ -23,17 +25,17 @@ Current target:
 * Apple Silicon Macs (M-series)
 * Homebrew distribution
 
-Future targets:
+Active post-MVP targets:
 
 * Terminal (TUI)
 * Native macOS application (.dmg)
 * Android application
 
-Future targets must not influence MVP decisions unless explicitly requested.
+New targets should reuse the existing backend and core application logic.
 
 ## Product Shape
 
-The MVP is a local AI assistant.
+Linea is a local AI assistant.
 
 Interface:
 
@@ -56,7 +58,7 @@ Conversation storage:
 
 * PostgreSQL
 
-Future interfaces should reuse the same backend and core application logic whenever possible.
+Interfaces should reuse the same backend and core application logic whenever possible.
 
 ## Authentication
 
@@ -66,13 +68,13 @@ MVP:
 * No login required
 * Local-first experience
 
-Future:
+Post-MVP:
 
 * Optional user accounts
 * Optional cloud synchronization
 * Optional multi-device support
 
-Authentication and sync are out of scope for the MVP.
+Authentication and sync are not part of the current post-MVP work unless explicitly requested.
 
 ## Stack
 
@@ -110,12 +112,33 @@ AI:
 * Image input through Gemini
 * Streaming responses
 
+## Post-MVP Features
+
+Build agentic delivery in small, reviewable steps.
+
+Initial scope:
+
+* Rules
+* Local tools
+* Hooks
+* Skills
+* Model and provider status
+* Better fallback handling
+* macOS app polish
+
+Later scope:
+
+* MCP servers
+* LSP integration
+* Subagents
+* TUI
+* Android app
+* Optional sync
+
 ## Non-goals
 
-For the MVP:
+Unless explicitly requested:
 
-* Multi-agent systems
-* Autonomous workflows
 * Complex memory systems
 * Enterprise features
 * Plugin marketplaces
@@ -123,7 +146,70 @@ For the MVP:
 * Team collaboration features
 * Cloud synchronization
 * User accounts
-* Multiple interface implementations
+* Background autonomous jobs
+* Broad system access
+* Unbounded tool execution
+
+Subagents are allowed only when the single-agent loop is reliable and the task benefits from isolation.
+
+## Agentic Delivery
+
+The agentic layer should stay local-first, permissioned, and inspectable.
+
+Start with one agent loop:
+
+1. Understand the request.
+2. Make a short plan.
+3. Use allowed tools.
+4. Ask only when blocked.
+5. Run checks.
+6. Show what changed.
+
+Rules:
+
+* Store project rules in plain files.
+* Keep rules short.
+* Prefer explicit allowlists.
+* Never bypass destructive-action approval.
+* Never expose secrets.
+
+Tools:
+
+* Read files
+* Search files
+* Edit files
+* Run approved commands
+* Read diagnostics
+
+Hooks:
+
+* Before tool calls
+* After file edits
+* Before commits
+* After checks
+
+Skills:
+
+* Keep skills focused on one workflow.
+* Prefer skills for repeated work.
+* Keep skill inputs and outputs clear.
+
+MCP:
+
+* Add MCP only when it gives clear value.
+* Prefer local MCP servers first.
+* Keep permissions narrow.
+
+LSP:
+
+* Use LSP for diagnostics, symbols, references, and code navigation.
+* Do not make core behavior depend on one editor.
+
+Subagents:
+
+* Use subagents for review, search, testing, or docs.
+* Keep subagents bounded.
+* Merge results through the main agent.
 
 ## Design Principles
 
@@ -239,7 +325,7 @@ Otherwise:
 
 ## Success Criteria
 
-For the MVP, Linea should allow a user to:
+Linea should continue to allow a user to:
 
 * Install the application using Homebrew
 * Launch the application locally
@@ -251,3 +337,11 @@ For the MVP, Linea should allow a user to:
 * Continue previous conversations
 
 without requiring unnecessary configuration, accounts, or complexity.
+
+Post-MVP success means Linea can also:
+
+* Explain which model answered
+* Show when a fallback is used
+* Recover clearly when a local model is not running
+* Run small local tasks with explicit tool boundaries
+* Keep user-visible behavior simple
