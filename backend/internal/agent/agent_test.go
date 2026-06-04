@@ -194,7 +194,8 @@ func TestStatusLoadsMCPServersFromConfig(t *testing.T) {
     "docs": {
       "command": "node",
       "args": ["server.js"],
-      "env": {"TOKEN": "secret"}
+      "env": {"TOKEN": "secret"},
+      "tools": [{"name": "search_docs", "description": "Search docs"}]
     }
   }
 }`)
@@ -214,6 +215,13 @@ func TestStatusLoadsMCPServersFromConfig(t *testing.T) {
 	}
 	if len(server.EnvKeys) != 1 || server.EnvKeys[0] != "TOKEN" {
 		t.Fatalf("mcp server env keys = %#v", server.EnvKeys)
+	}
+	if len(status.MCPTools) != 1 {
+		t.Fatalf("mcp tools = %#v", status.MCPTools)
+	}
+	tool := status.MCPTools[0]
+	if tool.ID != "docs/search_docs" || tool.ServerID != "docs" || tool.Name != "search_docs" || tool.State != "ready" {
+		t.Fatalf("mcp tool = %#v", tool)
 	}
 }
 
