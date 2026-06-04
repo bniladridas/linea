@@ -40,6 +40,38 @@ func TestStatusUsesFallbackRulesWhenFileMissing(t *testing.T) {
 	}
 }
 
+func TestRuntimeStoresRecentTraces(t *testing.T) {
+	runtime := NewRuntime("")
+
+	trace, err := runtime.AddTrace(context.Background(), TraceInput{
+		Event:  "before tool",
+		State:  "recorded",
+		Detail: "read-only",
+	})
+	if err != nil {
+		t.Fatalf("AddTrace() error = %v", err)
+	}
+	if trace.ID == "" || trace.Event != "before tool" || trace.State != "recorded" {
+		t.Fatalf("trace = %#v", trace)
+	}
+
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].ID != trace.ID {
+		t.Fatalf("traces = %#v", traces)
+	}
+	status := runtime.Status(context.Background())
+	if len(status.TraceEvents) != 1 || status.TraceEvents[0].ID != trace.ID {
+		t.Fatalf("status traces = %#v", status.TraceEvents)
+	}
+}
+
+func TestRuntimeRejectsEmptyTrace(t *testing.T) {
+	_, err := NewRuntime("").AddTrace(context.Background(), TraceInput{Event: " ", State: "ready"})
+	if err == nil {
+		t.Fatal("AddTrace() error = nil, want error")
+	}
+}
+
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

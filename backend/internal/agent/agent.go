@@ -2,13 +2,19 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"os"
 	"strings"
+	"sync"
+	"time"
 )
 
 type Runtime struct {
+	mu        sync.RWMutex
 	rulesPath string
+	traces    []Trace
 }
 
 type Status struct {
@@ -48,8 +54,17 @@ type Skill struct {
 }
 
 type Trace struct {
-	Event string `json:"event"`
-	State string `json:"state"`
+	ID        string    `json:"id"`
+	Event     string    `json:"event"`
+	State     string    `json:"state"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type TraceInput struct {
+	Event  string `json:"event"`
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
 }
 
 func NewRuntime(rulesPath string) *Runtime {
@@ -68,8 +83,56 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Skills:      defaultSkills(),
 		Boundaries:  defaultBoundaries(),
 		Next:        defaultNext(),
-		TraceEvents: []Trace{{Event: "agent runtime", State: "ready"}},
+		TraceEvents: r.statusTraces(),
 	}
+}
+
+func (r *Runtime) ListTraces(context.Context) []Trace {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]Trace(nil), r.traces...)
+}
+
+func (r *Runtime) AddTrace(_ context.Context, input TraceInput) (Trace, error) {
+	event := strings.TrimSpace(input.Event)
+	state := strings.TrimSpace(input.State)
+	if event == "" || state == "" {
+		return Trace{}, errors.New("Trace event and state are required.")
+	}
+	detail := strings.TrimSpace(input.Detail)
+	if len([]rune(detail)) > 240 {
+		detail = string([]rune(detail)[:240])
+	}
+	trace := Trace{
+		ID:        newTraceID(),
+		Event:     event,
+		State:     state,
+		Detail:    detail,
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.traces = append([]Trace{trace}, r.traces...)
+	if len(r.traces) > 50 {
+		r.traces = r.traces[:50]
+	}
+	return trace, nil
+}
+
+func (r *Runtime) statusTraces() []Trace {
+	traces := r.ListTraces(context.Background())
+	if len(traces) > 5 {
+		return traces[:5]
+	}
+	if len(traces) > 0 {
+		return traces
+	}
+	return []Trace{{
+		ID:        "runtime-ready",
+		Event:     "agent runtime",
+		State:     "ready",
+		CreatedAt: time.Now().UTC(),
+	}}
 }
 
 func (r *Runtime) loadRules(ctx context.Context) RuleSet {
@@ -170,9 +233,16 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Persist action traces",
 		"Add read-only workspace tools",
 		"Add approval-gated edits",
 		"Add hook execution",
 	}
+}
+
+func newTraceID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return strings.ReplaceAll(time.Now().UTC().Format(time.RFC3339Nano), ":", "")
+	}
+	return hex.EncodeToString(b[:])
 }

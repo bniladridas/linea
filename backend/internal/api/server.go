@@ -27,6 +27,7 @@ type Server struct {
 	origin         string
 	statusProvider StatusProvider
 	agentProvider  AgentStatusProvider
+	agentRuntime   AgentRuntime
 	settingsStore  SettingsStore
 }
 
@@ -49,6 +50,12 @@ type ProviderStatus struct {
 type StatusProvider func(context.Context) Status
 
 type AgentStatusProvider func(context.Context) agent.Status
+
+type AgentRuntime interface {
+	Status(context.Context) agent.Status
+	ListTraces(context.Context) []agent.Trace
+	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
+}
 
 type Settings struct {
 	Providers []ProviderSetting `json:"providers"`
@@ -120,11 +127,35 @@ func NewServerWithAgentStatus(
 	}
 }
 
+func NewServerWithAgentRuntime(
+	store store.Store,
+	llmClient Assistant,
+	searchClient WebSearcher,
+	staticFiles http.FileSystem,
+	origin string,
+	statusProvider StatusProvider,
+	settingsStore SettingsStore,
+	agentRuntime AgentRuntime,
+) *Server {
+	return &Server{
+		store:          store,
+		llmClient:      llmClient,
+		searchClient:   searchClient,
+		staticFiles:    staticFiles,
+		origin:         origin,
+		statusProvider: statusProvider,
+		agentRuntime:   agentRuntime,
+		settingsStore:  settingsStore,
+	}
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/status", s.getStatus)
 	mux.HandleFunc("GET /api/agent", s.getAgentStatus)
+	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
+	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
 	mux.HandleFunc("GET /api/conversations", s.listConversations)
@@ -146,11 +177,41 @@ func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getAgentStatus(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime != nil {
+		writeJSON(w, http.StatusOK, s.agentRuntime.Status(r.Context()))
+		return
+	}
 	if s.agentProvider == nil {
 		writeJSON(w, http.StatusOK, agent.NewRuntime("").Status(r.Context()))
 		return
 	}
 	writeJSON(w, http.StatusOK, s.agentProvider(r.Context()))
+}
+
+func (s *Server) listAgentTraces(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.Trace{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListTraces(r.Context()))
+}
+
+func (s *Server) createAgentTrace(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent traces are not available.")
+		return
+	}
+	var input agent.TraceInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	trace, err := s.agentRuntime.AddTrace(r.Context(), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, trace)
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, _ *http.Request) {

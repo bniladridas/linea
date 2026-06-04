@@ -62,10 +62,38 @@ Returns the local agent contract. It is read-only.
     {"id":"debug_test","name":"Debug failing test","state":"planned"}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Persist action traces"],
+  "next": ["Add read-only workspace tools"],
   "traceEvents": [
-    {"event":"agent runtime","state":"ready"}
+    {"id":"runtime-ready","event":"agent runtime","state":"ready","createdAt":"2026-06-01T00:00:00Z"}
   ]
+}
+```
+
+`GET /api/agent/traces`
+
+Returns recent agent trace events.
+
+```json
+[
+  {
+    "id": "id",
+    "event": "before tool",
+    "state": "recorded",
+    "detail": "read-only",
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
+]
+```
+
+`POST /api/agent/traces`
+
+Records an agent trace event.
+
+```json
+{
+  "event": "before tool",
+  "state": "recorded",
+  "detail": "read-only"
 }
 ```
 
