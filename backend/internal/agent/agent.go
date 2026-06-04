@@ -15,6 +15,7 @@ type Runtime struct {
 	mu            sync.RWMutex
 	rulesPath     string
 	traces        []Trace
+	editProposals []EditProposal
 	workspaceRoot string
 }
 

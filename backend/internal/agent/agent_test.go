@@ -135,6 +135,50 @@ func TestWorkspaceDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestProposeEditStoresPendingDiff(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "one\ntwo\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "one\nthree\n",
+		Summary: "change second line",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if proposal.ID == "" || proposal.Status != "pending" || proposal.Path != "notes.md" {
+		t.Fatalf("proposal = %#v", proposal)
+	}
+	if len(proposal.Diff) == 0 {
+		t.Fatalf("diff is empty")
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].ID != proposal.ID {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "notes.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "one\ntwo\n" {
+		t.Fatalf("file was changed: %q", string(content))
+	}
+}
+
+func TestProposeEditRejectsOutsideRoot(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+
+	_, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "../notes.md",
+		Content: "x",
+	})
+	if !errors.Is(err, ErrPathOutsideRoot) {
+		t.Fatalf("ProposeEdit() error = %v, want ErrPathOutsideRoot", err)
+	}
+}
+
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

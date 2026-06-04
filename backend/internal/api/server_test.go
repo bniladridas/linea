@@ -436,6 +436,72 @@ func TestAgentWorkspaceDisabledReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestAgentEditProposalEndpointCreatesDiffWithoutWriting(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "notes.md")
+	writeAPITestFile(t, filePath, "one\ntwo\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"path":"notes.md","content":"one\nthree\n","summary":"change second line"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/edit-proposals", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var proposal agent.EditProposal
+	if err := json.NewDecoder(res.Body).Decode(&proposal); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if proposal.ID == "" || proposal.Path != "notes.md" || proposal.Status != "pending" || len(proposal.Diff) == 0 {
+		t.Fatalf("proposal = %#v", proposal)
+	}
+	current, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(current) != "one\ntwo\n" {
+		t.Fatalf("file was changed: %q", string(current))
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "propose edit" || traces[0].State != "pending" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestAgentEditProposalListEndpoint(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "one\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	if _, err := runtime.ProposeEdit(context.Background(), agent.EditProposalInput{Path: "notes.md", Content: "two\n"}); err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/edit-proposals", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var proposals []agent.EditProposal
+	if err := json.NewDecoder(res.Body).Decode(&proposals); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(proposals) != 1 || proposals[0].Path != "notes.md" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+}
+
 func TestReadAttachmentsPreservesImageBytes(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
