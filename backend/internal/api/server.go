@@ -58,6 +58,8 @@ type AgentRuntime interface {
 	ListHookRuns(context.Context) []agent.HookRun
 	AddHookRun(context.Context, agent.HookRunInput) (agent.HookRun, error)
 	RunHook(context.Context, string, agent.HookExecutionInput) (agent.HookExecution, error)
+	ListSkillRuns(context.Context) []agent.SkillRun
+	RunSkill(context.Context, string, agent.SkillExecutionInput) (agent.SkillExecution, error)
 	ListCommandChecks(context.Context) []agent.CommandCheck
 	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
 	ListCommandRuns(context.Context) []agent.CommandRun
@@ -170,6 +172,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent/hook-runs", s.listAgentHookRuns)
 	mux.HandleFunc("POST /api/agent/hook-runs", s.createAgentHookRun)
 	mux.HandleFunc("POST /api/agent/hooks/{id}/run", s.runAgentHook)
+	mux.HandleFunc("GET /api/agent/skill-runs", s.listAgentSkillRuns)
+	mux.HandleFunc("POST /api/agent/skills/{id}/run", s.runAgentSkill)
 	mux.HandleFunc("GET /api/agent/command-checks", s.listAgentCommandChecks)
 	mux.HandleFunc("POST /api/agent/command-checks", s.createAgentCommandCheck)
 	mux.HandleFunc("GET /api/agent/command-runs", s.listAgentCommandRuns)
@@ -279,6 +283,33 @@ func (s *Server) runAgentHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAgentTrace(r.Context(), "hook execution", execution.HookRun.State, execution.HookRun.HookID)
+	writeJSON(w, http.StatusCreated, execution)
+}
+
+func (s *Server) listAgentSkillRuns(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.SkillRun{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListSkillRuns(r.Context()))
+}
+
+func (s *Server) runAgentSkill(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent skills are not available.")
+		return
+	}
+	var input agent.SkillExecutionInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	execution, err := s.agentRuntime.RunSkill(r.Context(), r.PathValue("id"), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "skill execution", execution.SkillRun.State, execution.SkillRun.SkillID)
 	writeJSON(w, http.StatusCreated, execution)
 }
 

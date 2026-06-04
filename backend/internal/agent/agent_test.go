@@ -137,7 +137,7 @@ func TestRuntimeRunsHookCommand(t *testing.T) {
 
 func TestStatusLoadsSkillsFromDirectory(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCheck a diff.")
+	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCommand: printf ok\n\nCheck a diff.")
 	writeTestFile(t, filepath.Join(root, "debug test.md"), "# Debug test\n\nFix a failing test.")
 	writeTestFile(t, filepath.Join(root, "notes.txt"), "ignore")
 	runtime := NewRuntime("", WithSkillsDir(root))
@@ -153,6 +153,9 @@ func TestStatusLoadsSkillsFromDirectory(t *testing.T) {
 	if status.Skills[1].ID != "review_change" || status.Skills[1].Name != "Review change" || status.Skills[1].State != "ready" {
 		t.Fatalf("second skill = %#v", status.Skills[1])
 	}
+	if status.Skills[1].Command != "printf ok" {
+		t.Fatalf("second skill command = %q", status.Skills[1].Command)
+	}
 }
 
 func TestStatusReportsEmptySkillsDirectory(t *testing.T) {
@@ -162,6 +165,58 @@ func TestStatusReportsEmptySkillsDirectory(t *testing.T) {
 
 	if len(status.Skills) != 1 || status.Skills[0].State != "empty" {
 		t.Fatalf("skills = %#v", status.Skills)
+	}
+}
+
+func TestRuntimeRunsSkillWithoutCommand(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCheck a diff.")
+	runtime := NewRuntime("", WithSkillsDir(root))
+
+	execution, err := runtime.RunSkill(context.Background(), "review_change", SkillExecutionInput{Detail: "read notes"})
+	if err != nil {
+		t.Fatalf("RunSkill() error = %v", err)
+	}
+	if execution.SkillRun.ID == "" || execution.SkillRun.SkillID != "review_change" || execution.SkillRun.State != "completed" {
+		t.Fatalf("skill run = %#v", execution.SkillRun)
+	}
+	if execution.CommandRun != nil {
+		t.Fatalf("command run = %#v, want nil", execution.CommandRun)
+	}
+	runs := runtime.ListSkillRuns(context.Background())
+	if len(runs) != 1 || runs[0].ID != execution.SkillRun.ID {
+		t.Fatalf("runs = %#v", runs)
+	}
+}
+
+func TestRuntimeRunsSkillCommand(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCommand: printf ok\n")
+	runtime := NewRuntime("", WithSkillsDir(root), WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+
+	execution, err := runtime.RunSkill(context.Background(), "review_change", SkillExecutionInput{})
+	if err != nil {
+		t.Fatalf("RunSkill() error = %v", err)
+	}
+	if execution.SkillRun.State != "completed" || execution.SkillRun.SkillID != "review_change" {
+		t.Fatalf("skill run = %#v", execution.SkillRun)
+	}
+	if execution.CommandRun == nil || execution.CommandRun.Output != "ok" {
+		t.Fatalf("command run = %#v", execution.CommandRun)
+	}
+}
+
+func TestRuntimeRejectsUnknownSkill(t *testing.T) {
+	_, err := NewRuntime("").RunSkill(context.Background(), "missing", SkillExecutionInput{})
+	if err == nil {
+		t.Fatal("RunSkill() error = nil, want error")
+	}
+}
+
+func TestRuntimeRejectsPlannedSkillExecution(t *testing.T) {
+	_, err := NewRuntime("").RunSkill(context.Background(), "review_change", SkillExecutionInput{})
+	if err == nil {
+		t.Fatal("RunSkill() error = nil, want error")
 	}
 }
 

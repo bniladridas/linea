@@ -59,11 +59,12 @@ Returns the local agent contract. It is read-only.
     {"id":"before_tool","event":"Before tool calls","state":"planned"}
   ],
   "skills": [
-    {"id":"review_change","name":"Review change","state":"ready"}
+    {"id":"review_change","name":"Review change","state":"ready","command":"make test"}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add skill execution"],
+  "next": ["Add command approvals"],
   "hookRuns": [],
+  "skillRuns": [],
   "commandChecks": [],
   "commandRuns": [],
   "traceEvents": [
@@ -148,6 +149,55 @@ Returns:
     "hookId": "before_commit",
     "state": "completed",
     "detail": "before commit",
+    "createdAt": "2026-06-01T00:00:00Z"
+  },
+  "commandRun": {
+    "id": "id",
+    "command": "make test",
+    "exitCode": 0,
+    "output": "ok",
+    "truncated": false,
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
+}
+```
+
+`GET /api/agent/skill-runs`
+
+Returns recent skill runs.
+
+```json
+[
+  {
+    "id": "id",
+    "skillId": "review_change",
+    "state": "completed",
+    "detail": "make test",
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
+]
+```
+
+`POST /api/agent/skills/{id}/run`
+
+Runs a ready local skill. If `command` is empty, Linea uses the skill `Command:` line. Commands must pass the allowlist runner.
+
+```json
+{
+  "command": "make test",
+  "detail": "review change"
+}
+```
+
+Returns:
+
+```json
+{
+  "skillRun": {
+    "id": "id",
+    "skillId": "review_change",
+    "state": "completed",
+    "detail": "review change",
     "createdAt": "2026-06-01T00:00:00Z"
   },
   "commandRun": {
