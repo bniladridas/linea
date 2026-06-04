@@ -63,6 +63,17 @@ Returns the local agent contract. It is read-only.
   ],
   "boundaries": ["No destructive action without approval"],
   "next": ["Add persisted agent runs"],
+  "runSummary": {
+    "state": "ready",
+    "traceEvents": 1,
+    "hookRuns": 0,
+    "skillRuns": 0,
+    "commandApprovals": 0,
+    "commandChecks": 0,
+    "commandRuns": 0,
+    "editProposals": 0,
+    "updatedAt": "2026-06-01T00:00:00Z"
+  },
   "hookRuns": [],
   "skillRuns": [],
   "commandApprovals": [],
@@ -88,6 +99,24 @@ Returns recent agent trace events.
     "createdAt": "2026-06-01T00:00:00Z"
   }
 ]
+```
+
+`GET /api/agent/run-summary`
+
+Returns counts and state for recent agent runtime activity.
+
+```json
+{
+  "state": "ready",
+  "traceEvents": 1,
+  "hookRuns": 0,
+  "skillRuns": 0,
+  "commandApprovals": 0,
+  "commandChecks": 0,
+  "commandRuns": 0,
+  "editProposals": 0,
+  "updatedAt": "2026-06-01T00:00:00Z"
+}
 ```
 
 `POST /api/agent/traces`

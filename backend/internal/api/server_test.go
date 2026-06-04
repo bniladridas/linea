@@ -346,6 +346,32 @@ func TestAgentTraceEndpointsPersistRuntimeEvents(t *testing.T) {
 	}
 }
 
+func TestAgentRunSummaryEndpoint(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
+	if _, err := runtime.CheckCommand(context.Background(), agent.CommandCheckInput{Command: "rm -rf ."}); err != nil {
+		t.Fatalf("CheckCommand() error = %v", err)
+	}
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/run-summary", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var summary agent.RunSummary
+	if err := json.NewDecoder(res.Body).Decode(&summary); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if summary.State != "attention" || summary.CommandChecks != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+}
+
 func TestCreateAgentTraceRejectsEmptyEvent(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")

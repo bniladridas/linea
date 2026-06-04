@@ -35,6 +35,7 @@ type Status struct {
 	Boundaries       []string          `json:"boundaries"`
 	Next             []string          `json:"next"`
 	TraceEvents      []Trace           `json:"traceEvents"`
+	RunSummary       RunSummary        `json:"runSummary"`
 	HookRuns         []HookRun         `json:"hookRuns"`
 	SkillRuns        []SkillRun        `json:"skillRuns"`
 	CommandApprovals []CommandApproval `json:"commandApprovals"`
@@ -161,6 +162,18 @@ type TraceInput struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+type RunSummary struct {
+	State            string    `json:"state"`
+	TraceEvents      int       `json:"traceEvents"`
+	HookRuns         int       `json:"hookRuns"`
+	SkillRuns        int       `json:"skillRuns"`
+	CommandApprovals int       `json:"commandApprovals"`
+	CommandChecks    int       `json:"commandChecks"`
+	CommandRuns      int       `json:"commandRuns"`
+	EditProposals    int       `json:"editProposals"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
 func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 	if strings.TrimSpace(rulesPath) == "" {
 		rulesPath = "AGENTS.md"
@@ -184,11 +197,89 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Boundaries:       defaultBoundaries(),
 		Next:             defaultNext(),
 		TraceEvents:      r.statusTraces(),
+		RunSummary:       r.RunSummary(ctx),
 		HookRuns:         r.statusHookRuns(),
 		SkillRuns:        r.statusSkillRuns(),
 		CommandApprovals: r.statusCommandApprovals(),
 		CommandChecks:    r.statusCommandChecks(),
 		CommandRuns:      r.statusCommandRuns(),
+	}
+}
+
+func (r *Runtime) RunSummary(context.Context) RunSummary {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	state := "ready"
+	var updatedAt time.Time
+	for _, run := range r.commandRuns {
+		if run.CreatedAt.After(updatedAt) {
+			updatedAt = run.CreatedAt
+		}
+		if run.ExitCode != 0 {
+			state = "attention"
+		}
+	}
+	for _, check := range r.commandChecks {
+		if check.CreatedAt.After(updatedAt) {
+			updatedAt = check.CreatedAt
+		}
+		if !check.Allowed {
+			state = "attention"
+		}
+	}
+	for _, proposal := range r.editProposals {
+		if proposal.CreatedAt.After(updatedAt) {
+			updatedAt = proposal.CreatedAt
+		}
+		if proposal.ReviewedAt != nil && proposal.ReviewedAt.After(updatedAt) {
+			updatedAt = *proposal.ReviewedAt
+		}
+		if proposal.Status == "rejected" {
+			state = "attention"
+		}
+	}
+	for _, trace := range r.traces {
+		if trace.CreatedAt.After(updatedAt) {
+			updatedAt = trace.CreatedAt
+		}
+	}
+	for _, run := range r.hookRuns {
+		if run.CreatedAt.After(updatedAt) {
+			updatedAt = run.CreatedAt
+		}
+		if run.State == "failed" || run.State == "blocked" {
+			state = "attention"
+		}
+	}
+	for _, run := range r.skillRuns {
+		if run.CreatedAt.After(updatedAt) {
+			updatedAt = run.CreatedAt
+		}
+		if run.State == "failed" || run.State == "blocked" {
+			state = "attention"
+		}
+	}
+	for _, approval := range r.commandApprovals {
+		if approval.CreatedAt.After(updatedAt) {
+			updatedAt = approval.CreatedAt
+		}
+		if approval.State == "rejected" {
+			state = "attention"
+		}
+	}
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	return RunSummary{
+		State:            state,
+		TraceEvents:      len(r.traces),
+		HookRuns:         len(r.hookRuns),
+		SkillRuns:        len(r.skillRuns),
+		CommandApprovals: len(r.commandApprovals),
+		CommandChecks:    len(r.commandChecks),
+		CommandRuns:      len(r.commandRuns),
+		EditProposals:    len(r.editProposals),
+		UpdatedAt:        updatedAt,
 	}
 }
 
@@ -527,8 +618,8 @@ func defaultBoundaries() []string {
 func defaultNext() []string {
 	return []string{
 		"Add persisted agent runs",
-		"Add agent run summaries",
 		"Add local MCP discovery",
+		"Add local LSP diagnostics",
 	}
 }
 
