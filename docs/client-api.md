@@ -61,6 +61,9 @@ Returns the local agent contract. It is read-only.
   "skills": [
     {"id":"review_change","name":"Review change","state":"ready","command":"make test"}
   ],
+  "subagents": [
+    {"id":"review","name":"Review","purpose":"Inspect changes for bugs, regressions, and missing checks.","state":"planned","tools":["read_file","search_files","diagnostics"]}
+  ],
   "mcpServers": [
     {"id":"docs","name":"docs","state":"ready","command":"node","args":["server.js"],"envKeys":["TOKEN"]}
   ],
@@ -171,6 +174,22 @@ Saves the current agent run summary.
   },
   "createdAt": "2026-06-01T00:00:00Z"
 }
+```
+
+`GET /api/agent/subagents`
+
+Returns planned bounded subagent roles. It does not start subagents.
+
+```json
+[
+  {
+    "id": "review",
+    "name": "Review",
+    "purpose": "Inspect changes for bugs, regressions, and missing checks.",
+    "state": "planned",
+    "tools": ["read_file", "search_files", "diagnostics"]
+  }
+]
 ```
 
 `GET /api/agent/mcp-servers`

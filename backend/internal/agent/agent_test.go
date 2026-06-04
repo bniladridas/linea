@@ -28,6 +28,25 @@ func TestStatusLoadsRulesFile(t *testing.T) {
 	if len(status.Tools) == 0 || len(status.Hooks) == 0 || len(status.Boundaries) == 0 {
 		t.Fatalf("status missing agent contract: %#v", status)
 	}
+	if len(status.Subagents) == 0 {
+		t.Fatalf("status missing subagents: %#v", status)
+	}
+}
+
+func TestRuntimeListsBoundedSubagents(t *testing.T) {
+	subagents := NewRuntime("").ListSubagents(context.Background())
+
+	if len(subagents) != 4 {
+		t.Fatalf("subagents = %#v", subagents)
+	}
+	if subagents[0].ID != "review" || subagents[0].State != "planned" {
+		t.Fatalf("first subagent = %#v", subagents[0])
+	}
+	for _, subagent := range subagents {
+		if subagent.Purpose == "" || len(subagent.Tools) == 0 {
+			t.Fatalf("subagent is incomplete: %#v", subagent)
+		}
+	}
 }
 
 func TestStatusUsesFallbackRulesWhenFileMissing(t *testing.T) {
