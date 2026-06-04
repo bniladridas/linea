@@ -52,7 +52,7 @@ textarea {
   flex-direction: column;
   gap: 16px;
   min-height: 0;
-  border-right: 1px solid #1e1e1e;
+  border-right: 1px solid #171717;
   background: #0f0f0f;
   padding: 16px;
   overflow: hidden;
@@ -92,7 +92,7 @@ textarea {
 }
 
 .brand:hover .mark {
-  background: #1b1b1b;
+  background: #171717;
 }
 
 .brand h1,
@@ -133,7 +133,7 @@ textarea {
 }
 
 .new-chat:hover {
-  background: #1f1f1f;
+  background: #181818;
 }
 
 .conversation-list {
@@ -182,7 +182,7 @@ textarea {
   display: grid;
   width: 100%;
   gap: 3px;
-  border: 1px solid #222222;
+  border: 1px solid #171717;
   border-radius: 10px;
   background: #111111;
   padding: 8px;
@@ -252,7 +252,7 @@ textarea {
   display: grid;
   width: 100%;
   gap: 4px;
-  border: 1px solid #222222;
+  border: 1px solid #171717;
   border-radius: 10px;
   background: #111111;
   padding: 8px;
@@ -262,7 +262,7 @@ textarea {
   display: grid;
   width: 100%;
   gap: 6px;
-  border: 1px solid #222222;
+  border: 1px solid #171717;
   border-radius: 10px;
   background: #111111;
   padding: 8px;
@@ -355,7 +355,7 @@ textarea {
 .theme-panel button.active,
 .theme-panel label:hover,
 .theme-panel label:focus-within {
-  background: #1b1b1b;
+  background: #171717;
   color: #eeeeee;
 }
 
@@ -385,19 +385,19 @@ textarea {
   height: 14px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid #3a3a3a;
+  border: 1px solid #202020;
   border-radius: 5px;
   color: #eeeeee;
 }
 
 .checkbox-mark.disabled {
-  border-color: #2a2a2a;
+  border-color: #181818;
   color: #666666;
 }
 
 .theme-panel label:hover .checkbox-mark,
 .settings-provider label:hover .checkbox-mark {
-  border-color: #555555;
+  border-color: #303030;
 }
 
 .conversation-list:hover,
@@ -500,7 +500,7 @@ textarea {
 .conversation-rename {
   min-width: 0;
   width: 100%;
-  border: 1px solid #303030;
+  border: 1px solid #1a1a1a;
   border-radius: 6px;
   outline: none;
   background: #111111;
@@ -509,7 +509,7 @@ textarea {
 }
 
 .conversation-rename:focus {
-  border-color: #454545;
+  border-color: #292929;
 }
 
 .conversation span {
@@ -563,45 +563,50 @@ textarea {
   display: grid;
   grid-column: 1 / -1;
   gap: 2px;
-  width: min(160px, 100%);
+  width: min(132px, 100%);
   margin: 2px 0 4px;
-  border: 1px solid #242424;
+  border: 1px solid #171717;
   border-radius: 8px;
-  background: #121212;
-  padding: 4px;
+  background: #101010;
+  padding: 3px;
 }
 
 .conversation-menu button {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 30px;
+  gap: 7px;
+  min-height: 26px;
   border-radius: 6px;
   background: transparent;
-  color: #cfcfcf;
-  padding: 0 8px;
-  font-size: 13px;
+  color: #bcbcbc;
+  padding: 0 7px;
+  font-size: 12px;
   font-weight: 520;
   text-align: left;
 }
 
 .conversation-menu svg {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
   flex: 0 0 auto;
+  color: #9a9a9a;
 }
 
 .conversation-menu button:hover {
-  background: #1b1b1b;
+  background: #171717;
   color: #e6e6e6;
 }
 
+.conversation-menu button:hover svg {
+  color: currentColor;
+}
+
 .conversation-menu button.danger {
-  color: #d6a1a1;
+  color: #c99292;
 }
 
 .conversation-menu button.danger:hover {
-  background: #2a1717;
+  background: #211414;
 }
 
 .chat {
@@ -617,7 +622,7 @@ textarea {
 .chat-header {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #1f1f1f;
+  border-bottom: 1px solid #181818;
   background: #0f0f0f;
   padding: 12px 28px;
 }
@@ -672,8 +677,9 @@ textarea {
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
+  visibility: hidden;
   max-width: 220px;
-  border: 1px solid #242424;
+  border: 1px solid #171717;
   border-radius: 6px;
   background: #121212;
   color: #a8a8a8;
@@ -683,7 +689,9 @@ textarea {
   line-height: 1.2;
   opacity: 0;
   padding: 6px 8px;
-  transition: opacity 120ms ease;
+  transition:
+    opacity 180ms ease 240ms,
+    visibility 0ms linear 420ms;
   white-space: nowrap;
 }
 
@@ -691,16 +699,25 @@ textarea {
 .has-tooltip:focus-visible::after,
 .has-tooltip:focus-within::after {
   opacity: 1;
+  visibility: visible;
+  transition-delay: 240ms, 0ms;
 }
 
 .tooltips-suppressed .has-tooltip::after,
 .has-tooltip:active::after {
   opacity: 0;
+  visibility: hidden;
+  transition-delay: 0ms;
 }
 
 .tooltip-above::after {
   top: auto;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 10px);
+}
+
+.tooltip-bottom-safe::after {
+  top: auto;
+  bottom: calc(100% + 10px);
 }
 
 .tooltip-align-left::after {
@@ -730,7 +747,7 @@ textarea {
 .message {
   position: relative;
   max-width: min(680px, 82%);
-  border: 1px solid #242424;
+  border: 1px solid #171717;
   border-radius: 14px;
   background: #141414;
   padding: 14px 16px;
@@ -808,6 +825,15 @@ textarea {
   font-weight: 650;
 }
 
+.message-content code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #181818;
+  color: #eeeeee;
+  font-family: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
 .message-content a {
   color: inherit;
   text-decoration-color: #5f5f5f;
@@ -855,19 +881,21 @@ textarea {
 
 .code-block {
   max-width: 100%;
-  max-height: min(520px, 56vh);
+  max-height: none;
   overflow-x: auto;
-  overflow-y: auto;
+  overflow-y: visible;
   border: 0;
-  border-left: 1px solid #303030;
+  border-left: 0;
   border-radius: 0;
   background: transparent;
   padding: 2px 0 2px 0;
+  scrollbar-width: none;
   scrollbar-color: transparent transparent;
 }
 
-.code-block:hover {
-  scrollbar-color: #2f2f2f transparent;
+.code-block::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .code-block code {
@@ -888,7 +916,7 @@ textarea {
   position: sticky;
   left: 0;
   z-index: 1;
-  border-right: 1px solid #303030;
+  border-right: 1px solid #151515;
   background: #141414;
   color: #606060;
   padding-right: 10px;
@@ -925,7 +953,7 @@ textarea {
   height: 180px;
   overflow: hidden;
   border: 0;
-  border-left: 1px solid #303030;
+  border-left: 0;
   border-radius: 0;
   background: transparent;
   padding-left: 14px;
@@ -1123,7 +1151,7 @@ textarea {
   display: grid;
   gap: 16px;
   width: min(340px, calc(100vw - 40px));
-  border: 1px solid #272727;
+  border: 1px solid #181818;
   border-radius: 14px;
   background: #121212;
   box-shadow: 0 18px 54px rgba(0, 0, 0, 0.34);
@@ -1188,7 +1216,7 @@ textarea {
   width: min(680px, calc(100vw - 40px));
   max-height: min(720px, calc(100vh - 40px));
   overflow: auto;
-  border: 1px solid #272727;
+  border: 1px solid #181818;
   border-radius: 14px;
   background: #121212;
   box-shadow: 0 18px 54px rgba(0, 0, 0, 0.34);
@@ -1249,7 +1277,7 @@ textarea {
   display: grid;
   min-width: 0;
   gap: 6px;
-  border: 1px solid #242424;
+  border: 1px solid #171717;
   border-radius: 10px;
   padding: 10px;
 }
@@ -1327,7 +1355,7 @@ textarea {
 .proposal-item:hover,
 .proposal-item:focus-visible,
 .proposal-item.active {
-  border-color: #303030;
+  border-color: #1a1a1a;
   background: #1a1a1a;
   color: #eeeeee;
 }
@@ -1404,7 +1432,7 @@ textarea {
 
 .proposal-actions button {
   min-height: 28px;
-  border: 1px solid #303030;
+  border: 1px solid #1a1a1a;
   border-radius: 8px;
   background: #181818;
   color: #d8d8d8;
@@ -1429,7 +1457,7 @@ textarea {
   display: grid;
   max-height: 240px;
   overflow: auto;
-  border: 1px solid #242424;
+  border: 1px solid #171717;
   border-radius: 8px;
   background: #0d0d0d;
 }
@@ -1479,6 +1507,49 @@ textarea {
   font-size: 11px;
 }
 
+.scroll-note {
+  display: flex;
+  position: absolute;
+  z-index: 6;
+  right: 28px;
+  bottom: 92px;
+  left: 28px;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.scroll-note span,
+.scroll-note button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  border: 1px solid #171717;
+  border-radius: 999px;
+  background: rgba(18, 18, 18, 0.86);
+  color: #8f8f8f;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 540;
+  line-height: 1;
+  backdrop-filter: blur(10px);
+}
+
+.scroll-note button {
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.scroll-note button:hover,
+.scroll-note button:focus-visible {
+  background: #181818;
+  color: #dedede;
+}
+
+.scroll-note.at-end {
+  opacity: 0.62;
+}
+
 .composer {
   position: absolute;
   right: 0;
@@ -1502,7 +1573,7 @@ textarea {
   align-items: center;
   gap: 6px;
   max-width: 260px;
-  border: 1px solid #242424;
+  border: 1px solid #171717;
   border-radius: 8px;
   background: #121212;
   padding: 7px 9px;
@@ -1513,15 +1584,28 @@ textarea {
 .composer-row {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) 34px;
+  position: relative;
+  isolation: isolate;
   gap: 6px;
   align-items: end;
   max-width: min(760px, 72vw);
   margin: 0 auto;
-  border: 1px solid #242424;
+  border: 1px solid #171717;
   border-radius: 16px;
   background: #121212;
   padding: 6px;
   pointer-events: auto;
+}
+
+.composer-row::before {
+  position: absolute;
+  z-index: -1;
+  inset: -1px;
+  border-radius: inherit;
+  background: #25272d;
+  content: "";
+  opacity: 0;
+  transition: opacity 180ms ease;
 }
 
 .shell.sources-open .composer-row,
@@ -1530,8 +1614,22 @@ textarea {
   max-width: min(760px, 70vw);
 }
 
+.composer.has-shimmer .composer-row:hover::before,
+.composer.has-shimmer .composer-row:focus-within::before {
+  opacity: 0.45;
+}
+
+.composer.is-dragging .composer-row {
+  border-color: transparent;
+}
+
+.composer.is-dragging .composer-row::before {
+  background: #30343d;
+  opacity: 0.7;
+}
+
 .composer-row:focus-within {
-  border-color: #333333;
+  border-color: transparent;
 }
 
 .icon-button,
@@ -1551,7 +1649,7 @@ textarea {
 
 .icon-button:hover,
 .send-button:hover {
-  background: #202020;
+  background: #181818;
 }
 
 .composer-row .icon-button,
@@ -1566,14 +1664,19 @@ textarea {
 .file-picker {
   position: relative;
   cursor: pointer;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .file-picker input {
   position: absolute;
-  inset: 0;
-  cursor: pointer;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .composer-row .icon-button:hover,
@@ -1635,7 +1738,7 @@ textarea:focus {
   min-width: 0;
   flex-direction: column;
   gap: 10px;
-  border-left: 1px solid #1e1e1e;
+  border-left: 1px solid #171717;
   background: #0f0f0f;
   padding: 18px 10px;
 }
@@ -1723,7 +1826,7 @@ textarea:focus {
     width: min(284px, 82vw);
     min-height: 0;
     max-height: none;
-    border-right: 1px solid #242424;
+    border-right: 1px solid #171717;
     border-bottom: 0;
     padding: 14px;
     box-shadow: 20px 0 36px rgba(0, 0, 0, 0.28);
@@ -1876,7 +1979,7 @@ textarea:focus {
 :root[data-theme="light"] .sidebar,
 :root[data-theme="light"] .chat-header,
 :root[data-theme="light"] .sources-panel {
-  border-color: #deded8;
+  border-color: #e8e8e3;
   background: #f2f2ee;
 }
 
@@ -1901,6 +2004,11 @@ textarea:focus {
 :root[data-theme="light"] .theme-panel button.active,
 :root[data-theme="light"] .sources-heading,
 :root[data-theme="light"] .source-card span {
+  color: #252522;
+}
+
+:root[data-theme="light"] .message-content code {
+  background: #ededeb;
   color: #252522;
 }
 
@@ -1929,8 +2037,6 @@ textarea:focus {
 }
 
 :root[data-theme="light"] .new-chat,
-:root[data-theme="light"] .message,
-:root[data-theme="light"] .composer-row,
 :root[data-theme="light"] .attachments span,
 :root[data-theme="light"] .system-panel,
 :root[data-theme="light"] .theme-panel,
@@ -1941,15 +2047,42 @@ textarea:focus {
 :root[data-theme="light"] .proposal-diff,
 :root[data-theme="light"] .conversation-menu,
 :root[data-theme="light"] .conversation-rename {
-  border-color: #deded8;
+  border-color: #e8e8e3;
   background: #ffffff;
+}
+
+:root[data-theme="light"] .message,
+:root[data-theme="light"] .composer-row {
+  border-color: #eeeeea;
+  background: #ffffff;
+}
+
+:root[data-theme="light"] .scroll-note span,
+:root[data-theme="light"] .scroll-note button {
+  border-color: #e8e8e3;
+  background: rgba(255, 255, 255, 0.88);
+  color: #777771;
+}
+
+:root[data-theme="light"] .scroll-note button:hover,
+:root[data-theme="light"] .scroll-note button:focus-visible {
+  background: #f4f4ef;
+  color: #252522;
+}
+
+:root[data-theme="light"] .composer-row::before {
+  background: #e3e5ea;
+}
+
+:root[data-theme="light"] .composer.is-dragging .composer-row::before {
+  background: #d9dce6;
 }
 
 :root[data-theme="light"] .proposal-item:hover,
 :root[data-theme="light"] .proposal-item:focus-visible,
 :root[data-theme="light"] .proposal-item.active,
 :root[data-theme="light"] .proposal-actions button {
-  border-color: #deded8;
+  border-color: #e8e8e3;
   background: #f4f4ef;
 }
 
@@ -1976,17 +2109,17 @@ textarea:focus {
 }
 
 :root[data-theme="light"] .checkbox-mark {
-  border-color: #cfcfc8;
+  border-color: #dadad4;
 }
 
 :root[data-theme="light"] .checkbox-mark.disabled {
-  border-color: #e0e0da;
+  border-color: #ecece7;
   color: #aaa9a2;
 }
 
 :root[data-theme="light"] .theme-panel label:hover .checkbox-mark,
 :root[data-theme="light"] .settings-provider label:hover .checkbox-mark {
-  border-color: #adada6;
+  border-color: #c6c6bf;
 }
 
 :root[data-theme="light"] .error {
@@ -2098,14 +2231,14 @@ textarea:focus {
 
 :root[data-theme="light"] .model-badge,
 :root[data-theme="light"] .sleep-alert {
-  border: 1px solid #deded8;
+  border: 1px solid #e8e8e3;
 }
 
 :root[data-theme="light"] .system-button,
 :root[data-theme="light"] .icon-button,
 :root[data-theme="light"] .sources-toggle,
 :root[data-theme="light"] .send-button {
-  border: 1px solid #deded8;
+  border: 1px solid #e8e8e3;
   background: #ffffff;
 }
 
@@ -2121,10 +2254,17 @@ textarea:focus {
 }
 
 :root[data-theme="light"] textarea,
-:root[data-theme="light"] .conversation-menu button,
 :root[data-theme="light"] .system-row strong,
 :root[data-theme="light"] .settings-provider:not(.muted) {
   color: #252522;
+}
+
+:root[data-theme="light"] .conversation-menu button {
+  color: #5f5f59;
+}
+
+:root[data-theme="light"] .conversation-menu svg {
+  color: #8a8a83;
 }
 
 :root[data-theme="light"] .conversation-menu button.danger {
@@ -2146,7 +2286,7 @@ textarea:focus {
 }
 
 :root[data-theme="light"] .confirm-dialog {
-  border-color: #deded8;
+  border-color: #e8e8e3;
   background: #ffffff;
   box-shadow: 0 18px 54px rgba(30, 30, 25, 0.16);
 }
@@ -2177,7 +2317,7 @@ textarea:focus {
 }
 
 :root[data-theme="light"] .has-tooltip::after {
-  border-color: #deded8;
+  border-color: #e8e8e3;
   background: #ffffff;
   color: #55554f;
   box-shadow: 0 10px 26px rgba(30, 30, 25, 0.08);
@@ -2223,12 +2363,10 @@ textarea:focus {
 }
 
 :root[data-theme="light"] .code-block {
-  border-left-color: #d4d4ce;
   background: transparent;
 }
 
 :root[data-theme="light"] .code-preview-shell {
-  border-left-color: #d4d4ce;
   background: transparent;
 }
 
@@ -2242,7 +2380,7 @@ textarea:focus {
 }
 
 :root[data-theme="light"] .code-line-number {
-  border-right-color: #d4d4ce;
+  border-right-color: #eeeeea;
   background: #ffffff;
   color: #9a9a93;
 }

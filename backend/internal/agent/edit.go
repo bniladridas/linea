@@ -173,9 +173,8 @@ func buildDiff(before string, after string) []DiffLine {
 
 func splitDiffLines(content string) []string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
-	lines := strings.Split(content, "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		return lines[:len(lines)-1]
+	if content == "" {
+		return []string{}
 	}
-	return lines
+	return strings.Split(content, "\n")
 }

@@ -704,7 +704,8 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Message must be multipart form data.")
 		return
 	}
-	content := strings.TrimSpace(r.FormValue("content"))
+	rawContent := r.FormValue("content")
+	content := strings.TrimSpace(rawContent)
 	if content == "" {
 		writeError(w, http.StatusBadRequest, "Message content is required.")
 		return
@@ -727,6 +728,11 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if input, ok, parseErr := parseEditProposalChatCommand(rawContent); ok {
+		s.streamEditProposalResponse(w, r, conversationID, userMessage, input, parseErr)
+		return
+	}
+
 	messages, err := s.store.ListMessages(r.Context(), conversationID)
 	if err != nil {
 		slog.Error("load message history", "error", err)
@@ -738,6 +744,48 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("web search failed", "error", err)
 	}
 	s.streamAssistantResponse(w, r, conversationID, userMessage, messages, attachments, searchResults)
+}
+
+func (s *Server) streamEditProposalResponse(w http.ResponseWriter, r *http.Request, conversationID string, userMessage store.Message, input agent.EditProposalInput, parseErr error) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "Streaming is not supported.")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusCreated)
+
+	writeEvent(w, "user", userMessage)
+	flusher.Flush()
+
+	content := ""
+	if parseErr != nil {
+		content = parseErr.Error()
+	} else if s.agentRuntime == nil {
+		content = "Agent edit proposals are not available."
+	} else {
+		proposal, err := s.agentRuntime.ProposeEdit(r.Context(), input)
+		if err != nil {
+			content = err.Error()
+		} else {
+			s.recordAgentTrace(r.Context(), "propose edit", "pending", proposal.Path)
+			content = fmt.Sprintf("Created an edit proposal for `%s`.", proposal.Path)
+		}
+	}
+
+	assistantMessage, err := s.store.AddMessage(r.Context(), conversationID, "assistant", content)
+	if err != nil {
+		slog.Error("add edit proposal assistant message", "error", err)
+		writeEvent(w, "error", map[string]string{"error": "Could not save assistant response."})
+		flusher.Flush()
+		return
+	}
+	writeEvent(w, "chunk", map[string]string{"content": content})
+	writeEvent(w, "done", assistantMessage)
+	flusher.Flush()
 }
 
 func (s *Server) streamAssistantResponse(w http.ResponseWriter, r *http.Request, conversationID string, userMessage store.Message, messages []store.Message, attachments []llm.Attachment, searchResults []llm.SearchResult) {
@@ -809,6 +857,65 @@ func (s *Server) streamAssistantResponse(w http.ResponseWriter, r *http.Request,
 	}
 	writeEvent(w, "done", messageWithProvider{Message: assistantMessage, Provider: currentProvider})
 	flusher.Flush()
+}
+
+func parseEditProposalChatCommand(content string) (agent.EditProposalInput, bool, error) {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	firstLine, body, hasBody := strings.Cut(normalized, "\n")
+	firstLine = strings.TrimSpace(firstLine)
+	lowerFirstLine := strings.ToLower(firstLine)
+	pathText := ""
+	switch {
+	case strings.HasPrefix(lowerFirstLine, "propose edit "):
+		pathText = strings.TrimSpace(firstLine[len("propose edit "):])
+	case strings.HasPrefix(lowerFirstLine, "propose change "):
+		pathText = strings.TrimSpace(firstLine[len("propose change "):])
+	case strings.HasPrefix(lowerFirstLine, "create proposal "):
+		pathText = strings.TrimSpace(firstLine[len("create proposal "):])
+	case strings.HasPrefix(lowerFirstLine, "create edit proposal "):
+		pathText = strings.TrimSpace(firstLine[len("create edit proposal "):])
+	default:
+		return agent.EditProposalInput{}, false, nil
+	}
+	if pathText == "" {
+		return agent.EditProposalInput{}, true, errors.New("Use `propose edit <path>` followed by the proposed file content.")
+	}
+	if !hasBody || strings.TrimSpace(body) == "" {
+		return agent.EditProposalInput{}, true, errors.New("Add the proposed file content after the first line.")
+	}
+	proposedContent := editProposalBody(body)
+	return agent.EditProposalInput{
+		Path:    pathText,
+		Content: proposedContent,
+		Summary: "Chat proposal",
+	}, true, nil
+}
+
+func editProposalBody(body string) string {
+	fencedBody := strings.TrimLeft(body, "\n")
+	if !strings.HasPrefix(fencedBody, "```") {
+		return body
+	}
+	_, content, hasContent := strings.Cut(fencedBody, "\n")
+	if !hasContent {
+		return ""
+	}
+	lineStart := 0
+	for lineStart <= len(content) {
+		lineEnd := strings.IndexByte(content[lineStart:], '\n')
+		if lineEnd < 0 {
+			if strings.TrimSpace(content[lineStart:]) == "```" {
+				return content[:lineStart]
+			}
+			return content
+		}
+		lineEnd += lineStart
+		if strings.TrimSpace(content[lineStart:lineEnd]) == "```" {
+			return content[:lineStart]
+		}
+		lineStart = lineEnd + 1
+	}
+	return content
 }
 
 type messageWithProvider struct {

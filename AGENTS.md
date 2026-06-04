@@ -184,6 +184,7 @@ Tools:
 
 Edit proposals:
 
+* Chat may create explicit edit proposals.
 * Show proposed diffs before review.
 * Approval and rejection update review state only.
 * Applying changes to disk must be explicit separate work.

@@ -157,6 +157,181 @@ func TestCreateMessageAddsSearchResultsWhenNeeded(t *testing.T) {
 	}
 }
 
+func TestCreateMessageCanCreateEditProposalFromChat(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "README.md"), "# Linea\n")
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, "propose edit README.md\n```md\n# Linea\n\nChanged.\n```")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "Created an edit proposal for `README.md`.") {
+		t.Fatalf("stream body missing proposal confirmation:\n%s", body)
+	}
+	if strings.Contains(body, "should not stream") {
+		t.Fatalf("edit proposal command called assistant:\n%s", body)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "README.md" || proposals[0].Status != "pending" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if !hasDiffLine(proposals[0].Diff, "add", "Changed.") {
+		t.Fatalf("proposal diff missing changed line: %#v", proposals[0].Diff)
+	}
+	if !hasDiffLine(proposals[0].Diff, "add", "") {
+		t.Fatalf("proposal diff did not preserve trailing newline: %#v", proposals[0].Diff)
+	}
+	messages, err := appStore.ListMessages(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatalf("ListMessages() error = %v", err)
+	}
+	if len(messages) != 2 || messages[1].Role != "assistant" || messages[1].Content != "Created an edit proposal for `README.md`." {
+		t.Fatalf("messages = %#v", messages)
+	}
+}
+
+func TestCreateMessageCanCreateEmptyEditProposalFromChat(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "README.md"), "# Linea\n")
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, "propose edit README.md\n```md\n```")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "Created an edit proposal for `README.md`.") {
+		t.Fatalf("stream body missing proposal confirmation:\n%s", res.Body.String())
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "README.md" || proposals[0].Status != "pending" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	for _, line := range proposals[0].Diff {
+		if line.Type == "add" {
+			t.Fatalf("empty proposal added line: %#v", line)
+		}
+	}
+}
+
+func hasDiffLine(lines []agent.DiffLine, lineType string, text string) bool {
+	for _, line := range lines {
+		if line.Type == lineType && line.Text == text {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCreateMessageAcceptsAlternateEditProposalPhrase(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "README.md"), "# Linea\n")
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, "create proposal README.md\n# Linea\n\nChanged.\n")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "should not stream") {
+		t.Fatalf("edit proposal command called assistant:\n%s", res.Body.String())
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "README.md" || proposals[0].Status != "pending" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+}
+
+func TestCreateMessagePreservesRawUnfencedEditProposalBody(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "README.md"), "# Linea")
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, "create proposal README.md\n# Linea  \n")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "README.md" || proposals[0].Status != "pending" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if !hasDiffLine(proposals[0].Diff, "add", "# Linea  ") {
+		t.Fatalf("proposal diff did not preserve trailing spaces: %#v", proposals[0].Diff)
+	}
+	if !hasDiffLine(proposals[0].Diff, "add", "") {
+		t.Fatalf("proposal diff did not preserve trailing newline: %#v", proposals[0].Diff)
+	}
+}
+
+func TestCreateMessagePreservesLeadingBlankLinesInUnfencedEditProposal(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "README.md"), "# Linea")
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, "create proposal README.md\n\n\n# Linea\n")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "README.md" || proposals[0].Status != "pending" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	blankAdds := 0
+	for _, line := range proposals[0].Diff {
+		if line.Type == "add" && line.Text == "" {
+			blankAdds++
+		}
+	}
+	if blankAdds < 2 {
+		t.Fatalf("proposal diff did not preserve leading blank lines: %#v", proposals[0].Diff)
+	}
+}
+
 func TestListMessagesReturnsEmptyArray(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	conversation, err := appStore.CreateConversation(context.Background(), "Empty")

@@ -562,6 +562,43 @@ func TestProposeEditStoresPendingDiff(t *testing.T) {
 	}
 }
 
+func TestProposeEditPreservesTrailingNewlineDiff(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "one")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "one\n",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if !hasAgentDiffLine(proposal.Diff, "add", "") {
+		t.Fatalf("diff did not show added trailing newline: %#v", proposal.Diff)
+	}
+
+	proposal, err = runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "one",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if hasAgentDiffLine(proposal.Diff, "add", "") {
+		t.Fatalf("diff added unexpected blank line: %#v", proposal.Diff)
+	}
+}
+
+func hasAgentDiffLine(lines []DiffLine, lineType string, text string) bool {
+	for _, line := range lines {
+		if line.Type == lineType && line.Text == text {
+			return true
+		}
+	}
+	return false
+}
+
 func TestReviewEditProposalUpdatesStatusWithoutWriting(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "one\ntwo\n")

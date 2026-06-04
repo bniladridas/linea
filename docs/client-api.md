@@ -634,6 +634,17 @@ Limits:
 
 Image input uses Gemini.
 
+Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
+
+The remaining message body is the proposed full file content. Fenced content is accepted.
+
+````text
+propose edit README.md
+```md
+# Linea
+```
+````
+
 # Stream
 
 Message creation returns server-sent events.
