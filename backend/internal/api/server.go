@@ -55,6 +55,8 @@ type AgentRuntime interface {
 	Status(context.Context) agent.Status
 	ListTraces(context.Context) []agent.Trace
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
+	ListHookRuns(context.Context) []agent.HookRun
+	AddHookRun(context.Context, agent.HookRunInput) (agent.HookRun, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ListEditProposals(context.Context) []agent.EditProposal
@@ -160,6 +162,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent", s.getAgentStatus)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
+	mux.HandleFunc("GET /api/agent/hook-runs", s.listAgentHookRuns)
+	mux.HandleFunc("POST /api/agent/hook-runs", s.createAgentHookRun)
 	mux.HandleFunc("GET /api/agent/workspace/file", s.readAgentWorkspaceFile)
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/edit-proposals", s.listAgentEditProposals)
@@ -220,6 +224,33 @@ func (s *Server) createAgentTrace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, trace)
+}
+
+func (s *Server) listAgentHookRuns(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.HookRun{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListHookRuns(r.Context()))
+}
+
+func (s *Server) createAgentHookRun(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent hook runs are not available.")
+		return
+	}
+	var input agent.HookRunInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	run, err := s.agentRuntime.AddHookRun(r.Context(), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.recordAgentTrace(r.Context(), "hook run", run.State, run.HookID)
+	writeJSON(w, http.StatusCreated, run)
 }
 
 func (s *Server) readAgentWorkspaceFile(w http.ResponseWriter, r *http.Request) {

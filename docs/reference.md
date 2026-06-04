@@ -131,6 +131,8 @@ UI checks need Chrome. Message checks need one working text model.
 | `GET` | `/api/agent` |
 | `GET` | `/api/agent/traces` |
 | `POST` | `/api/agent/traces` |
+| `GET` | `/api/agent/hook-runs` |
+| `POST` | `/api/agent/hook-runs` |
 | `GET` | `/api/agent/workspace/file` |
 | `GET` | `/api/agent/workspace/search` |
 | `GET` | `/api/agent/edit-proposals` |

@@ -62,7 +62,8 @@ Returns the local agent contract. It is read-only.
     {"id":"debug_test","name":"Debug failing test","state":"planned"}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add read-only workspace tools"],
+  "next": ["Add skill registry"],
+  "hookRuns": [],
   "traceEvents": [
     {"id":"runtime-ready","event":"agent runtime","state":"ready","createdAt":"2026-06-01T00:00:00Z"}
   ]
@@ -94,6 +95,34 @@ Records an agent trace event.
   "event": "before tool",
   "state": "recorded",
   "detail": "read-only"
+}
+```
+
+`GET /api/agent/hook-runs`
+
+Returns recent hook runs.
+
+```json
+[
+  {
+    "id": "id",
+    "hookId": "before_tool",
+    "state": "completed",
+    "detail": "read file",
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
+]
+```
+
+`POST /api/agent/hook-runs`
+
+Records a known hook run. It does not execute commands.
+
+```json
+{
+  "hookId": "before_tool",
+  "state": "completed",
+  "detail": "read file"
 }
 ```
 

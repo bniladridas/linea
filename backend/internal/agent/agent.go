@@ -15,19 +15,21 @@ type Runtime struct {
 	mu            sync.RWMutex
 	rulesPath     string
 	traces        []Trace
+	hookRuns      []HookRun
 	editProposals []EditProposal
 	workspaceRoot string
 }
 
 type Status struct {
-	Mode        string   `json:"mode"`
-	Rules       RuleSet  `json:"rules"`
-	Tools       []Tool   `json:"tools"`
-	Hooks       []Hook   `json:"hooks"`
-	Skills      []Skill  `json:"skills"`
-	Boundaries  []string `json:"boundaries"`
-	Next        []string `json:"next"`
-	TraceEvents []Trace  `json:"traceEvents"`
+	Mode        string    `json:"mode"`
+	Rules       RuleSet   `json:"rules"`
+	Tools       []Tool    `json:"tools"`
+	Hooks       []Hook    `json:"hooks"`
+	Skills      []Skill   `json:"skills"`
+	Boundaries  []string  `json:"boundaries"`
+	Next        []string  `json:"next"`
+	TraceEvents []Trace   `json:"traceEvents"`
+	HookRuns    []HookRun `json:"hookRuns"`
 }
 
 type RuleSet struct {
@@ -47,6 +49,20 @@ type Hook struct {
 	ID    string `json:"id"`
 	Event string `json:"event"`
 	State string `json:"state"`
+}
+
+type HookRun struct {
+	ID        string    `json:"id"`
+	HookID    string    `json:"hookId"`
+	State     string    `json:"state"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type HookRunInput struct {
+	HookID string `json:"hookId"`
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type Skill struct {
@@ -92,6 +108,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Boundaries:  defaultBoundaries(),
 		Next:        defaultNext(),
 		TraceEvents: r.statusTraces(),
+		HookRuns:    r.statusHookRuns(),
 	}
 }
 
@@ -127,6 +144,41 @@ func (r *Runtime) AddTrace(_ context.Context, input TraceInput) (Trace, error) {
 	return trace, nil
 }
 
+func (r *Runtime) ListHookRuns(context.Context) []HookRun {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]HookRun(nil), r.hookRuns...)
+}
+
+func (r *Runtime) AddHookRun(_ context.Context, input HookRunInput) (HookRun, error) {
+	hookID := strings.TrimSpace(input.HookID)
+	state := strings.TrimSpace(input.State)
+	if hookID == "" || state == "" {
+		return HookRun{}, errors.New("Hook ID and state are required.")
+	}
+	if !knownHookID(hookID) {
+		return HookRun{}, errors.New("Unknown hook ID.")
+	}
+	detail := strings.TrimSpace(input.Detail)
+	if len([]rune(detail)) > 240 {
+		detail = string([]rune(detail)[:240])
+	}
+	run := HookRun{
+		ID:        newTraceID(),
+		HookID:    hookID,
+		State:     state,
+		Detail:    detail,
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hookRuns = append([]HookRun{run}, r.hookRuns...)
+	if len(r.hookRuns) > 50 {
+		r.hookRuns = r.hookRuns[:50]
+	}
+	return run, nil
+}
+
 func (r *Runtime) statusTraces() []Trace {
 	traces := r.ListTraces(context.Background())
 	if len(traces) > 5 {
@@ -141,6 +193,14 @@ func (r *Runtime) statusTraces() []Trace {
 		State:     "ready",
 		CreatedAt: time.Now().UTC(),
 	}}
+}
+
+func (r *Runtime) statusHookRuns() []HookRun {
+	runs := r.ListHookRuns(context.Background())
+	if len(runs) > 5 {
+		return runs[:5]
+	}
+	return runs
 }
 
 func (r *Runtime) loadRules(ctx context.Context) RuleSet {
@@ -235,6 +295,15 @@ func defaultHooks() []Hook {
 	}
 }
 
+func knownHookID(id string) bool {
+	for _, hook := range defaultHooks() {
+		if hook.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func defaultSkills() []Skill {
 	return []Skill{
 		{ID: "debug_test", Name: "Debug failing test", State: "planned"},
@@ -255,8 +324,8 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Add read-only workspace tools",
-		"Add approval-gated edits",
+		"Add skill registry",
+		"Add approved command checks",
 		"Add hook execution",
 	}
 }
