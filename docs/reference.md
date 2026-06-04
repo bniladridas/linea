@@ -127,6 +127,8 @@ UI checks need Chrome. Message checks need one working text model.
 | `GET` | `/healthz` |
 | `GET` | `/api/status` |
 | `GET` | `/api/agent` |
+| `GET` | `/api/agent/traces` |
+| `POST` | `/api/agent/traces` |
 | `GET` | `/api/conversations` |
 | `POST` | `/api/conversations` |
 | `PATCH` | `/api/conversations/{id}` |

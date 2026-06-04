@@ -305,6 +305,61 @@ func TestGetAgentStatusReturnsLocalContract(t *testing.T) {
 	}
 }
 
+func TestAgentTraceEndpointsPersistRuntimeEvents(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("")
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"event":"before tool","state":"recorded","detail":"read-only"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/traces", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var created agent.Trace
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.ID == "" || created.Event != "before tool" || created.State != "recorded" {
+		t.Fatalf("created trace = %#v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/traces", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var traces []agent.Trace
+	if err := json.NewDecoder(res.Body).Decode(&traces); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(traces) != 1 || traces[0].ID != created.ID {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestCreateAgentTraceRejectsEmptyEvent(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("")
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/traces", strings.NewReader(`{"event":"","state":"ready"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+	}
+}
+
 func TestReadAttachmentsPreservesImageBytes(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)

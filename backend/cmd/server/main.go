@@ -116,7 +116,7 @@ func main() {
 	agentRuntime := agent.NewRuntime(cfg.AgentRulesPath)
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.NewServerWithAgentStatus(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime.Status).Handler(),
+		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

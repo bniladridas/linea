@@ -101,8 +101,11 @@ type AgentStatus = {
   boundaries: string[];
   next: string[];
   traceEvents: Array<{
+    id: string;
     event: string;
     state: string;
+    detail?: string;
+    createdAt: string;
   }>;
 };
 
@@ -1323,6 +1326,7 @@ function SystemPanel({ status, agentStatus }: { status: SystemStatus | null; age
     ? `${agentStatus.rules.loaded ? 'Rules' : 'Rules off'}, ${agentStatus.tools.length} tools`
     : 'Ready';
   const plannedHooks = agentStatus?.hooks.filter((hook) => hook.state === 'planned').length ?? 0;
+  const traceCount = agentStatus?.traceEvents.length ?? 0;
 
   return (
     <div className="system-panel" role="status" aria-label="System status">
@@ -1343,7 +1347,7 @@ function SystemPanel({ status, agentStatus }: { status: SystemStatus | null; age
       <SystemRow Icon={Route} label="Agent" value={agentValue} />
       {agentStatus && (
         <div className="system-detail">
-          {agentStatus.mode} mode. {plannedHooks} hooks planned.
+          {agentStatus.mode} mode. {plannedHooks} hooks planned. {traceCount} traces.
         </div>
       )}
       {localProvider?.detail && localProvider.state !== 'ready' && (
