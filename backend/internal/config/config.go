@@ -10,6 +10,7 @@ type Config struct {
 	AgentRulesPath        string
 	AgentSkillsDir        string
 	AgentWorkspaceDir     string
+	AgentMCPConfig        string
 	AgentCommandAllowlist []string
 	DatabaseURL           string
 	GeminiAPIKey          string
@@ -35,6 +36,7 @@ func Load() Config {
 		AgentRulesPath:        env("LINEA_RULES_FILE", "AGENTS.md"),
 		AgentSkillsDir:        os.Getenv("LINEA_SKILLS_DIR"),
 		AgentWorkspaceDir:     os.Getenv("LINEA_WORKSPACE_DIR"),
+		AgentMCPConfig:        os.Getenv("LINEA_MCP_CONFIG"),
 		AgentCommandAllowlist: envList("LINEA_COMMAND_ALLOWLIST"),
 		DatabaseURL:           os.Getenv("DATABASE_URL"),
 		GeminiAPIKey:          os.Getenv("GEMINI_API_KEY"),

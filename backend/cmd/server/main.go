@@ -117,6 +117,7 @@ func main() {
 		cfg.AgentRulesPath,
 		agent.WithWorkspaceRoot(cfg.AgentWorkspaceDir),
 		agent.WithSkillsDir(cfg.AgentSkillsDir),
+		agent.WithMCPConfigPath(cfg.AgentMCPConfig),
 		agent.WithCommandAllowlist(cfg.AgentCommandAllowlist),
 	)
 	server := &http.Server{

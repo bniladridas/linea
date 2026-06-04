@@ -61,6 +61,9 @@ Returns the local agent contract. It is read-only.
   "skills": [
     {"id":"review_change","name":"Review change","state":"ready","command":"make test"}
   ],
+  "mcpServers": [
+    {"id":"docs","name":"docs","state":"ready","command":"node","args":["server.js"],"envKeys":["TOKEN"]}
+  ],
   "boundaries": ["No destructive action without approval"],
   "next": ["Add persisted agent runs"],
   "runSummary": {
@@ -117,6 +120,23 @@ Returns counts and state for recent agent runtime activity.
   "editProposals": 0,
   "updatedAt": "2026-06-01T00:00:00Z"
 }
+```
+
+`GET /api/agent/mcp-servers`
+
+Returns local MCP servers from `LINEA_MCP_CONFIG`. It does not start servers. Env values are not returned.
+
+```json
+[
+  {
+    "id": "docs",
+    "name": "docs",
+    "state": "ready",
+    "command": "node",
+    "args": ["server.js"],
+    "envKeys": ["TOKEN"]
+  }
+]
 ```
 
 `POST /api/agent/traces`

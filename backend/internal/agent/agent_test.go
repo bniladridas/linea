@@ -187,6 +187,46 @@ func TestStatusReportsEmptySkillsDirectory(t *testing.T) {
 	}
 }
 
+func TestStatusLoadsMCPServersFromConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "node",
+      "args": ["server.js"],
+      "env": {"TOKEN": "secret"}
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	status := runtime.Status(context.Background())
+
+	if len(status.MCPServers) != 1 {
+		t.Fatalf("mcp servers = %#v", status.MCPServers)
+	}
+	server := status.MCPServers[0]
+	if server.ID != "docs" || server.Name != "docs" || server.State != "ready" || server.Command != "node" {
+		t.Fatalf("mcp server = %#v", server)
+	}
+	if len(server.Args) != 1 || server.Args[0] != "server.js" {
+		t.Fatalf("mcp server args = %#v", server.Args)
+	}
+	if len(server.EnvKeys) != 1 || server.EnvKeys[0] != "TOKEN" {
+		t.Fatalf("mcp server env keys = %#v", server.EnvKeys)
+	}
+}
+
+func TestStatusReportsUnavailableMCPConfig(t *testing.T) {
+	runtime := NewRuntime("", WithMCPConfigPath(filepath.Join(t.TempDir(), "missing.json")))
+
+	status := runtime.Status(context.Background())
+
+	if len(status.MCPServers) != 1 || status.MCPServers[0].State != "unavailable" {
+		t.Fatalf("mcp servers = %#v", status.MCPServers)
+	}
+}
+
 func TestRuntimeRunsSkillWithoutCommand(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCheck a diff.")
