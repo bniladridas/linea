@@ -4,7 +4,7 @@ This is the macOS package shape.
 
 # Goal
 
-Ship a local macOS app that reaches the current Linea MVP.
+Ship a local macOS app for Linea.
 
 The app should:
 
