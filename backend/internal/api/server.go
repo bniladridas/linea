@@ -70,6 +70,7 @@ type AgentRuntime interface {
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ListEditProposals(context.Context) []agent.EditProposal
 	ProposeEdit(context.Context, agent.EditProposalInput) (agent.EditProposal, error)
+	ReviewEditProposal(context.Context, string, agent.EditProposalReviewInput) (agent.EditProposal, error)
 }
 
 type Settings struct {
@@ -186,6 +187,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/edit-proposals", s.listAgentEditProposals)
 	mux.HandleFunc("POST /api/agent/edit-proposals", s.createAgentEditProposal)
+	mux.HandleFunc("PATCH /api/agent/edit-proposals/{id}", s.reviewAgentEditProposal)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
 	mux.HandleFunc("GET /api/conversations", s.listConversations)
@@ -459,6 +461,25 @@ func (s *Server) createAgentEditProposal(w http.ResponseWriter, r *http.Request)
 	}
 	s.recordAgentTrace(r.Context(), "propose edit", "pending", proposal.Path)
 	writeJSON(w, http.StatusCreated, proposal)
+}
+
+func (s *Server) reviewAgentEditProposal(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent edit proposals are not available.")
+		return
+	}
+	var input agent.EditProposalReviewInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	proposal, err := s.agentRuntime.ReviewEditProposal(r.Context(), r.PathValue("id"), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "review edit", proposal.Status, proposal.Path)
+	writeJSON(w, http.StatusOK, proposal)
 }
 
 func (s *Server) recordAgentTrace(ctx context.Context, event string, state string, detail string) {

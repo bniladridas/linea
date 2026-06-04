@@ -806,6 +806,47 @@ func TestAgentEditProposalListEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentEditProposalReviewEndpoint(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "notes.md")
+	writeAPITestFile(t, filePath, "one\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	proposal, err := runtime.ProposeEdit(context.Background(), agent.EditProposalInput{Path: "notes.md", Content: "two\n"})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/agent/edit-proposals/"+proposal.ID, strings.NewReader(`{"status":"approved","detail":"reviewed"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var reviewed agent.EditProposal
+	if err := json.NewDecoder(res.Body).Decode(&reviewed); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if reviewed.Status != "approved" || reviewed.ReviewDetail != "reviewed" || reviewed.ReviewedAt == nil {
+		t.Fatalf("reviewed = %#v", reviewed)
+	}
+	current, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(current) != "one\n" {
+		t.Fatalf("file was changed: %q", string(current))
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "review edit" || traces[0].State != "approved" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestReadAttachmentsPreservesImageBytes(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)

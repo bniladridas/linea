@@ -526,9 +526,9 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Add applied edit approvals",
 		"Add persisted agent runs",
 		"Add agent run summaries",
+		"Add local MCP discovery",
 	}
 }
 
