@@ -259,7 +259,6 @@ function App() {
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [isSystemDetailsOpen, setIsSystemDetailsOpen] = useState(false);
   const [areTooltipsSuppressed, setAreTooltipsSuppressed] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarFooterRef = useRef<HTMLDivElement | null>(null);
   const renameCancelledRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1032,24 +1031,23 @@ function App() {
             </div>
           )}
           <div className="composer-row">
-            <button
-              aria-label="Attach files"
-              className="icon-button has-tooltip tooltip-above"
+            <label
+              className="icon-button file-picker has-tooltip tooltip-above"
               data-tooltip="Attach"
-              type="button"
               onPointerDown={() => setAreTooltipsSuppressed(true)}
-              onClick={() => fileInputRef.current?.click()}
             >
               <Paperclip size={16} strokeWidth={ICON_STROKE} />
-            </button>
-            <input
-              ref={fileInputRef}
-              hidden
-              multiple
-              type="file"
-              accept=".txt,.md,.csv,.json,.log,image/png,image/jpeg,image/webp"
-              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-            />
+              <input
+                aria-label="Attach files"
+                multiple
+                type="file"
+                accept=".txt,.md,.csv,.json,.log,image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  setFiles(Array.from(event.target.files ?? []));
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
             <textarea
               ref={textareaRef}
               aria-label="Message"

@@ -1563,7 +1563,21 @@ textarea {
   color: #cfcfcf;
 }
 
+.file-picker {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.file-picker input {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
 .composer-row .icon-button:hover,
+.composer-row .file-picker:focus-within,
 .composer-row .send-button:hover:not(:disabled) {
   background: #1d1d1d;
   color: #e8e8e8;
