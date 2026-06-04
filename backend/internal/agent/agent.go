@@ -12,32 +12,34 @@ import (
 )
 
 type Runtime struct {
-	mu            sync.RWMutex
-	rulesPath     string
-	traces        []Trace
-	hookRuns      []HookRun
-	skillRuns     []SkillRun
-	editProposals []EditProposal
-	commandChecks []CommandCheck
-	commandRuns   []CommandRun
-	workspaceRoot string
-	skillsDir     string
-	commands      []string
+	mu               sync.RWMutex
+	rulesPath        string
+	traces           []Trace
+	hookRuns         []HookRun
+	skillRuns        []SkillRun
+	editProposals    []EditProposal
+	commandApprovals []CommandApproval
+	commandChecks    []CommandCheck
+	commandRuns      []CommandRun
+	workspaceRoot    string
+	skillsDir        string
+	commands         []string
 }
 
 type Status struct {
-	Mode          string         `json:"mode"`
-	Rules         RuleSet        `json:"rules"`
-	Tools         []Tool         `json:"tools"`
-	Hooks         []Hook         `json:"hooks"`
-	Skills        []Skill        `json:"skills"`
-	Boundaries    []string       `json:"boundaries"`
-	Next          []string       `json:"next"`
-	TraceEvents   []Trace        `json:"traceEvents"`
-	HookRuns      []HookRun      `json:"hookRuns"`
-	SkillRuns     []SkillRun     `json:"skillRuns"`
-	CommandChecks []CommandCheck `json:"commandChecks"`
-	CommandRuns   []CommandRun   `json:"commandRuns"`
+	Mode             string            `json:"mode"`
+	Rules            RuleSet           `json:"rules"`
+	Tools            []Tool            `json:"tools"`
+	Hooks            []Hook            `json:"hooks"`
+	Skills           []Skill           `json:"skills"`
+	Boundaries       []string          `json:"boundaries"`
+	Next             []string          `json:"next"`
+	TraceEvents      []Trace           `json:"traceEvents"`
+	HookRuns         []HookRun         `json:"hookRuns"`
+	SkillRuns        []SkillRun        `json:"skillRuns"`
+	CommandApprovals []CommandApproval `json:"commandApprovals"`
+	CommandChecks    []CommandCheck    `json:"commandChecks"`
+	CommandRuns      []CommandRun      `json:"commandRuns"`
 }
 
 type RuleSet struct {
@@ -109,15 +111,31 @@ type SkillExecution struct {
 }
 
 type CommandCheck struct {
-	ID        string    `json:"id"`
-	Command   string    `json:"command"`
-	Allowed   bool      `json:"allowed"`
-	Reason    string    `json:"reason"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         string    `json:"id"`
+	Command    string    `json:"command"`
+	ApprovalID string    `json:"approvalId,omitempty"`
+	Allowed    bool      `json:"allowed"`
+	Reason     string    `json:"reason"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 type CommandCheckInput struct {
+	Command    string `json:"command"`
+	ApprovalID string `json:"approvalId,omitempty"`
+}
+
+type CommandApproval struct {
+	ID        string    `json:"id"`
+	Command   string    `json:"command"`
+	State     string    `json:"state"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type CommandApprovalInput struct {
 	Command string `json:"command"`
+	State   string `json:"state,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 type CommandRun struct {
@@ -158,18 +176,19 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 
 func (r *Runtime) Status(ctx context.Context) Status {
 	return Status{
-		Mode:          "local",
-		Rules:         r.loadRules(ctx),
-		Tools:         r.tools(),
-		Hooks:         defaultHooks(),
-		Skills:        r.skills(ctx),
-		Boundaries:    defaultBoundaries(),
-		Next:          defaultNext(),
-		TraceEvents:   r.statusTraces(),
-		HookRuns:      r.statusHookRuns(),
-		SkillRuns:     r.statusSkillRuns(),
-		CommandChecks: r.statusCommandChecks(),
-		CommandRuns:   r.statusCommandRuns(),
+		Mode:             "local",
+		Rules:            r.loadRules(ctx),
+		Tools:            r.tools(),
+		Hooks:            defaultHooks(),
+		Skills:           r.skills(ctx),
+		Boundaries:       defaultBoundaries(),
+		Next:             defaultNext(),
+		TraceEvents:      r.statusTraces(),
+		HookRuns:         r.statusHookRuns(),
+		SkillRuns:        r.statusSkillRuns(),
+		CommandApprovals: r.statusCommandApprovals(),
+		CommandChecks:    r.statusCommandChecks(),
+		CommandRuns:      r.statusCommandRuns(),
 	}
 }
 
@@ -288,23 +307,25 @@ func (r *Runtime) CheckCommand(_ context.Context, input CommandCheckInput) (Comm
 	if command == "" {
 		return CommandCheck{}, errors.New("Command is required.")
 	}
-	allowed := false
-	for _, item := range r.commands {
-		if command == item {
-			allowed = true
-			break
-		}
-	}
+	approvalID := strings.TrimSpace(input.ApprovalID)
+	allowed := r.commandAllowed(command)
 	reason := "not in allowlist"
 	if allowed {
 		reason = "allowed"
 	}
+	if allowed {
+		if err := r.checkCommandApproval(command, approvalID); err != nil {
+			allowed = false
+			reason = err.Error()
+		}
+	}
 	check := CommandCheck{
-		ID:        newTraceID(),
-		Command:   command,
-		Allowed:   allowed,
-		Reason:    reason,
-		CreatedAt: time.Now().UTC(),
+		ID:         newTraceID(),
+		Command:    command,
+		ApprovalID: approvalID,
+		Allowed:    allowed,
+		Reason:     reason,
+		CreatedAt:  time.Now().UTC(),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -351,6 +372,14 @@ func (r *Runtime) statusSkillRuns() []SkillRun {
 		return runs[:5]
 	}
 	return runs
+}
+
+func (r *Runtime) statusCommandApprovals() []CommandApproval {
+	approvals := r.ListCommandApprovals(context.Background())
+	if len(approvals) > 5 {
+		return approvals[:5]
+	}
+	return approvals
 }
 
 func (r *Runtime) statusCommandChecks() []CommandCheck {
@@ -497,9 +526,9 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Add command approvals",
 		"Add applied edit approvals",
 		"Add persisted agent runs",
+		"Add agent run summaries",
 	}
 }
 
