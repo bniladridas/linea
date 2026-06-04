@@ -827,6 +827,35 @@ func TestAgentWorkspaceSearchEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentWorkspaceDiagnosticsEndpoint(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc main( {\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/workspace/diagnostics", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var diagnostics []agent.Diagnostic
+	if err := json.NewDecoder(res.Body).Decode(&diagnostics); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(diagnostics) == 0 || diagnostics[0].Path != "broken.go" || diagnostics[0].Severity != "error" {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "read diagnostics" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestAgentWorkspaceDisabledReturnsNotFound(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")

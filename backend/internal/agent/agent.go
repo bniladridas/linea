@@ -629,7 +629,6 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Add local LSP diagnostics",
 		"Add MCP tool listing",
 	}
 }

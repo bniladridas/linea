@@ -70,6 +70,7 @@ type AgentRuntime interface {
 	RunCommand(context.Context, agent.CommandCheckInput) (agent.CommandRun, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
+	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
 	ListEditProposals(context.Context) []agent.EditProposal
 	ProposeEdit(context.Context, agent.EditProposalInput) (agent.EditProposal, error)
 	ReviewEditProposal(context.Context, string, agent.EditProposalReviewInput) (agent.EditProposal, error)
@@ -191,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/command-runs", s.createAgentCommandRun)
 	mux.HandleFunc("GET /api/agent/workspace/file", s.readAgentWorkspaceFile)
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
+	mux.HandleFunc("GET /api/agent/workspace/diagnostics", s.listAgentWorkspaceDiagnostics)
 	mux.HandleFunc("GET /api/agent/edit-proposals", s.listAgentEditProposals)
 	mux.HandleFunc("POST /api/agent/edit-proposals", s.createAgentEditProposal)
 	mux.HandleFunc("PATCH /api/agent/edit-proposals/{id}", s.reviewAgentEditProposal)
@@ -487,6 +489,20 @@ func (s *Server) searchAgentWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "search files", "completed", r.URL.Query().Get("q"))
 	writeJSON(w, http.StatusOK, results)
+}
+
+func (s *Server) listAgentWorkspaceDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent workspace is not available.")
+		return
+	}
+	diagnostics, err := s.agentRuntime.ListDiagnostics(r.Context())
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "read diagnostics", "completed", fmt.Sprintf("%d", len(diagnostics)))
+	writeJSON(w, http.StatusOK, diagnostics)
 }
 
 func (s *Server) listAgentEditProposals(w http.ResponseWriter, r *http.Request) {
