@@ -17,6 +17,7 @@ import {
   Handshake,
   Heart,
   Info,
+  ListChecks,
   Moon,
   MoreHorizontal,
   Monitor,
@@ -30,7 +31,6 @@ import {
   Plus,
   Route,
   Search as SearchIcon,
-  Server,
   Share2,
   SlidersHorizontal,
   Smile,
@@ -114,6 +114,38 @@ type AgentStatus = {
     detail?: string;
     createdAt: string;
   }>;
+  mcpServers?: Array<{
+    id: string;
+    name: string;
+    state: string;
+  }>;
+  mcpTools?: Array<{
+    id: string;
+    name: string;
+    serverId: string;
+  }>;
+  runSummary?: {
+    state: string;
+    traceEvents: number;
+    hookRuns: number;
+    skillRuns: number;
+    commandApprovals: number;
+    commandChecks: number;
+    commandRuns: number;
+    editProposals: number;
+  };
+  commandChecks?: Array<{
+    id: string;
+    command: string;
+    allowed: boolean;
+    reason: string;
+  }>;
+};
+
+type AgentRun = {
+  id: string;
+  state: string;
+  createdAt: string;
 };
 
 type ProviderStatus = {
@@ -179,6 +211,7 @@ function App() {
   const [isSystemPanelOpen, setIsSystemPanelOpen] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [openConversationMenu, setOpenConversationMenu] = useState<string | null>(null);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
@@ -196,6 +229,7 @@ function App() {
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme());
   const [isThemePanelOpen, setIsThemePanelOpen] = useState(false);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+  const [isSystemDetailsOpen, setIsSystemDetailsOpen] = useState(false);
   const [areTooltipsSuppressed, setAreTooltipsSuppressed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sidebarFooterRef = useRef<HTMLDivElement | null>(null);
@@ -239,6 +273,7 @@ function App() {
     void loadConversations();
     void loadSystemStatus();
     void loadAgentStatus();
+    void loadAgentRuns();
     void loadAppSettings();
   }, []);
 
@@ -350,6 +385,15 @@ function App() {
       setAgentStatus(data);
     } catch {
       setAgentStatus(null);
+    }
+  }
+
+  async function loadAgentRuns() {
+    try {
+      const data = await request<AgentRun[]>('/api/agent/runs');
+      setAgentRuns(Array.isArray(data) ? data : []);
+    } catch {
+      setAgentRuns([]);
     }
   }
 
@@ -742,7 +786,17 @@ function App() {
           </nav>
 
           <div className="sidebar-footer" ref={sidebarFooterRef}>
-            {isSystemPanelOpen && <SystemPanel status={systemStatus} agentStatus={agentStatus} />}
+            {isSystemPanelOpen && (
+              <SystemPanel
+                status={systemStatus}
+                agentStatus={agentStatus}
+                agentRuns={agentRuns}
+                onOpenDetails={() => {
+                  setIsSystemDetailsOpen(true);
+                  setIsSystemPanelOpen(false);
+                }}
+              />
+            )}
             {isThemePanelOpen && <ThemePanel prefs={uiPrefs} systemTheme={systemTheme} onChange={setUIPrefs} />}
             {isSettingsPanelOpen && appSettings && (
               <SettingsPanel settings={appSettings} onChange={(next) => void saveAppSettings(next)} />
@@ -764,6 +818,7 @@ function App() {
                   if (!agentStatus) {
                     void loadAgentStatus();
                   }
+                  void loadAgentRuns();
                 }}
               >
                 <Info size={14} strokeWidth={ICON_STROKE} />
@@ -955,6 +1010,14 @@ function App() {
       </section>
 
       {showSources && <SourcesPanel results={activeSearchResults} />}
+      {isSystemDetailsOpen && (
+        <SystemDetailsDialog
+          status={systemStatus}
+          agentStatus={agentStatus}
+          agentRuns={agentRuns}
+          onClose={() => setIsSystemDetailsOpen(false)}
+        />
+      )}
       {deleteTarget && (
         <ConfirmDialog
           title="Delete conversation"
@@ -1324,41 +1387,33 @@ function tidyUrlLabel(url: string): string {
   }
 }
 
-function SystemPanel({ status, agentStatus }: { status: SystemStatus | null; agentStatus: AgentStatus | null }) {
+function SystemPanel({
+  status,
+  agentStatus,
+  agentRuns,
+  onOpenDetails,
+}: {
+  status: SystemStatus | null;
+  agentStatus: AgentStatus | null;
+  agentRuns: AgentRun[];
+  onOpenDetails: () => void;
+}) {
   const primary = status?.providers.find((provider) => provider.role === 'primary');
-  const enabledProviders = status?.providers.filter((provider) => provider.enabled) ?? [];
   const disabledProviders = status?.providers.filter((provider) => !provider.enabled) ?? [];
   const localProvider = status?.providers.find((provider) => provider.role === 'local');
-  const enabledAgentTools = agentStatus?.tools.filter((tool) => tool.access !== 'off').length ?? 0;
-  const agentValue = agentStatus
-    ? `${agentStatus.rules.loaded ? 'Rules' : 'Rules off'}, ${enabledAgentTools} tools`
-    : 'Ready';
-  const plannedHooks = agentStatus?.hooks.filter((hook) => hook.state === 'planned').length ?? 0;
-  const plannedSubagents = agentStatus?.subagents.filter((subagent) => subagent.state === 'planned').length ?? 0;
-  const traceCount = agentStatus?.traceEvents.length ?? 0;
+  const agentValue = agentStatus?.runSummary?.state ?? (agentStatus ? 'ready' : 'Ready');
 
   return (
     <div className="system-panel" role="status" aria-label="System status">
       <SystemRow Icon={Check} label="Tuned" value={primary?.model ?? 'Model ready'} />
       <SystemRow Icon={Database} label="Storage" value={status?.storage ?? 'Ready'} />
       <SystemRow Icon={SearchIcon} label="Search" value={status?.search ?? 'Ready'} />
-      <SystemRow Icon={Eye} label="Vision" value={primary?.name === 'Gemini' ? 'Gemini' : 'Off'} />
-      <SystemRow
-        Icon={Server}
-        label="Remote"
-        value={enabledProviders.filter((provider) => provider.role !== 'local').map((provider) => provider.name).join(', ') || 'Off'}
-      />
       <SystemRow
         Icon={Cpu}
         label="Local"
         value={localProvider ? providerStatusText(localProvider) : 'Off'}
       />
       <SystemRow Icon={Route} label="Agent" value={agentValue} />
-      {agentStatus && (
-        <div className="system-detail">
-          {agentStatus.mode} mode. {plannedHooks} hooks. {plannedSubagents} subagents. {traceCount} traces.
-        </div>
-      )}
       {localProvider?.detail && localProvider.state !== 'ready' && (
         <div className="system-detail">{localProvider.detail}</div>
       )}
@@ -1367,7 +1422,138 @@ function SystemPanel({ status, agentStatus }: { status: SystemStatus | null; age
           {disabledProviders.map((provider) => provider.name).join(', ')} off
         </div>
       )}
+      <button className="system-details-button has-tooltip tooltip-above" data-tooltip="Details" type="button" onClick={onOpenDetails}>
+        Details
+        <ListChecks size={12} strokeWidth={ICON_STROKE} />
+      </button>
     </div>
+  );
+}
+
+function SystemDetailsDialog({
+  agentRuns,
+  agentStatus,
+  onClose,
+  status,
+}: {
+  agentRuns: AgentRun[];
+  agentStatus: AgentStatus | null;
+  onClose: () => void;
+  status: SystemStatus | null;
+}) {
+  const enabledAgentTools = agentStatus?.tools.filter((tool) => tool.access !== 'off').length ?? 0;
+  const workspaceOn = agentStatus?.tools
+    .filter((tool) => ['read_file', 'search_files', 'diagnostics'].includes(tool.id))
+    .some((tool) => tool.access !== 'off') ?? false;
+  const blockedChecks = agentStatus?.commandChecks?.filter((check) => !check.allowed) ?? [];
+
+  useEffect(() => {
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="dialog-backdrop" onPointerDown={onClose}>
+      <section
+        aria-modal="true"
+        aria-label="System details"
+        className="details-dialog"
+        role="dialog"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="details-header">
+          <div>
+            <strong>System</strong>
+            <p>Local status and agent checks.</p>
+          </div>
+          <button className="details-close" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="details-grid">
+          <DetailsSection title="Runtime">
+            <DetailLine label="Storage" value={status?.storage ?? 'Ready'} />
+            <DetailLine label="Search" value={status?.search ?? 'Ready'} />
+            <DetailLine label="Providers" value={String(status?.providers.filter((provider) => provider.enabled).length ?? 0)} />
+          </DetailsSection>
+
+          <DetailsSection title="Agent">
+            <DetailLine label="Mode" value={agentStatus?.mode ?? 'local'} />
+            <DetailLine label="State" value={agentStatus?.runSummary?.state ?? 'ready'} />
+            <DetailLine label="Tools" value={agentStatus ? `${enabledAgentTools}/${agentStatus.tools.length}` : '0'} />
+            <DetailLine label="Workspace" value={workspaceOn ? 'On' : 'Off'} />
+          </DetailsSection>
+
+          <DetailsSection title="Counts">
+            <DetailLine label="Hooks" value={String(agentStatus?.runSummary?.hookRuns ?? 0)} />
+            <DetailLine label="Skills" value={String(agentStatus?.runSummary?.skillRuns ?? 0)} />
+            <DetailLine label="Commands" value={String(agentStatus?.runSummary?.commandRuns ?? 0)} />
+            <DetailLine label="Runs" value={String(agentRuns.length)} />
+          </DetailsSection>
+
+          <DetailsSection title="MCP">
+            <DetailLine label="Servers" value={String(agentStatus?.mcpServers?.length ?? 0)} />
+            <DetailLine label="Tools" value={String(agentStatus?.mcpTools?.length ?? 0)} />
+          </DetailsSection>
+        </div>
+
+        <DetailsList
+          empty="No traces"
+          items={agentStatus?.traceEvents ?? []}
+          title="Recent traces"
+          render={(trace) => `${trace.event}: ${trace.state}${trace.detail ? ` (${trace.detail})` : ''}`}
+        />
+        <DetailsList
+          empty="No blocked checks"
+          items={blockedChecks}
+          title="Blocked checks"
+          render={(check) => `${check.command}: ${check.reason}`}
+        />
+        <DetailsList
+          empty="No runs"
+          items={agentRuns.slice(0, 5)}
+          title="Latest runs"
+          render={(run) => `${run.state} · ${new Date(run.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}
+        />
+      </section>
+    </div>
+  );
+}
+
+function DetailsSection({ children, title }: { children: React.ReactNode; title: string }) {
+  return (
+    <section className="details-section">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="detail-line">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function DetailsList<T>({ empty, items, render, title }: { empty: string; items: T[]; render: (item: T) => string; title: string }) {
+  return (
+    <section className="details-list">
+      <h3>{title}</h3>
+      {items.length > 0 ? (
+        items.slice(0, 5).map((item, index) => <p key={index}>{render(item)}</p>)
+      ) : (
+        <p>{empty}</p>
+      )}
+    </section>
   );
 }
 
@@ -1423,6 +1609,7 @@ function ThemePanel({
           type="checkbox"
           onChange={(event) => onChange((current) => ({ ...current, showModelBadge: event.target.checked }))}
         />
+        <CheckBoxMark checked={prefs.showModelBadge} />
         Model badge
       </label>
       <label>
@@ -1431,6 +1618,7 @@ function ThemePanel({
           type="checkbox"
           onChange={(event) => onChange((current) => ({ ...current, showSleepAlert: event.target.checked }))}
         />
+        <CheckBoxMark checked={prefs.showSleepAlert} />
         Fallback status
       </label>
     </div>
@@ -1476,6 +1664,7 @@ function SettingsPanel({
               type="checkbox"
               onChange={(event) => updateProvider(provider.id, event.target.checked)}
             />
+            <CheckBoxMark checked={provider.enabled} disabled={!provider.configured} />
             <span>{provider.name}</span>
           </label>
           <small>{provider.configured ? provider.model || provider.role : 'Not configured'}</small>
@@ -1500,6 +1689,14 @@ function SettingsPanel({
         </div>
       ))}
     </div>
+  );
+}
+
+function CheckBoxMark({ checked, disabled = false }: { checked: boolean; disabled?: boolean }) {
+  return (
+    <span className={disabled ? 'checkbox-mark disabled' : 'checkbox-mark'} aria-hidden="true">
+      {checked && <Check size={10} strokeWidth={2.2} />}
+    </span>
   );
 }
 

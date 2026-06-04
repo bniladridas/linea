@@ -227,6 +227,27 @@ textarea {
   line-height: 1.35;
 }
 
+.system-details-button {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #cfcfcf;
+  cursor: pointer;
+  padding: 0 6px 0 22px;
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.system-details-button:hover,
+.system-details-button:focus-visible {
+  color: #eeeeee;
+}
+
 .theme-panel {
   display: grid;
   width: 100%;
@@ -331,16 +352,52 @@ textarea {
 }
 
 .theme-panel button:hover,
-.theme-panel button.active {
+.theme-panel button.active,
+.theme-panel label:hover,
+.theme-panel label:focus-within {
   background: #1b1b1b;
   color: #eeeeee;
 }
 
 .theme-panel input {
-  width: 12px;
-  height: 12px;
-  margin: 0;
-  accent-color: #d8d8d8;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.settings-provider input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.checkbox-mark {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  color: #eeeeee;
+}
+
+.checkbox-mark.disabled {
+  border-color: #2a2a2a;
+  color: #666666;
+}
+
+.theme-panel label:hover .checkbox-mark,
+.settings-provider label:hover .checkbox-mark {
+  border-color: #555555;
 }
 
 .conversation-list:hover,
@@ -1125,6 +1182,100 @@ textarea {
   color: #efc0c0;
 }
 
+.details-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(680px, calc(100vw - 40px));
+  max-height: min(720px, calc(100vh - 40px));
+  overflow: auto;
+  border: 1px solid #272727;
+  border-radius: 14px;
+  background: #121212;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.34);
+  padding: 16px;
+}
+
+.details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.details-header strong,
+.details-section h3,
+.details-list h3 {
+  margin: 0;
+  color: #eeeeee;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.details-header p,
+.details-list p {
+  margin: 4px 0 0;
+  color: #9a9a9a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.details-close {
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #cfcfcf;
+  cursor: pointer;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.details-close:hover,
+.details-close:focus-visible {
+  background: #1d1d1d;
+  color: #eeeeee;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.details-section,
+.details-list {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  border: 1px solid #242424;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.detail-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #8f8f8f;
+  font-size: 12px;
+}
+
+.detail-line span,
+.detail-line strong,
+.details-list p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-line strong {
+  color: #dedede;
+  font-weight: 560;
+}
+
 .composer {
   position: absolute;
   right: 0;
@@ -1438,6 +1589,10 @@ textarea:focus {
 }
 
 @media (max-width: 520px) {
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+
   .sidebar {
     width: min(268px, 82vw);
   }
@@ -1524,11 +1679,21 @@ textarea:focus {
   color: #252522;
 }
 
+:root[data-theme="light"] .details-header strong,
+:root[data-theme="light"] .details-section h3,
+:root[data-theme="light"] .details-list h3,
+:root[data-theme="light"] .detail-line strong {
+  color: #252522;
+}
+
 :root[data-theme="light"] .mark,
 :root[data-theme="light"] .icon-button.subtle,
 :root[data-theme="light"] .panel-toggle-icon,
 :root[data-theme="light"] .sources-toggle,
 :root[data-theme="light"] .system-button,
+:root[data-theme="light"] .system-details-button,
+:root[data-theme="light"] .details-close,
+:root[data-theme="light"] .checkbox-mark,
 :root[data-theme="light"] .composer-row .icon-button,
 :root[data-theme="light"] .composer-row .send-button,
 :root[data-theme="light"] .conversation-menu-button {
@@ -1542,10 +1707,27 @@ textarea:focus {
 :root[data-theme="light"] .system-panel,
 :root[data-theme="light"] .theme-panel,
 :root[data-theme="light"] .settings-panel,
+:root[data-theme="light"] .details-dialog,
+:root[data-theme="light"] .details-section,
+:root[data-theme="light"] .details-list,
 :root[data-theme="light"] .conversation-menu,
 :root[data-theme="light"] .conversation-rename {
   border-color: #deded8;
   background: #ffffff;
+}
+
+:root[data-theme="light"] .checkbox-mark {
+  border-color: #cfcfc8;
+}
+
+:root[data-theme="light"] .checkbox-mark.disabled {
+  border-color: #e0e0da;
+  color: #aaa9a2;
+}
+
+:root[data-theme="light"] .theme-panel label:hover .checkbox-mark,
+:root[data-theme="light"] .settings-provider label:hover .checkbox-mark {
+  border-color: #adada6;
 }
 
 :root[data-theme="light"] .error {
@@ -1563,10 +1745,14 @@ textarea:focus {
 :root[data-theme="light"] .sources-toggle:focus-visible,
 :root[data-theme="light"] .system-button:hover,
 :root[data-theme="light"] .system-button:focus-visible,
+:root[data-theme="light"] .details-close:hover,
+:root[data-theme="light"] .details-close:focus-visible,
 :root[data-theme="light"] .conversation-menu-button:hover,
 :root[data-theme="light"] .conversation-menu-button:focus-visible,
 :root[data-theme="light"] .theme-panel button:hover,
 :root[data-theme="light"] .theme-panel button.active,
+:root[data-theme="light"] .theme-panel label:hover,
+:root[data-theme="light"] .theme-panel label:focus-within,
 :root[data-theme="light"] .settings-provider-actions button:hover:not(:disabled),
 :root[data-theme="light"] .settings-provider-actions button:focus-visible:not(:disabled),
 :root[data-theme="light"] .conversation-menu button:hover,
@@ -1579,6 +1765,11 @@ textarea:focus {
 :root[data-theme="light"] .feedback-button.active,
 :root[data-theme="light"] .message-edit:hover {
   background: #ecece7;
+  color: #252522;
+}
+
+:root[data-theme="light"] .system-details-button:hover,
+:root[data-theme="light"] .system-details-button:focus-visible {
   color: #252522;
 }
 
@@ -1599,6 +1790,9 @@ textarea:focus {
 :root[data-theme="light"] .system-row span,
 :root[data-theme="light"] .system-muted,
 :root[data-theme="light"] .system-detail,
+:root[data-theme="light"] .details-header p,
+:root[data-theme="light"] .details-list p,
+:root[data-theme="light"] .detail-line,
 :root[data-theme="light"] .theme-panel button,
 :root[data-theme="light"] .theme-panel label,
 :root[data-theme="light"] .settings-panel-title,
