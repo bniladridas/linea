@@ -122,6 +122,7 @@ Initial scope:
 * Local tools
 * Hooks
 * Skills
+* Review-only edit proposals
 * Model and provider status
 * Better fallback handling
 * macOS app polish
@@ -180,6 +181,12 @@ Tools:
 * Edit files
 * Run approved commands
 * Read diagnostics
+
+Edit proposals:
+
+* Show proposed diffs before review.
+* Approval and rejection update review state only.
+* Applying changes to disk must be explicit separate work.
 
 Hooks:
 
