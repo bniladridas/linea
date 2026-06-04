@@ -472,6 +472,24 @@ func TestWorkspaceSearchesTextFiles(t *testing.T) {
 	}
 }
 
+func TestWorkspaceListsGoDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "ok.go"), "package main\n")
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc main( {\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	diagnostics, err := runtime.ListDiagnostics(context.Background())
+	if err != nil {
+		t.Fatalf("ListDiagnostics() error = %v", err)
+	}
+	if len(diagnostics) == 0 {
+		t.Fatal("ListDiagnostics() returned no diagnostics")
+	}
+	if diagnostics[0].Path != "broken.go" || diagnostics[0].Severity != "error" || diagnostics[0].Line == 0 {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+}
+
 func TestWorkspaceDisabledByDefault(t *testing.T) {
 	runtime := NewRuntime("")
 	if runtime.WorkspaceEnabled() {
@@ -479,6 +497,9 @@ func TestWorkspaceDisabledByDefault(t *testing.T) {
 	}
 	if _, err := runtime.SearchFiles(context.Background(), "agent"); !errors.Is(err, ErrWorkspaceDisabled) {
 		t.Fatalf("SearchFiles() error = %v, want ErrWorkspaceDisabled", err)
+	}
+	if _, err := runtime.ListDiagnostics(context.Background()); !errors.Is(err, ErrWorkspaceDisabled) {
+		t.Fatalf("ListDiagnostics() error = %v, want ErrWorkspaceDisabled", err)
 	}
 }
 

@@ -65,7 +65,7 @@ Returns the local agent contract. It is read-only.
     {"id":"docs","name":"docs","state":"ready","command":"node","args":["server.js"],"envKeys":["TOKEN"]}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add local LSP diagnostics"],
+  "next": ["Add MCP tool listing"],
   "runSummary": {
     "state": "ready",
     "traceEvents": 1,
@@ -418,6 +418,22 @@ Searches text files in `LINEA_WORKSPACE_DIR`.
     "path": "README.md",
     "line": 1,
     "text": "# Linea"
+  }
+]
+```
+
+`GET /api/agent/workspace/diagnostics`
+
+Returns local workspace diagnostics. It currently reports Go syntax errors.
+
+```json
+[
+  {
+    "path": "backend/main.go",
+    "line": 12,
+    "column": 8,
+    "severity": "error",
+    "message": "expected operand"
   }
 ]
 ```
