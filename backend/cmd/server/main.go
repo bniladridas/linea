@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -35,6 +36,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	runMigrations := flag.Bool("migrate", false, "apply database migrations and exit")
 	runCheck := flag.Bool("check", false, "run non-interactive health checks and exit")
+	runAgentStatus := flag.Bool("agent-status", false, "print local agent status and exit")
 	checkServerURL := flag.String("check-server", "", "check a running Linea server URL and exit")
 	flag.Parse()
 	if *showVersion {
@@ -85,6 +87,13 @@ func main() {
 		}
 		return
 	}
+	if *runAgentStatus {
+		if err := printAgentStatus(ctx, cfg, os.Stdout); err != nil {
+			slog.Error("agent status", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	appStore := store.Store(store.NewMemoryStore())
 	if cfg.DatabaseURL != "" {
@@ -113,13 +122,7 @@ func main() {
 		os.Exit(1)
 	}
 	llmClient := newRoutingAssistant(cfg, settingsStore)
-	agentRuntime := agent.NewRuntime(
-		cfg.AgentRulesPath,
-		agent.WithWorkspaceRoot(cfg.AgentWorkspaceDir),
-		agent.WithSkillsDir(cfg.AgentSkillsDir),
-		agent.WithMCPConfigPath(cfg.AgentMCPConfig),
-		agent.WithCommandAllowlist(cfg.AgentCommandAllowlist),
-	)
+	agentRuntime := newAgentRuntime(cfg)
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
 		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
@@ -144,6 +147,22 @@ func main() {
 		slog.Error("shutdown", "error", err)
 		os.Exit(1)
 	}
+}
+
+func printAgentStatus(ctx context.Context, cfg config.Config, out io.Writer) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(newAgentRuntime(cfg).Status(ctx))
+}
+
+func newAgentRuntime(cfg config.Config) *agent.Runtime {
+	return agent.NewRuntime(
+		cfg.AgentRulesPath,
+		agent.WithWorkspaceRoot(cfg.AgentWorkspaceDir),
+		agent.WithSkillsDir(cfg.AgentSkillsDir),
+		agent.WithMCPConfigPath(cfg.AgentMCPConfig),
+		agent.WithCommandAllowlist(cfg.AgentCommandAllowlist),
+	)
 }
 
 func providerStatuses(ctx context.Context, cfg config.Config, settings api.Settings) []api.ProviderStatus {
