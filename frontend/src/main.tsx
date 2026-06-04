@@ -140,6 +140,14 @@ type AgentStatus = {
     allowed: boolean;
     reason: string;
   }>;
+  commandRuns?: Array<{
+    id: string;
+    command: string;
+    exitCode: number;
+    output: string;
+    truncated: boolean;
+    createdAt: string;
+  }>;
 };
 
 type AgentRun = {
@@ -1672,6 +1680,12 @@ function SystemDetailsDialog({
           render={(check) => `${check.command}: ${check.reason}`}
         />
         <DetailsList
+          empty="No command runs"
+          items={agentStatus?.commandRuns ?? []}
+          title="Command runs"
+          render={(run) => formatCommandRun(run)}
+        />
+        <DetailsList
           empty="No runs"
           items={agentRuns.slice(0, 5)}
           title="Latest runs"
@@ -1694,6 +1708,19 @@ function diffLineNumber(line: AgentDiffLine) {
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formatCommandRun(run: NonNullable<AgentStatus['commandRuns']>[number]) {
+  const output = run.output.trim().replace(/\s+/g, ' ');
+  const preview = output ? ` · ${truncateText(output, 90)}` : '';
+  return `${run.command} · exit ${run.exitCode}${preview}`;
+}
+
+function truncateText(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function DetailsSection({ children, title }: { children: React.ReactNode; title: string }) {
