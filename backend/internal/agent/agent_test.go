@@ -105,6 +105,36 @@ func TestRuntimeRejectsUnknownHookRun(t *testing.T) {
 	}
 }
 
+func TestStatusLoadsSkillsFromDirectory(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCheck a diff.")
+	writeTestFile(t, filepath.Join(root, "debug test.md"), "# Debug test\n\nFix a failing test.")
+	writeTestFile(t, filepath.Join(root, "notes.txt"), "ignore")
+	runtime := NewRuntime("", WithSkillsDir(root))
+
+	status := runtime.Status(context.Background())
+
+	if len(status.Skills) != 2 {
+		t.Fatalf("skills = %#v", status.Skills)
+	}
+	if status.Skills[0].ID != "debug_test" || status.Skills[0].Name != "Debug test" || status.Skills[0].State != "ready" {
+		t.Fatalf("first skill = %#v", status.Skills[0])
+	}
+	if status.Skills[1].ID != "review_change" || status.Skills[1].Name != "Review change" || status.Skills[1].State != "ready" {
+		t.Fatalf("second skill = %#v", status.Skills[1])
+	}
+}
+
+func TestStatusReportsEmptySkillsDirectory(t *testing.T) {
+	runtime := NewRuntime("", WithSkillsDir(t.TempDir()))
+
+	status := runtime.Status(context.Background())
+
+	if len(status.Skills) != 1 || status.Skills[0].State != "empty" {
+		t.Fatalf("skills = %#v", status.Skills)
+	}
+}
+
 func TestWorkspaceReadsFilesInsideRoot(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "Linea reads local files.")

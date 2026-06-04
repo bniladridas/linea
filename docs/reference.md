@@ -29,6 +29,7 @@ Provider order and fallback toggles are saved in `~/.config/linea/settings.json`
 ```sh
 API_ADDR=:8080
 LINEA_RULES_FILE=AGENTS.md
+LINEA_SKILLS_DIR=
 LINEA_WORKSPACE_DIR=
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
 GEMINI_API_KEY=
@@ -51,6 +52,7 @@ WEB_ORIGIN=http://localhost:5173
 | Name | Use |
 | --- | --- |
 | `LINEA_RULES_FILE` | Agent rules file. |
+| `LINEA_SKILLS_DIR` | Reads markdown skills from this directory. Empty means planned skills only. |
 | `LINEA_WORKSPACE_DIR` | Enables read-only agent workspace tools. Empty means off. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `GEMINI_API_KEY` | Gemini primary. |

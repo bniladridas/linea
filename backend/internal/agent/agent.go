@@ -18,6 +18,7 @@ type Runtime struct {
 	hookRuns      []HookRun
 	editProposals []EditProposal
 	workspaceRoot string
+	skillsDir     string
 }
 
 type Status struct {
@@ -104,7 +105,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Rules:       r.loadRules(ctx),
 		Tools:       r.tools(),
 		Hooks:       defaultHooks(),
-		Skills:      defaultSkills(),
+		Skills:      r.skills(ctx),
 		Boundaries:  defaultBoundaries(),
 		Next:        defaultNext(),
 		TraceEvents: r.statusTraces(),
@@ -324,9 +325,9 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Add skill registry",
 		"Add approved command checks",
 		"Add hook execution",
+		"Add skill execution",
 	}
 }
 
