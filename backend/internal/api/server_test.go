@@ -421,6 +421,36 @@ func TestAgentHookRunEndpointRejectsUnknownHook(t *testing.T) {
 	}
 }
 
+func TestAgentHookRunEndpointExecutesHook(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/hooks/after_check/run", strings.NewReader(`{"command":"printf ok"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var execution agent.HookExecution
+	if err := json.NewDecoder(res.Body).Decode(&execution); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if execution.HookRun.HookID != "after_check" || execution.HookRun.State != "completed" {
+		t.Fatalf("hook run = %#v", execution.HookRun)
+	}
+	if execution.CommandRun == nil || execution.CommandRun.Output != "ok" {
+		t.Fatalf("command run = %#v", execution.CommandRun)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "hook execution" || traces[0].Detail != "after_check" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestAgentCommandCheckEndpointsCreateAndListChecks(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
