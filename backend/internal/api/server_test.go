@@ -487,6 +487,65 @@ func TestAgentCommandCheckEndpointBlocksUnlistedCommand(t *testing.T) {
 	}
 }
 
+func TestAgentCommandRunEndpointsCreateAndListRuns(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"command":"printf ok"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/command-runs", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var created agent.CommandRun
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.ID == "" || created.Command != "printf ok" || created.ExitCode != 0 || created.Output != "ok" {
+		t.Fatalf("created = %#v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/command-runs", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var runs []agent.CommandRun
+	if err := json.NewDecoder(res.Body).Decode(&runs); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].ID != created.ID {
+		t.Fatalf("runs = %#v", runs)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "command run" || traces[0].State != "completed" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestAgentCommandRunEndpointRejectsBlockedCommand(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/command-runs", strings.NewReader(`{"command":"printf no"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+	}
+}
+
 func TestAgentWorkspaceReadFileEndpoint(t *testing.T) {
 	root := t.TempDir()
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes")

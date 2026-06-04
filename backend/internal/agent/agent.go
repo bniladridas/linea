@@ -18,6 +18,7 @@ type Runtime struct {
 	hookRuns      []HookRun
 	editProposals []EditProposal
 	commandChecks []CommandCheck
+	commandRuns   []CommandRun
 	workspaceRoot string
 	skillsDir     string
 	commands      []string
@@ -34,6 +35,7 @@ type Status struct {
 	TraceEvents   []Trace        `json:"traceEvents"`
 	HookRuns      []HookRun      `json:"hookRuns"`
 	CommandChecks []CommandCheck `json:"commandChecks"`
+	CommandRuns   []CommandRun   `json:"commandRuns"`
 }
 
 type RuleSet struct {
@@ -87,6 +89,15 @@ type CommandCheckInput struct {
 	Command string `json:"command"`
 }
 
+type CommandRun struct {
+	ID        string    `json:"id"`
+	Command   string    `json:"command"`
+	ExitCode  int       `json:"exitCode"`
+	Output    string    `json:"output"`
+	Truncated bool      `json:"truncated"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 type Trace struct {
 	ID        string    `json:"id"`
 	Event     string    `json:"event"`
@@ -126,6 +137,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		TraceEvents:   r.statusTraces(),
 		HookRuns:      r.statusHookRuns(),
 		CommandChecks: r.statusCommandChecks(),
+		CommandRuns:   r.statusCommandRuns(),
 	}
 }
 
@@ -266,6 +278,14 @@ func (r *Runtime) statusCommandChecks() []CommandCheck {
 	return checks
 }
 
+func (r *Runtime) statusCommandRuns() []CommandRun {
+	runs := r.ListCommandRuns(context.Background())
+	if len(runs) > 5 {
+		return runs[:5]
+	}
+	return runs
+}
+
 func (r *Runtime) loadRules(ctx context.Context) RuleSet {
 	select {
 	case <-ctx.Done():
@@ -337,13 +357,20 @@ func defaultTools() []Tool {
 
 func (r *Runtime) tools() []Tool {
 	tools := defaultTools()
-	if r.WorkspaceEnabled() {
-		return tools
-	}
 	for index := range tools {
-		if tools[index].Access == "workspace" {
+		if tools[index].Access == "workspace" && !r.WorkspaceEnabled() {
 			tools[index].Access = "off"
 			tools[index].Approval = "workspace not set"
+		}
+		if tools[index].ID == "run_command" {
+			switch {
+			case !r.WorkspaceEnabled():
+				tools[index].Access = "off"
+				tools[index].Approval = "workspace not set"
+			case len(r.commands) == 0:
+				tools[index].Access = "off"
+				tools[index].Approval = "allowlist empty"
+			}
 		}
 	}
 	return tools
@@ -389,7 +416,7 @@ func defaultNext() []string {
 	return []string{
 		"Add hook execution",
 		"Add skill execution",
-		"Add command runner",
+		"Add command approvals",
 	}
 }
 
