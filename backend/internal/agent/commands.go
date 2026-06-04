@@ -34,6 +34,50 @@ func normalizeCommands(commands []string) []string {
 	return out
 }
 
+func (r *Runtime) ListCommandApprovals(context.Context) []CommandApproval {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]CommandApproval(nil), r.commandApprovals...)
+}
+
+func (r *Runtime) AddCommandApproval(_ context.Context, input CommandApprovalInput) (CommandApproval, error) {
+	command := strings.Join(strings.Fields(input.Command), " ")
+	if command == "" {
+		return CommandApproval{}, errors.New("Command is required.")
+	}
+	state := strings.TrimSpace(input.State)
+	if state == "" {
+		state = "pending"
+	}
+	switch state {
+	case "pending", "approved", "rejected":
+	default:
+		return CommandApproval{}, errors.New("Command approval state is invalid.")
+	}
+	allowed := r.commandAllowed(command)
+	if !allowed && state == "approved" {
+		return CommandApproval{}, errors.New("Command is not in allowlist.")
+	}
+	detail := strings.TrimSpace(input.Detail)
+	if len([]rune(detail)) > 240 {
+		detail = string([]rune(detail)[:240])
+	}
+	approval := CommandApproval{
+		ID:        newTraceID(),
+		Command:   command,
+		State:     state,
+		Detail:    detail,
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.commandApprovals = append([]CommandApproval{approval}, r.commandApprovals...)
+	if len(r.commandApprovals) > 50 {
+		r.commandApprovals = r.commandApprovals[:50]
+	}
+	return approval, nil
+}
+
 func (r *Runtime) ListCommandRuns(context.Context) []CommandRun {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -43,6 +87,9 @@ func (r *Runtime) ListCommandRuns(context.Context) []CommandRun {
 func (r *Runtime) RunCommand(ctx context.Context, input CommandCheckInput) (CommandRun, error) {
 	check, err := r.CheckCommand(ctx, input)
 	if err != nil {
+		return CommandRun{}, err
+	}
+	if err := r.checkCommandApproval(check.Command, check.ApprovalID); err != nil {
 		return CommandRun{}, err
 	}
 	if !check.Allowed {
@@ -96,4 +143,46 @@ func (r *Runtime) RunCommand(ctx context.Context, input CommandCheckInput) (Comm
 		r.commandRuns = r.commandRuns[:50]
 	}
 	return run, nil
+}
+
+func (r *Runtime) commandAllowed(command string) bool {
+	for _, item := range r.commands {
+		if command == item {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Runtime) commandApproval(id string) (CommandApproval, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return CommandApproval{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, approval := range r.commandApprovals {
+		if approval.ID == id {
+			return approval, true
+		}
+	}
+	return CommandApproval{}, false
+}
+
+func (r *Runtime) checkCommandApproval(command string, approvalID string) error {
+	approvalID = strings.TrimSpace(approvalID)
+	if approvalID == "" {
+		return nil
+	}
+	approval, ok := r.commandApproval(approvalID)
+	if !ok {
+		return errors.New("Command approval was not found.")
+	}
+	if approval.Command != command {
+		return errors.New("Command approval does not match command.")
+	}
+	if approval.State != "approved" {
+		return errors.New("Command approval is not approved.")
+	}
+	return nil
 }

@@ -249,6 +249,72 @@ func TestRuntimeChecksCommandsAgainstAllowlist(t *testing.T) {
 	}
 }
 
+func TestRuntimeStoresCommandApprovals(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+
+	approval, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{
+		Command: " make   test ",
+		State:   "approved",
+		Detail:  "before commit",
+	})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+	if approval.ID == "" || approval.Command != "make test" || approval.State != "approved" {
+		t.Fatalf("approval = %#v", approval)
+	}
+	approvals := runtime.ListCommandApprovals(context.Background())
+	if len(approvals) != 1 || approvals[0].ID != approval.ID {
+		t.Fatalf("approvals = %#v", approvals)
+	}
+	status := runtime.Status(context.Background())
+	if len(status.CommandApprovals) != 1 || status.CommandApprovals[0].ID != approval.ID {
+		t.Fatalf("status command approvals = %#v", status.CommandApprovals)
+	}
+}
+
+func TestRuntimeRejectsApprovingCommandOutsideAllowlist(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+
+	_, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "rm -rf .", State: "approved"})
+	if err == nil {
+		t.Fatal("AddCommandApproval() error = nil, want error")
+	}
+}
+
+func TestRuntimeRunsCommandWithApproval(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	run, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok", ApprovalID: approval.ID})
+	if err != nil {
+		t.Fatalf("RunCommand() error = %v", err)
+	}
+	if run.Output != "ok" {
+		t.Fatalf("run = %#v", run)
+	}
+	checks := runtime.ListCommandChecks(context.Background())
+	if len(checks) != 1 || checks[0].ApprovalID != approval.ID || !checks[0].Allowed {
+		t.Fatalf("checks = %#v", checks)
+	}
+}
+
+func TestRuntimeRejectsUnapprovedCommandApproval(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "pending"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	_, err = runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok", ApprovalID: approval.ID})
+	if err == nil {
+		t.Fatal("RunCommand() error = nil, want error")
+	}
+}
+
 func TestRuntimeRejectsEmptyCommandCheck(t *testing.T) {
 	_, err := NewRuntime("").CheckCommand(context.Background(), CommandCheckInput{Command: " "})
 	if err == nil {

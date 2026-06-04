@@ -541,6 +541,49 @@ func TestAgentCommandCheckEndpointsCreateAndListChecks(t *testing.T) {
 	}
 }
 
+func TestAgentCommandApprovalEndpointsCreateAndListApprovals(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"command":"make test","state":"approved","detail":"before commit"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/command-approvals", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var created agent.CommandApproval
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.ID == "" || created.Command != "make test" || created.State != "approved" {
+		t.Fatalf("created = %#v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/command-approvals", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var approvals []agent.CommandApproval
+	if err := json.NewDecoder(res.Body).Decode(&approvals); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(approvals) != 1 || approvals[0].ID != created.ID {
+		t.Fatalf("approvals = %#v", approvals)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "command approval" || traces[0].State != "approved" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestAgentCommandCheckEndpointBlocksUnlistedCommand(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))

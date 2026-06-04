@@ -62,9 +62,10 @@ Returns the local agent contract. It is read-only.
     {"id":"review_change","name":"Review change","state":"ready","command":"make test"}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add command approvals"],
+  "next": ["Add applied edit approvals"],
   "hookRuns": [],
   "skillRuns": [],
+  "commandApprovals": [],
   "commandChecks": [],
   "commandRuns": [],
   "traceEvents": [
@@ -220,11 +221,40 @@ Returns recent command checks.
   {
     "id": "id",
     "command": "make test",
+    "approvalId": "approval-id",
     "allowed": true,
     "reason": "allowed",
     "createdAt": "2026-06-01T00:00:00Z"
   }
 ]
+```
+
+`GET /api/agent/command-approvals`
+
+Returns recent command approvals.
+
+```json
+[
+  {
+    "id": "id",
+    "command": "make test",
+    "state": "approved",
+    "detail": "before commit",
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
+]
+```
+
+`POST /api/agent/command-approvals`
+
+Records a command approval. Approved commands must be in `LINEA_COMMAND_ALLOWLIST`.
+
+```json
+{
+  "command": "make test",
+  "state": "approved",
+  "detail": "before commit"
+}
 ```
 
 `POST /api/agent/command-checks`
@@ -233,7 +263,8 @@ Checks a command against `LINEA_COMMAND_ALLOWLIST`. It does not execute the comm
 
 ```json
 {
-  "command": "make test"
+  "command": "make test",
+  "approvalId": "approval-id"
 }
 ```
 
@@ -260,7 +291,8 @@ Runs a command only when it exactly matches `LINEA_COMMAND_ALLOWLIST`. It runs i
 
 ```json
 {
-  "command": "make test"
+  "command": "make test",
+  "approvalId": "approval-id"
 }
 ```
 

@@ -60,6 +60,8 @@ type AgentRuntime interface {
 	RunHook(context.Context, string, agent.HookExecutionInput) (agent.HookExecution, error)
 	ListSkillRuns(context.Context) []agent.SkillRun
 	RunSkill(context.Context, string, agent.SkillExecutionInput) (agent.SkillExecution, error)
+	ListCommandApprovals(context.Context) []agent.CommandApproval
+	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
 	ListCommandChecks(context.Context) []agent.CommandCheck
 	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
 	ListCommandRuns(context.Context) []agent.CommandRun
@@ -174,6 +176,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/hooks/{id}/run", s.runAgentHook)
 	mux.HandleFunc("GET /api/agent/skill-runs", s.listAgentSkillRuns)
 	mux.HandleFunc("POST /api/agent/skills/{id}/run", s.runAgentSkill)
+	mux.HandleFunc("GET /api/agent/command-approvals", s.listAgentCommandApprovals)
+	mux.HandleFunc("POST /api/agent/command-approvals", s.createAgentCommandApproval)
 	mux.HandleFunc("GET /api/agent/command-checks", s.listAgentCommandChecks)
 	mux.HandleFunc("POST /api/agent/command-checks", s.createAgentCommandCheck)
 	mux.HandleFunc("GET /api/agent/command-runs", s.listAgentCommandRuns)
@@ -311,6 +315,33 @@ func (s *Server) runAgentSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "skill execution", execution.SkillRun.State, execution.SkillRun.SkillID)
 	writeJSON(w, http.StatusCreated, execution)
+}
+
+func (s *Server) listAgentCommandApprovals(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.CommandApproval{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListCommandApprovals(r.Context()))
+}
+
+func (s *Server) createAgentCommandApproval(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent command approvals are not available.")
+		return
+	}
+	var input agent.CommandApprovalInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	approval, err := s.agentRuntime.AddCommandApproval(r.Context(), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.recordAgentTrace(r.Context(), "command approval", approval.State, approval.Command)
+	writeJSON(w, http.StatusCreated, approval)
 }
 
 func (s *Server) listAgentCommandChecks(w http.ResponseWriter, r *http.Request) {
