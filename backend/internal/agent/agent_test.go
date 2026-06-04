@@ -171,6 +171,45 @@ func TestRuntimeRejectsEmptyCommandCheck(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunsAllowedCommandInWorkspace(t *testing.T) {
+	root := t.TempDir()
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"printf ok"}))
+
+	run, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok"})
+	if err != nil {
+		t.Fatalf("RunCommand() error = %v", err)
+	}
+	if run.ID == "" || run.Command != "printf ok" || run.ExitCode != 0 || run.Output != "ok" {
+		t.Fatalf("run = %#v", run)
+	}
+	runs := runtime.ListCommandRuns(context.Background())
+	if len(runs) != 1 || runs[0].ID != run.ID {
+		t.Fatalf("runs = %#v", runs)
+	}
+	status := runtime.Status(context.Background())
+	if len(status.CommandRuns) != 1 || status.CommandRuns[0].ID != run.ID {
+		t.Fatalf("status command runs = %#v", status.CommandRuns)
+	}
+}
+
+func TestRuntimeRejectsCommandRunOutsideAllowlist(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+
+	_, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf no"})
+	if err == nil {
+		t.Fatal("RunCommand() error = nil, want error")
+	}
+}
+
+func TestRuntimeRequiresWorkspaceForCommandRun(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"printf ok"}))
+
+	_, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok"})
+	if !errors.Is(err, ErrWorkspaceDisabled) {
+		t.Fatalf("RunCommand() error = %v, want ErrWorkspaceDisabled", err)
+	}
+}
+
 func TestWorkspaceReadsFilesInsideRoot(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "Linea reads local files.")

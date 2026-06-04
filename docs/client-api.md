@@ -65,6 +65,7 @@ Returns the local agent contract. It is read-only.
   "next": ["Add hook execution"],
   "hookRuns": [],
   "commandChecks": [],
+  "commandRuns": [],
   "traceEvents": [
     {"id":"runtime-ready","event":"agent runtime","state":"ready","createdAt":"2026-06-01T00:00:00Z"}
   ]
@@ -146,6 +147,33 @@ Returns recent command checks.
 `POST /api/agent/command-checks`
 
 Checks a command against `LINEA_COMMAND_ALLOWLIST`. It does not execute the command.
+
+```json
+{
+  "command": "make test"
+}
+```
+
+`GET /api/agent/command-runs`
+
+Returns recent command runs.
+
+```json
+[
+  {
+    "id": "id",
+    "command": "make test",
+    "exitCode": 0,
+    "output": "ok",
+    "truncated": false,
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
+]
+```
+
+`POST /api/agent/command-runs`
+
+Runs a command only when it exactly matches `LINEA_COMMAND_ALLOWLIST`. It runs inside `LINEA_WORKSPACE_DIR`.
 
 ```json
 {
