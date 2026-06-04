@@ -1,4 +1,4 @@
-.PHONY: build test check install-check release-check macos-package model-check agent-check agent-check-memory ui-check ui-check-full
+.PHONY: build test check install-check release-check macos-package model-check agent-check agent-check-memory ui-check ui-check-agent ui-check-full
 
 build:
 	cd frontend && npm ci && npm run build
@@ -48,6 +48,9 @@ agent-check-memory: build
 
 ui-check:
 	node scripts/ui-smoke.mjs --attachment --light-theme --mobile
+
+ui-check-agent:
+	node scripts/ui-smoke.mjs --agent-review
 
 ui-check-full:
 	node scripts/ui-smoke.mjs --send --search-sources --attachment --light-theme --mobile
