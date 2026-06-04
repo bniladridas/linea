@@ -66,6 +66,25 @@ func TestRuntimeStoresRecentTraces(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunSummaryCountsRecentState(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+	if _, err := runtime.AddTrace(context.Background(), TraceInput{Event: "agent runtime", State: "ready"}); err != nil {
+		t.Fatalf("AddTrace() error = %v", err)
+	}
+	if _, err := runtime.CheckCommand(context.Background(), CommandCheckInput{Command: "rm -rf ."}); err != nil {
+		t.Fatalf("CheckCommand() error = %v", err)
+	}
+
+	summary := runtime.RunSummary(context.Background())
+	if summary.State != "attention" || summary.TraceEvents != 1 || summary.CommandChecks != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	status := runtime.Status(context.Background())
+	if status.RunSummary.CommandChecks != 1 {
+		t.Fatalf("status summary = %#v", status.RunSummary)
+	}
+}
+
 func TestRuntimeRejectsEmptyTrace(t *testing.T) {
 	_, err := NewRuntime("").AddTrace(context.Background(), TraceInput{Event: " ", State: "ready"})
 	if err == nil {

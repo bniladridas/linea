@@ -53,6 +53,7 @@ type AgentStatusProvider func(context.Context) agent.Status
 
 type AgentRuntime interface {
 	Status(context.Context) agent.Status
+	RunSummary(context.Context) agent.RunSummary
 	ListTraces(context.Context) []agent.Trace
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ListHookRuns(context.Context) []agent.HookRun
@@ -170,6 +171,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/status", s.getStatus)
 	mux.HandleFunc("GET /api/agent", s.getAgentStatus)
+	mux.HandleFunc("GET /api/agent/run-summary", s.getAgentRunSummary)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
 	mux.HandleFunc("GET /api/agent/hook-runs", s.listAgentHookRuns)
@@ -218,6 +220,14 @@ func (s *Server) getAgentStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.agentProvider(r.Context()))
+}
+
+func (s *Server) getAgentRunSummary(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, agent.NewRuntime("").RunSummary(r.Context()))
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.RunSummary(r.Context()))
 }
 
 func (s *Server) listAgentTraces(w http.ResponseWriter, r *http.Request) {
