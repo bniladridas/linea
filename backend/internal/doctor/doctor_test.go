@@ -19,6 +19,9 @@ func TestCheckOllamaWarnsWhenServerIsSleeping(t *testing.T) {
 	if result.Status != Warn {
 		t.Fatalf("status = %s, want %s", result.Status, Warn)
 	}
+	if result.Message != "Ollama not running. Start with: ollama serve" {
+		t.Fatalf("message = %q", result.Message)
+	}
 }
 
 func TestCheckOllamaWarnsWhenModelIsMissing(t *testing.T) {
