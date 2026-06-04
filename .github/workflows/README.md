@@ -36,6 +36,10 @@ Builds, packages, and verifies the DMG on pull requests.
 
 Updates one pull request comment with the check result.
 
+`pr-body.yml`
+
+Replaces literal `\n` in pull request bodies with real line breaks.
+
 `ci.yml`
 
 Runs the app checks on pull requests and pushes.
