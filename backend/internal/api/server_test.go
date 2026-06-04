@@ -372,6 +372,58 @@ func TestAgentRunSummaryEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentRunEndpointsCreateAndListSnapshots(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
+	if _, err := runtime.CheckCommand(context.Background(), agent.CommandCheckInput{Command: "rm -rf ."}); err != nil {
+		t.Fatalf("CheckCommand() error = %v", err)
+	}
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/runs", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var created store.AgentRun
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.ID == "" || created.State != "attention" {
+		t.Fatalf("created = %#v", created)
+	}
+	var summary agent.RunSummary
+	if err := json.Unmarshal(created.Summary, &summary); err != nil {
+		t.Fatalf("Unmarshal(summary) error = %v", err)
+	}
+	if summary.CommandChecks != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/runs", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var runs []store.AgentRun
+	if err := json.NewDecoder(res.Body).Decode(&runs); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].ID != created.ID {
+		t.Fatalf("runs = %#v", runs)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "agent run" || traces[0].State != "attention" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestAgentMCPServersEndpoint(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
 	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"}}}}`)

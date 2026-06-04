@@ -173,6 +173,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/status", s.getStatus)
 	mux.HandleFunc("GET /api/agent", s.getAgentStatus)
 	mux.HandleFunc("GET /api/agent/run-summary", s.getAgentRunSummary)
+	mux.HandleFunc("GET /api/agent/runs", s.listAgentRuns)
+	mux.HandleFunc("POST /api/agent/runs", s.createAgentRun)
 	mux.HandleFunc("GET /api/agent/mcp-servers", s.listAgentMCPServers)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
@@ -230,6 +232,37 @@ func (s *Server) getAgentRunSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.agentRuntime.RunSummary(r.Context()))
+}
+
+func (s *Server) listAgentRuns(w http.ResponseWriter, r *http.Request) {
+	runs, err := s.store.ListAgentRuns(r.Context())
+	if err != nil {
+		slog.Error("list agent runs", "error", err)
+		writeError(w, http.StatusInternalServerError, "Could not list agent runs.")
+		return
+	}
+	writeJSON(w, http.StatusOK, runs)
+}
+
+func (s *Server) createAgentRun(w http.ResponseWriter, r *http.Request) {
+	summary := agent.NewRuntime("").RunSummary(r.Context())
+	if s.agentRuntime != nil {
+		summary = s.agentRuntime.RunSummary(r.Context())
+	}
+	payload, err := json.Marshal(summary)
+	if err != nil {
+		slog.Error("encode agent run summary", "error", err)
+		writeError(w, http.StatusInternalServerError, "Could not save agent run.")
+		return
+	}
+	run, err := s.store.AddAgentRun(r.Context(), summary.State, payload)
+	if err != nil {
+		slog.Error("save agent run", "error", err)
+		writeError(w, http.StatusInternalServerError, "Could not save agent run.")
+		return
+	}
+	s.recordAgentTrace(r.Context(), "agent run", summary.State, run.ID)
+	writeJSON(w, http.StatusCreated, run)
 }
 
 func (s *Server) listAgentMCPServers(w http.ResponseWriter, r *http.Request) {
