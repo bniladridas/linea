@@ -372,6 +372,31 @@ func TestAgentRunSummaryEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentMCPServersEndpoint(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"}}}}`)
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/mcp-servers", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var servers []agent.MCPServer
+	if err := json.NewDecoder(res.Body).Decode(&servers); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(servers) != 1 || servers[0].ID != "docs" || len(servers[0].EnvKeys) != 1 {
+		t.Fatalf("servers = %#v", servers)
+	}
+}
+
 func TestCreateAgentTraceRejectsEmptyEvent(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")

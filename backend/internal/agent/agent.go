@@ -23,6 +23,7 @@ type Runtime struct {
 	commandRuns      []CommandRun
 	workspaceRoot    string
 	skillsDir        string
+	mcpConfigPath    string
 	commands         []string
 }
 
@@ -32,6 +33,7 @@ type Status struct {
 	Tools            []Tool            `json:"tools"`
 	Hooks            []Hook            `json:"hooks"`
 	Skills           []Skill           `json:"skills"`
+	MCPServers       []MCPServer       `json:"mcpServers"`
 	Boundaries       []string          `json:"boundaries"`
 	Next             []string          `json:"next"`
 	TraceEvents      []Trace           `json:"traceEvents"`
@@ -109,6 +111,15 @@ type SkillExecutionInput struct {
 type SkillExecution struct {
 	SkillRun   SkillRun    `json:"skillRun"`
 	CommandRun *CommandRun `json:"commandRun,omitempty"`
+}
+
+type MCPServer struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	State   string   `json:"state"`
+	Command string   `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	EnvKeys []string `json:"envKeys,omitempty"`
 }
 
 type CommandCheck struct {
@@ -194,6 +205,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Tools:            r.tools(),
 		Hooks:            defaultHooks(),
 		Skills:           r.skills(ctx),
+		MCPServers:       r.mcpServers(ctx),
 		Boundaries:       defaultBoundaries(),
 		Next:             defaultNext(),
 		TraceEvents:      r.statusTraces(),
@@ -618,8 +630,8 @@ func defaultBoundaries() []string {
 func defaultNext() []string {
 	return []string{
 		"Add persisted agent runs",
-		"Add local MCP discovery",
 		"Add local LSP diagnostics",
+		"Add MCP tool listing",
 	}
 }
 

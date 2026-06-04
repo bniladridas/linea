@@ -54,6 +54,7 @@ type AgentStatusProvider func(context.Context) agent.Status
 type AgentRuntime interface {
 	Status(context.Context) agent.Status
 	RunSummary(context.Context) agent.RunSummary
+	ListMCPServers(context.Context) []agent.MCPServer
 	ListTraces(context.Context) []agent.Trace
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ListHookRuns(context.Context) []agent.HookRun
@@ -172,6 +173,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/status", s.getStatus)
 	mux.HandleFunc("GET /api/agent", s.getAgentStatus)
 	mux.HandleFunc("GET /api/agent/run-summary", s.getAgentRunSummary)
+	mux.HandleFunc("GET /api/agent/mcp-servers", s.listAgentMCPServers)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
 	mux.HandleFunc("GET /api/agent/hook-runs", s.listAgentHookRuns)
@@ -228,6 +230,14 @@ func (s *Server) getAgentRunSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.agentRuntime.RunSummary(r.Context()))
+}
+
+func (s *Server) listAgentMCPServers(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.MCPServer{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPServers(r.Context()))
 }
 
 func (s *Server) listAgentTraces(w http.ResponseWriter, r *http.Request) {
