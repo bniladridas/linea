@@ -148,6 +148,32 @@ type AgentRun = {
   createdAt: string;
 };
 
+type AgentDiagnostic = {
+  path: string;
+  line: number;
+  column: number;
+  severity: string;
+  message: string;
+};
+
+type AgentEditProposal = {
+  id: string;
+  path: string;
+  summary?: string;
+  status: string;
+  reviewDetail?: string;
+  diff: AgentDiffLine[];
+  createdAt: string;
+  reviewedAt?: string;
+};
+
+type AgentDiffLine = {
+  type: 'equal' | 'add' | 'remove';
+  oldLine?: number;
+  newLine?: number;
+  text: string;
+};
+
 type ProviderStatus = {
   name: string;
   model?: string;
@@ -212,6 +238,8 @@ function App() {
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+  const [agentDiagnostics, setAgentDiagnostics] = useState<AgentDiagnostic[]>([]);
+  const [agentEditProposals, setAgentEditProposals] = useState<AgentEditProposal[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [openConversationMenu, setOpenConversationMenu] = useState<string | null>(null);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
@@ -274,6 +302,7 @@ function App() {
     void loadSystemStatus();
     void loadAgentStatus();
     void loadAgentRuns();
+    void loadAgentEditProposals();
     void loadAppSettings();
   }, []);
 
@@ -394,6 +423,38 @@ function App() {
       setAgentRuns(Array.isArray(data) ? data : []);
     } catch {
       setAgentRuns([]);
+    }
+  }
+
+  async function loadAgentDiagnostics() {
+    try {
+      const data = await request<AgentDiagnostic[]>('/api/agent/workspace/diagnostics');
+      setAgentDiagnostics(Array.isArray(data) ? data : []);
+    } catch {
+      setAgentDiagnostics([]);
+    }
+  }
+
+  async function loadAgentEditProposals() {
+    try {
+      const data = await request<AgentEditProposal[]>('/api/agent/edit-proposals');
+      setAgentEditProposals(Array.isArray(data) ? data : []);
+    } catch {
+      setAgentEditProposals([]);
+    }
+  }
+
+  async function reviewAgentEditProposal(proposalId: string, status: 'approved' | 'rejected') {
+    try {
+      const proposal = await request<AgentEditProposal>(`/api/agent/edit-proposals/${proposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, detail: 'Reviewed in Linea.' }),
+      });
+      setAgentEditProposals((items) => items.map((item) => (item.id === proposal.id ? proposal : item)));
+      await loadAgentStatus();
+    } catch (reviewError) {
+      setError(reviewError instanceof Error ? reviewError.message : 'Could not review proposal.');
     }
   }
 
@@ -794,6 +855,8 @@ function App() {
                 onOpenDetails={() => {
                   setIsSystemDetailsOpen(true);
                   setIsSystemPanelOpen(false);
+                  void loadAgentDiagnostics();
+                  void loadAgentEditProposals();
                 }}
               />
             )}
@@ -819,6 +882,7 @@ function App() {
                     void loadAgentStatus();
                   }
                   void loadAgentRuns();
+                  void loadAgentEditProposals();
                 }}
               >
                 <Info size={14} strokeWidth={ICON_STROKE} />
@@ -1015,6 +1079,9 @@ function App() {
           status={systemStatus}
           agentStatus={agentStatus}
           agentRuns={agentRuns}
+          diagnostics={agentDiagnostics}
+          editProposals={agentEditProposals}
+          onReviewProposal={(proposalId, status) => void reviewAgentEditProposal(proposalId, status)}
           onClose={() => setIsSystemDetailsOpen(false)}
         />
       )}
@@ -1433,19 +1500,38 @@ function SystemPanel({
 function SystemDetailsDialog({
   agentRuns,
   agentStatus,
+  diagnostics,
+  editProposals,
   onClose,
+  onReviewProposal,
   status,
 }: {
   agentRuns: AgentRun[];
   agentStatus: AgentStatus | null;
+  diagnostics: AgentDiagnostic[];
+  editProposals: AgentEditProposal[];
   onClose: () => void;
+  onReviewProposal: (proposalId: string, status: 'approved' | 'rejected') => void;
   status: SystemStatus | null;
 }) {
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(editProposals[0]?.id ?? null);
   const enabledAgentTools = agentStatus?.tools.filter((tool) => tool.access !== 'off').length ?? 0;
   const workspaceOn = agentStatus?.tools
     .filter((tool) => ['read_file', 'search_files', 'diagnostics'].includes(tool.id))
     .some((tool) => tool.access !== 'off') ?? false;
   const blockedChecks = agentStatus?.commandChecks?.filter((check) => !check.allowed) ?? [];
+  const selectedProposal =
+    editProposals.find((proposal) => proposal.id === selectedProposalId) ?? editProposals[0] ?? null;
+
+  useEffect(() => {
+    if (!selectedProposalId && editProposals.length > 0) {
+      setSelectedProposalId(editProposals[0].id);
+      return;
+    }
+    if (selectedProposalId && editProposals.length > 0 && !editProposals.some((proposal) => proposal.id === selectedProposalId)) {
+      setSelectedProposalId(editProposals[0].id);
+    }
+  }, [editProposals, selectedProposalId]);
 
   useEffect(() => {
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
@@ -1494,6 +1580,7 @@ function SystemDetailsDialog({
             <DetailLine label="Hooks" value={String(agentStatus?.runSummary?.hookRuns ?? 0)} />
             <DetailLine label="Skills" value={String(agentStatus?.runSummary?.skillRuns ?? 0)} />
             <DetailLine label="Commands" value={String(agentStatus?.runSummary?.commandRuns ?? 0)} />
+            <DetailLine label="Proposals" value={String(agentStatus?.runSummary?.editProposals ?? editProposals.length)} />
             <DetailLine label="Runs" value={String(agentRuns.length)} />
           </DetailsSection>
 
@@ -1503,6 +1590,77 @@ function SystemDetailsDialog({
           </DetailsSection>
         </div>
 
+        <section className="details-list proposal-review">
+          <div className="details-list-header">
+            <h3>Edit proposals</h3>
+            <span>{editProposals.length}</span>
+          </div>
+          {editProposals.length > 0 ? (
+            <div className="proposal-layout">
+              <div className="proposal-list" role="list">
+                {editProposals.map((proposal) => (
+                  <button
+                    aria-pressed={selectedProposal?.id === proposal.id}
+                    className={selectedProposal?.id === proposal.id ? 'proposal-item active' : 'proposal-item'}
+                    key={proposal.id}
+                    type="button"
+                    onClick={() => setSelectedProposalId(proposal.id)}
+                  >
+                    <span>{proposal.path}</span>
+                    <small>{proposal.summary || proposal.status}</small>
+                    <strong>{proposal.status}</strong>
+                  </button>
+                ))}
+              </div>
+              {selectedProposal && (
+                <div className="proposal-detail">
+                  <div className="proposal-detail-top">
+                    <div>
+                      <strong>{selectedProposal.path}</strong>
+                      <p>{selectedProposal.summary || formatDateTime(selectedProposal.createdAt)}</p>
+                    </div>
+                    <div className="proposal-actions">
+                      <button
+                        disabled={selectedProposal.status !== 'pending'}
+                        type="button"
+                        onClick={() => onReviewProposal(selectedProposal.id, 'approved')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        disabled={selectedProposal.status !== 'pending'}
+                        type="button"
+                        onClick={() => onReviewProposal(selectedProposal.id, 'rejected')}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                  {selectedProposal.reviewDetail && <p className="proposal-review-detail">{selectedProposal.reviewDetail}</p>}
+                  <div className="proposal-diff" aria-label="Proposal diff">
+                    {selectedProposal.diff.map((line, index) => (
+                      <div className={`proposal-diff-line ${line.type}`} key={`${index}-${line.type}`}>
+                        <span>{diffLineNumber(line)}</span>
+                        <code>{line.text || ' '}</code>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p>No edit proposals</p>
+          )}
+        </section>
+
+        <DetailsList
+          empty="No diagnostics"
+          items={diagnostics}
+          title="Diagnostics"
+          render={(diagnostic) =>
+            `${diagnostic.path}:${diagnostic.line}:${diagnostic.column} ${diagnostic.severity}: ${diagnostic.message}`
+          }
+        />
         <DetailsList
           empty="No traces"
           items={agentStatus?.traceEvents ?? []}
@@ -1524,6 +1682,20 @@ function SystemDetailsDialog({
       </section>
     </div>
   );
+}
+
+function diffLineNumber(line: AgentDiffLine) {
+  if (line.type === 'add') {
+    return line.newLine ? `+${line.newLine}` : '+';
+  }
+  if (line.type === 'remove') {
+    return line.oldLine ? `-${line.oldLine}` : '-';
+  }
+  return String(line.newLine ?? line.oldLine ?? '');
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function DetailsSection({ children, title }: { children: React.ReactNode; title: string }) {

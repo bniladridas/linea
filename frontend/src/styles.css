@@ -1204,7 +1204,8 @@ textarea {
 
 .details-header strong,
 .details-section h3,
-.details-list h3 {
+.details-list h3,
+.details-list-header span {
   margin: 0;
   color: #eeeeee;
   font-size: 13px;
@@ -1253,6 +1254,19 @@ textarea {
   padding: 10px;
 }
 
+.details-list-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.details-list-header span {
+  color: #8f8f8f;
+  font-size: 12px;
+}
+
 .detail-line {
   display: flex;
   min-width: 0;
@@ -1274,6 +1288,195 @@ textarea {
 .detail-line strong {
   color: #dedede;
   font-weight: 560;
+}
+
+.proposal-review {
+  gap: 10px;
+}
+
+.proposal-layout {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(140px, 0.45fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.proposal-list {
+  display: grid;
+  max-height: 240px;
+  min-width: 0;
+  align-content: start;
+  gap: 6px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.proposal-item {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #a8a8a8;
+  cursor: pointer;
+  padding: 8px;
+  text-align: left;
+}
+
+.proposal-item:hover,
+.proposal-item:focus-visible,
+.proposal-item.active {
+  border-color: #303030;
+  background: #1a1a1a;
+  color: #eeeeee;
+}
+
+.proposal-item span,
+.proposal-item small,
+.proposal-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proposal-item span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.proposal-item small {
+  color: #8f8f8f;
+  font-size: 11px;
+}
+
+.proposal-item strong {
+  color: #cfcfcf;
+  font-size: 11px;
+  font-weight: 560;
+  text-transform: capitalize;
+}
+
+.proposal-detail {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.proposal-detail-top {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.proposal-detail-top strong,
+.proposal-detail-top p,
+.proposal-review-detail {
+  margin: 0;
+}
+
+.proposal-detail-top strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #eeeeee;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proposal-detail-top p,
+.proposal-review-detail {
+  color: #8f8f8f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.proposal-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.proposal-actions button {
+  min-height: 28px;
+  border: 1px solid #303030;
+  border-radius: 8px;
+  background: #181818;
+  color: #d8d8d8;
+  cursor: pointer;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.proposal-actions button:hover:not(:disabled),
+.proposal-actions button:focus-visible:not(:disabled) {
+  background: #242424;
+  color: #eeeeee;
+}
+
+.proposal-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.proposal-diff {
+  display: grid;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #242424;
+  border-radius: 8px;
+  background: #0d0d0d;
+}
+
+.proposal-diff-line {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 46px minmax(0, 1fr);
+  border-bottom: 1px solid #181818;
+  color: #9f9f9f;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.proposal-diff-line:last-child {
+  border-bottom: 0;
+}
+
+.proposal-diff-line.add {
+  background: rgba(73, 134, 95, 0.13);
+}
+
+.proposal-diff-line.remove {
+  background: rgba(151, 78, 74, 0.13);
+}
+
+.proposal-diff-line span {
+  padding: 3px 7px;
+  color: #707070;
+  text-align: right;
+  user-select: none;
+}
+
+.proposal-diff-line code {
+  min-width: 0;
+  overflow: hidden;
+  padding: 3px 8px;
+  color: #d8d8d8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.proposal-diff-more {
+  padding: 6px 8px;
+  color: #8f8f8f;
+  font-size: 11px;
 }
 
 .composer {
@@ -1593,6 +1796,14 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .proposal-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .proposal-detail-top {
+    display: grid;
+  }
+
   .sidebar {
     width: min(268px, 82vw);
   }
@@ -1682,6 +1893,8 @@ textarea:focus {
 :root[data-theme="light"] .details-header strong,
 :root[data-theme="light"] .details-section h3,
 :root[data-theme="light"] .details-list h3,
+:root[data-theme="light"] .details-list-header span,
+:root[data-theme="light"] .proposal-detail-top strong,
 :root[data-theme="light"] .detail-line strong {
   color: #252522;
 }
@@ -1693,6 +1906,7 @@ textarea:focus {
 :root[data-theme="light"] .system-button,
 :root[data-theme="light"] .system-details-button,
 :root[data-theme="light"] .details-close,
+:root[data-theme="light"] .proposal-actions button,
 :root[data-theme="light"] .checkbox-mark,
 :root[data-theme="light"] .composer-row .icon-button,
 :root[data-theme="light"] .composer-row .send-button,
@@ -1710,10 +1924,41 @@ textarea:focus {
 :root[data-theme="light"] .details-dialog,
 :root[data-theme="light"] .details-section,
 :root[data-theme="light"] .details-list,
+:root[data-theme="light"] .proposal-diff,
 :root[data-theme="light"] .conversation-menu,
 :root[data-theme="light"] .conversation-rename {
   border-color: #deded8;
   background: #ffffff;
+}
+
+:root[data-theme="light"] .proposal-item:hover,
+:root[data-theme="light"] .proposal-item:focus-visible,
+:root[data-theme="light"] .proposal-item.active,
+:root[data-theme="light"] .proposal-actions button {
+  border-color: #deded8;
+  background: #f4f4ef;
+}
+
+:root[data-theme="light"] .proposal-actions button:hover:not(:disabled),
+:root[data-theme="light"] .proposal-actions button:focus-visible:not(:disabled) {
+  background: #ecece7;
+  color: #252522;
+}
+
+:root[data-theme="light"] .proposal-diff-line {
+  border-color: #ecece7;
+}
+
+:root[data-theme="light"] .proposal-diff-line.add {
+  background: rgba(73, 134, 95, 0.12);
+}
+
+:root[data-theme="light"] .proposal-diff-line.remove {
+  background: rgba(151, 78, 74, 0.12);
+}
+
+:root[data-theme="light"] .proposal-diff-line code {
+  color: #30302c;
 }
 
 :root[data-theme="light"] .checkbox-mark {
@@ -1792,6 +2037,13 @@ textarea:focus {
 :root[data-theme="light"] .system-detail,
 :root[data-theme="light"] .details-header p,
 :root[data-theme="light"] .details-list p,
+:root[data-theme="light"] .proposal-item,
+:root[data-theme="light"] .proposal-item small,
+:root[data-theme="light"] .proposal-detail-top p,
+:root[data-theme="light"] .proposal-review-detail,
+:root[data-theme="light"] .proposal-diff-line,
+:root[data-theme="light"] .proposal-diff-line span,
+:root[data-theme="light"] .proposal-diff-more,
 :root[data-theme="light"] .detail-line,
 :root[data-theme="light"] .theme-panel button,
 :root[data-theme="light"] .theme-panel label,
