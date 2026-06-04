@@ -73,6 +73,38 @@ func TestRuntimeRejectsEmptyTrace(t *testing.T) {
 	}
 }
 
+func TestRuntimeStoresHookRuns(t *testing.T) {
+	runtime := NewRuntime("")
+
+	run, err := runtime.AddHookRun(context.Background(), HookRunInput{
+		HookID: "before_tool",
+		State:  "completed",
+		Detail: "read file",
+	})
+	if err != nil {
+		t.Fatalf("AddHookRun() error = %v", err)
+	}
+	if run.ID == "" || run.HookID != "before_tool" || run.State != "completed" {
+		t.Fatalf("run = %#v", run)
+	}
+
+	runs := runtime.ListHookRuns(context.Background())
+	if len(runs) != 1 || runs[0].ID != run.ID {
+		t.Fatalf("runs = %#v", runs)
+	}
+	status := runtime.Status(context.Background())
+	if len(status.HookRuns) != 1 || status.HookRuns[0].ID != run.ID {
+		t.Fatalf("status hook runs = %#v", status.HookRuns)
+	}
+}
+
+func TestRuntimeRejectsUnknownHookRun(t *testing.T) {
+	_, err := NewRuntime("").AddHookRun(context.Background(), HookRunInput{HookID: "unknown", State: "completed"})
+	if err == nil {
+		t.Fatal("AddHookRun() error = nil, want error")
+	}
+}
+
 func TestWorkspaceReadsFilesInsideRoot(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "Linea reads local files.")

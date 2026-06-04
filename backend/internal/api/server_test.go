@@ -362,6 +362,65 @@ func TestCreateAgentTraceRejectsEmptyEvent(t *testing.T) {
 	}
 }
 
+func TestAgentHookRunEndpointsCreateAndListRuns(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("")
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"hookId":"before_tool","state":"completed","detail":"read file"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/hook-runs", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var created agent.HookRun
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.ID == "" || created.HookID != "before_tool" || created.State != "completed" {
+		t.Fatalf("created = %#v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/hook-runs", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var runs []agent.HookRun
+	if err := json.NewDecoder(res.Body).Decode(&runs); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].ID != created.ID {
+		t.Fatalf("runs = %#v", runs)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "hook run" || traces[0].Detail != "before_tool" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestAgentHookRunEndpointRejectsUnknownHook(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("")
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/hook-runs", strings.NewReader(`{"hookId":"unknown","state":"completed"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+	}
+}
+
 func TestAgentWorkspaceReadFileEndpoint(t *testing.T) {
 	root := t.TempDir()
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes")
