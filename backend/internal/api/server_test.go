@@ -421,6 +421,72 @@ func TestAgentHookRunEndpointRejectsUnknownHook(t *testing.T) {
 	}
 }
 
+func TestAgentCommandCheckEndpointsCreateAndListChecks(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"command":"make test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/command-checks", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var created agent.CommandCheck
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.ID == "" || !created.Allowed || created.Command != "make test" {
+		t.Fatalf("created = %#v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/command-checks", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var checks []agent.CommandCheck
+	if err := json.NewDecoder(res.Body).Decode(&checks); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(checks) != 1 || checks[0].ID != created.ID {
+		t.Fatalf("checks = %#v", checks)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "command check" || traces[0].State != "allowed" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestAgentCommandCheckEndpointBlocksUnlistedCommand(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/command-checks", strings.NewReader(`{"command":"rm -rf ."}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var created agent.CommandCheck
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.Allowed || created.Reason != "not in allowlist" {
+		t.Fatalf("created = %#v", created)
+	}
+}
+
 func TestAgentWorkspaceReadFileEndpoint(t *testing.T) {
 	root := t.TempDir()
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes")

@@ -31,6 +31,7 @@ API_ADDR=:8080
 LINEA_RULES_FILE=AGENTS.md
 LINEA_SKILLS_DIR=
 LINEA_WORKSPACE_DIR=
+LINEA_COMMAND_ALLOWLIST=
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash-lite
@@ -54,6 +55,7 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_RULES_FILE` | Agent rules file. |
 | `LINEA_SKILLS_DIR` | Reads markdown skills from this directory. Empty means planned skills only. |
 | `LINEA_WORKSPACE_DIR` | Enables read-only agent workspace tools. Empty means off. |
+| `LINEA_COMMAND_ALLOWLIST` | Comma-separated exact commands allowed for agent checks. Empty means none. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `GEMINI_API_KEY` | Gemini primary. |
 | `GEMINI_MODEL` | Gemini model. |
@@ -135,6 +137,8 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/traces` |
 | `GET` | `/api/agent/hook-runs` |
 | `POST` | `/api/agent/hook-runs` |
+| `GET` | `/api/agent/command-checks` |
+| `POST` | `/api/agent/command-checks` |
 | `GET` | `/api/agent/workspace/file` |
 | `GET` | `/api/agent/workspace/search` |
 | `GET` | `/api/agent/edit-proposals` |

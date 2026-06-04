@@ -17,20 +17,23 @@ type Runtime struct {
 	traces        []Trace
 	hookRuns      []HookRun
 	editProposals []EditProposal
+	commandChecks []CommandCheck
 	workspaceRoot string
 	skillsDir     string
+	commands      []string
 }
 
 type Status struct {
-	Mode        string    `json:"mode"`
-	Rules       RuleSet   `json:"rules"`
-	Tools       []Tool    `json:"tools"`
-	Hooks       []Hook    `json:"hooks"`
-	Skills      []Skill   `json:"skills"`
-	Boundaries  []string  `json:"boundaries"`
-	Next        []string  `json:"next"`
-	TraceEvents []Trace   `json:"traceEvents"`
-	HookRuns    []HookRun `json:"hookRuns"`
+	Mode          string         `json:"mode"`
+	Rules         RuleSet        `json:"rules"`
+	Tools         []Tool         `json:"tools"`
+	Hooks         []Hook         `json:"hooks"`
+	Skills        []Skill        `json:"skills"`
+	Boundaries    []string       `json:"boundaries"`
+	Next          []string       `json:"next"`
+	TraceEvents   []Trace        `json:"traceEvents"`
+	HookRuns      []HookRun      `json:"hookRuns"`
+	CommandChecks []CommandCheck `json:"commandChecks"`
 }
 
 type RuleSet struct {
@@ -72,6 +75,18 @@ type Skill struct {
 	State string `json:"state"`
 }
 
+type CommandCheck struct {
+	ID        string    `json:"id"`
+	Command   string    `json:"command"`
+	Allowed   bool      `json:"allowed"`
+	Reason    string    `json:"reason"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type CommandCheckInput struct {
+	Command string `json:"command"`
+}
+
 type Trace struct {
 	ID        string    `json:"id"`
 	Event     string    `json:"event"`
@@ -101,15 +116,16 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 
 func (r *Runtime) Status(ctx context.Context) Status {
 	return Status{
-		Mode:        "local",
-		Rules:       r.loadRules(ctx),
-		Tools:       r.tools(),
-		Hooks:       defaultHooks(),
-		Skills:      r.skills(ctx),
-		Boundaries:  defaultBoundaries(),
-		Next:        defaultNext(),
-		TraceEvents: r.statusTraces(),
-		HookRuns:    r.statusHookRuns(),
+		Mode:          "local",
+		Rules:         r.loadRules(ctx),
+		Tools:         r.tools(),
+		Hooks:         defaultHooks(),
+		Skills:        r.skills(ctx),
+		Boundaries:    defaultBoundaries(),
+		Next:          defaultNext(),
+		TraceEvents:   r.statusTraces(),
+		HookRuns:      r.statusHookRuns(),
+		CommandChecks: r.statusCommandChecks(),
 	}
 }
 
@@ -180,6 +196,44 @@ func (r *Runtime) AddHookRun(_ context.Context, input HookRunInput) (HookRun, er
 	return run, nil
 }
 
+func (r *Runtime) ListCommandChecks(context.Context) []CommandCheck {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]CommandCheck(nil), r.commandChecks...)
+}
+
+func (r *Runtime) CheckCommand(_ context.Context, input CommandCheckInput) (CommandCheck, error) {
+	command := strings.Join(strings.Fields(input.Command), " ")
+	if command == "" {
+		return CommandCheck{}, errors.New("Command is required.")
+	}
+	allowed := false
+	for _, item := range r.commands {
+		if command == item {
+			allowed = true
+			break
+		}
+	}
+	reason := "not in allowlist"
+	if allowed {
+		reason = "allowed"
+	}
+	check := CommandCheck{
+		ID:        newTraceID(),
+		Command:   command,
+		Allowed:   allowed,
+		Reason:    reason,
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.commandChecks = append([]CommandCheck{check}, r.commandChecks...)
+	if len(r.commandChecks) > 50 {
+		r.commandChecks = r.commandChecks[:50]
+	}
+	return check, nil
+}
+
 func (r *Runtime) statusTraces() []Trace {
 	traces := r.ListTraces(context.Background())
 	if len(traces) > 5 {
@@ -202,6 +256,14 @@ func (r *Runtime) statusHookRuns() []HookRun {
 		return runs[:5]
 	}
 	return runs
+}
+
+func (r *Runtime) statusCommandChecks() []CommandCheck {
+	checks := r.ListCommandChecks(context.Background())
+	if len(checks) > 5 {
+		return checks[:5]
+	}
+	return checks
 }
 
 func (r *Runtime) loadRules(ctx context.Context) RuleSet {
@@ -325,9 +387,9 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Add approved command checks",
 		"Add hook execution",
 		"Add skill execution",
+		"Add command runner",
 	}
 }
 

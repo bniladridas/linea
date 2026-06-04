@@ -57,6 +57,8 @@ type AgentRuntime interface {
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ListHookRuns(context.Context) []agent.HookRun
 	AddHookRun(context.Context, agent.HookRunInput) (agent.HookRun, error)
+	ListCommandChecks(context.Context) []agent.CommandCheck
+	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ListEditProposals(context.Context) []agent.EditProposal
@@ -164,6 +166,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
 	mux.HandleFunc("GET /api/agent/hook-runs", s.listAgentHookRuns)
 	mux.HandleFunc("POST /api/agent/hook-runs", s.createAgentHookRun)
+	mux.HandleFunc("GET /api/agent/command-checks", s.listAgentCommandChecks)
+	mux.HandleFunc("POST /api/agent/command-checks", s.createAgentCommandCheck)
 	mux.HandleFunc("GET /api/agent/workspace/file", s.readAgentWorkspaceFile)
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/edit-proposals", s.listAgentEditProposals)
@@ -251,6 +255,37 @@ func (s *Server) createAgentHookRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "hook run", run.State, run.HookID)
 	writeJSON(w, http.StatusCreated, run)
+}
+
+func (s *Server) listAgentCommandChecks(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.CommandCheck{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListCommandChecks(r.Context()))
+}
+
+func (s *Server) createAgentCommandCheck(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent command checks are not available.")
+		return
+	}
+	var input agent.CommandCheckInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	check, err := s.agentRuntime.CheckCommand(r.Context(), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	state := "blocked"
+	if check.Allowed {
+		state = "allowed"
+	}
+	s.recordAgentTrace(r.Context(), "command check", state, check.Command)
+	writeJSON(w, http.StatusCreated, check)
 }
 
 func (s *Server) readAgentWorkspaceFile(w http.ResponseWriter, r *http.Request) {
