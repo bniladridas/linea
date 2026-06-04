@@ -1,5 +1,7 @@
 .PHONY: build test check install-check release-check macos-package model-check agent-check agent-check-memory ui-check ui-check-agent ui-check-full
 
+BREW_LINEA_BIN = $$(brew --prefix bniladridas/linea/linea)/bin/linea
+
 build:
 	cd frontend && npm ci && npm run build
 	cd backend && go build -o ../bin/linea ./cmd/server
@@ -17,20 +19,23 @@ install-check:
 	brew tap bniladridas/linea https://github.com/bniladridas/linea
 	git -C "$$(brew --prefix)/Library/Taps/bniladridas/homebrew-linea" pull --ff-only
 	if brew list --formula bniladridas/linea/linea >/dev/null 2>&1; then \
-		brew test bniladridas/linea/linea; \
+		brew upgrade bniladridas/linea/linea || test "$$(brew outdated --quiet bniladridas/linea/linea)" = ""; \
 	else \
 		brew install bniladridas/linea/linea; \
 	fi
-	linea -version
+	brew link --overwrite bniladridas/linea/linea
+	brew test bniladridas/linea/linea
+	$(BREW_LINEA_BIN) -version
 
 release-check:
 	git pull --ff-only
 	git -C "$$(brew --repo bniladridas/linea)" pull --ff-only
 	brew info bniladridas/linea/linea
 	brew upgrade bniladridas/linea/linea
-	linea -version
-	linea -migrate
-	linea -check
+	brew link --overwrite bniladridas/linea/linea
+	$(BREW_LINEA_BIN) -version
+	$(BREW_LINEA_BIN) -migrate
+	$(BREW_LINEA_BIN) -check
 	$(MAKE) test
 
 macos-package:
