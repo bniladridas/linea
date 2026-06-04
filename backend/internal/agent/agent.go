@@ -16,6 +16,7 @@ type Runtime struct {
 	rulesPath     string
 	traces        []Trace
 	hookRuns      []HookRun
+	skillRuns     []SkillRun
 	editProposals []EditProposal
 	commandChecks []CommandCheck
 	commandRuns   []CommandRun
@@ -34,6 +35,7 @@ type Status struct {
 	Next          []string       `json:"next"`
 	TraceEvents   []Trace        `json:"traceEvents"`
 	HookRuns      []HookRun      `json:"hookRuns"`
+	SkillRuns     []SkillRun     `json:"skillRuns"`
 	CommandChecks []CommandCheck `json:"commandChecks"`
 	CommandRuns   []CommandRun   `json:"commandRuns"`
 }
@@ -82,9 +84,28 @@ type HookExecution struct {
 }
 
 type Skill struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	State string `json:"state"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	State   string `json:"state"`
+	Command string `json:"command,omitempty"`
+}
+
+type SkillRun struct {
+	ID        string    `json:"id"`
+	SkillID   string    `json:"skillId"`
+	State     string    `json:"state"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type SkillExecutionInput struct {
+	Command string `json:"command,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type SkillExecution struct {
+	SkillRun   SkillRun    `json:"skillRun"`
+	CommandRun *CommandRun `json:"commandRun,omitempty"`
 }
 
 type CommandCheck struct {
@@ -146,6 +167,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Next:          defaultNext(),
 		TraceEvents:   r.statusTraces(),
 		HookRuns:      r.statusHookRuns(),
+		SkillRuns:     r.statusSkillRuns(),
 		CommandChecks: r.statusCommandChecks(),
 		CommandRuns:   r.statusCommandRuns(),
 	}
@@ -317,6 +339,20 @@ func (r *Runtime) statusHookRuns() []HookRun {
 	return runs
 }
 
+func (r *Runtime) ListSkillRuns(context.Context) []SkillRun {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]SkillRun(nil), r.skillRuns...)
+}
+
+func (r *Runtime) statusSkillRuns() []SkillRun {
+	runs := r.ListSkillRuns(context.Background())
+	if len(runs) > 5 {
+		return runs[:5]
+	}
+	return runs
+}
+
 func (r *Runtime) statusCommandChecks() []CommandCheck {
 	checks := r.ListCommandChecks(context.Background())
 	if len(checks) > 5 {
@@ -461,9 +497,9 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Add skill execution",
 		"Add command approvals",
 		"Add applied edit approvals",
+		"Add persisted agent runs",
 	}
 }
 

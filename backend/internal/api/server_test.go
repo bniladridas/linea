@@ -451,6 +451,53 @@ func TestAgentHookRunEndpointExecutesHook(t *testing.T) {
 	}
 }
 
+func TestAgentSkillRunEndpointExecutesSkill(t *testing.T) {
+	skillsDir := t.TempDir()
+	writeAPITestFile(t, filepath.Join(skillsDir, "review-change.md"), "# Review change\n\nCommand: printf ok\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithSkillsDir(skillsDir), agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/skills/review_change/run", strings.NewReader(`{}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var execution agent.SkillExecution
+	if err := json.NewDecoder(res.Body).Decode(&execution); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if execution.SkillRun.SkillID != "review_change" || execution.SkillRun.State != "completed" {
+		t.Fatalf("skill run = %#v", execution.SkillRun)
+	}
+	if execution.CommandRun == nil || execution.CommandRun.Output != "ok" {
+		t.Fatalf("command run = %#v", execution.CommandRun)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/skill-runs", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var runs []agent.SkillRun
+	if err := json.NewDecoder(res.Body).Decode(&runs); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].ID != execution.SkillRun.ID {
+		t.Fatalf("runs = %#v", runs)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "skill execution" || traces[0].Detail != "review_change" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestAgentCommandCheckEndpointsCreateAndListChecks(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
