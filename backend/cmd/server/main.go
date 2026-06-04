@@ -257,7 +257,8 @@ func localFallbackDetail(cfg config.Config, routeEnabled bool, result doctor.Res
 
 func isOllamaNotRunning(message string) bool {
 	message = strings.ToLower(message)
-	return strings.Contains(message, "connection refused") ||
+	return strings.Contains(message, "ollama not running") ||
+		strings.Contains(message, "connection refused") ||
 		strings.Contains(message, "connect: operation timed out") ||
 		strings.Contains(message, "client.timeout") ||
 		strings.Contains(message, "context deadline exceeded")

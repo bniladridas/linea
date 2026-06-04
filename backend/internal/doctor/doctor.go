@@ -253,7 +253,7 @@ func CheckOllamaLocalModel(ctx context.Context, cfg config.Config) Result {
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return Result{Name: "ollama local model", Status: Warn, Message: err.Error()}
+		return Result{Name: "ollama local model", Status: Warn, Message: ollamaUnavailableMessage(err)}
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
@@ -308,6 +308,18 @@ func checkGemini(ctx context.Context, cfg config.Config, hasFallback bool) Resul
 		return Result{Name: "gemini generation", Status: Fail, Message: "empty response"}
 	}
 	return Result{Name: "gemini generation", Status: Pass, Message: "response received"}
+}
+
+func ollamaUnavailableMessage(err error) string {
+	message := err.Error()
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "connect: operation timed out") ||
+		strings.Contains(lower, "client.timeout") ||
+		strings.Contains(lower, "context deadline exceeded") {
+		return "Ollama not running. Start with: ollama serve"
+	}
+	return message
 }
 
 func checkOpenAICompatibleGeneration(ctx context.Context, name, apiKey, baseURL, model string) Result {
