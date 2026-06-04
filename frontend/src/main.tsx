@@ -276,11 +276,13 @@ function App() {
   const sidebarFooterRef = useRef<HTMLDivElement | null>(null);
   const renameCancelledRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<HTMLFormElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const [hasScrollableMessages, setHasScrollableMessages] = useState(false);
   const [isAtMessageEnd, setIsAtMessageEnd] = useState(true);
+  const [composerHeight, setComposerHeight] = useState(108);
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeId),
@@ -313,6 +315,9 @@ function App() {
   ]
     .filter(Boolean)
     .join(' ');
+  const messagesStyle: React.CSSProperties = { paddingBottom: `${composerHeight + 44}px` };
+  const scrollNoteStyle: React.CSSProperties = { bottom: `${composerHeight + 14}px` };
+
   useEffect(() => {
     void loadConversations();
     void loadSystemStatus();
@@ -400,6 +405,21 @@ function App() {
     observer.observe(node);
     return () => observer.disconnect();
   }, [messages.length, showSources, isSidebarOpen]);
+
+  useEffect(() => {
+    const node = composerRef.current;
+    if (!node) {
+      return;
+    }
+    const updateComposerHeight = () => {
+      setComposerHeight(Math.ceil(node.getBoundingClientRect().height));
+      window.setTimeout(updateMessageScrollState, 0);
+    };
+    updateComposerHeight();
+    const observer = new ResizeObserver(updateComposerHeight);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [files.length, error]);
 
   useEffect(() => {
     resizeComposer(textareaRef.current);
@@ -1035,7 +1055,7 @@ function App() {
           </div>
         </header>
 
-        <div className="messages" ref={messagesRef} onScroll={updateMessageScrollState}>
+        <div className="messages" ref={messagesRef} style={messagesStyle} onScroll={updateMessageScrollState}>
           {messages.length === 0 ? (
             <div className="empty-state" aria-label="No messages" />
           ) : (
@@ -1095,7 +1115,7 @@ function App() {
           <div ref={messageEndRef} />
         </div>
         {uiPrefs.showScrollCue && hasScrollableMessages && messages.length > 0 && (
-          <div className={`scroll-note ${isAtMessageEnd ? 'at-end' : 'can-scroll'}`}>
+          <div className={`scroll-note ${isAtMessageEnd ? 'at-end' : 'can-scroll'}`} style={scrollNoteStyle}>
             {isAtMessageEnd ? (
               <span>End</span>
             ) : (
@@ -1115,6 +1135,7 @@ function App() {
           ]
             .filter(Boolean)
             .join(' ')}
+          ref={composerRef}
           onDragLeave={handleComposerDragLeave}
           onDragOver={handleComposerDragOver}
           onDrop={handleComposerDrop}
