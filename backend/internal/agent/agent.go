@@ -71,6 +71,16 @@ type HookRunInput struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+type HookExecutionInput struct {
+	Command string `json:"command,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+type HookExecution struct {
+	HookRun    HookRun     `json:"hookRun"`
+	CommandRun *CommandRun `json:"commandRun,omitempty"`
+}
+
 type Skill struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
@@ -206,6 +216,43 @@ func (r *Runtime) AddHookRun(_ context.Context, input HookRunInput) (HookRun, er
 		r.hookRuns = r.hookRuns[:50]
 	}
 	return run, nil
+}
+
+func (r *Runtime) RunHook(ctx context.Context, hookID string, input HookExecutionInput) (HookExecution, error) {
+	hookID = strings.TrimSpace(hookID)
+	if hookID == "" {
+		return HookExecution{}, errors.New("Hook ID is required.")
+	}
+	if !knownHookID(hookID) {
+		return HookExecution{}, errors.New("Unknown hook ID.")
+	}
+	command := strings.TrimSpace(input.Command)
+	if command == "" {
+		run, err := r.AddHookRun(ctx, HookRunInput{HookID: hookID, State: "completed", Detail: input.Detail})
+		if err != nil {
+			return HookExecution{}, err
+		}
+		return HookExecution{HookRun: run}, nil
+	}
+	commandRun, err := r.RunCommand(ctx, CommandCheckInput{Command: command})
+	state := "completed"
+	if err != nil {
+		state = "blocked"
+	} else if commandRun.ExitCode != 0 {
+		state = "failed"
+	}
+	detail := input.Detail
+	if strings.TrimSpace(detail) == "" {
+		detail = command
+	}
+	hookRun, hookErr := r.AddHookRun(ctx, HookRunInput{HookID: hookID, State: state, Detail: detail})
+	if hookErr != nil {
+		return HookExecution{}, hookErr
+	}
+	if err != nil {
+		return HookExecution{HookRun: hookRun}, err
+	}
+	return HookExecution{HookRun: hookRun, CommandRun: &commandRun}, nil
 }
 
 func (r *Runtime) ListCommandChecks(context.Context) []CommandCheck {
@@ -414,9 +461,9 @@ func defaultBoundaries() []string {
 
 func defaultNext() []string {
 	return []string{
-		"Add hook execution",
 		"Add skill execution",
 		"Add command approvals",
+		"Add applied edit approvals",
 	}
 }
 

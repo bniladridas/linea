@@ -62,7 +62,7 @@ Returns the local agent contract. It is read-only.
     {"id":"review_change","name":"Review change","state":"ready"}
   ],
   "boundaries": ["No destructive action without approval"],
-  "next": ["Add hook execution"],
+  "next": ["Add skill execution"],
   "hookRuns": [],
   "commandChecks": [],
   "commandRuns": [],
@@ -125,6 +125,39 @@ Records a known hook run. It does not execute commands.
   "hookId": "before_tool",
   "state": "completed",
   "detail": "read file"
+}
+```
+
+`POST /api/agent/hooks/{id}/run`
+
+Runs a known hook. If `command` is set, the command must pass the allowlist runner.
+
+```json
+{
+  "command": "make test",
+  "detail": "before commit"
+}
+```
+
+Returns:
+
+```json
+{
+  "hookRun": {
+    "id": "id",
+    "hookId": "before_commit",
+    "state": "completed",
+    "detail": "before commit",
+    "createdAt": "2026-06-01T00:00:00Z"
+  },
+  "commandRun": {
+    "id": "id",
+    "command": "make test",
+    "exitCode": 0,
+    "output": "ok",
+    "truncated": false,
+    "createdAt": "2026-06-01T00:00:00Z"
+  }
 }
 ```
 

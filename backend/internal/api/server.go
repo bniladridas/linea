@@ -57,6 +57,7 @@ type AgentRuntime interface {
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ListHookRuns(context.Context) []agent.HookRun
 	AddHookRun(context.Context, agent.HookRunInput) (agent.HookRun, error)
+	RunHook(context.Context, string, agent.HookExecutionInput) (agent.HookExecution, error)
 	ListCommandChecks(context.Context) []agent.CommandCheck
 	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
 	ListCommandRuns(context.Context) []agent.CommandRun
@@ -168,6 +169,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
 	mux.HandleFunc("GET /api/agent/hook-runs", s.listAgentHookRuns)
 	mux.HandleFunc("POST /api/agent/hook-runs", s.createAgentHookRun)
+	mux.HandleFunc("POST /api/agent/hooks/{id}/run", s.runAgentHook)
 	mux.HandleFunc("GET /api/agent/command-checks", s.listAgentCommandChecks)
 	mux.HandleFunc("POST /api/agent/command-checks", s.createAgentCommandCheck)
 	mux.HandleFunc("GET /api/agent/command-runs", s.listAgentCommandRuns)
@@ -259,6 +261,25 @@ func (s *Server) createAgentHookRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "hook run", run.State, run.HookID)
 	writeJSON(w, http.StatusCreated, run)
+}
+
+func (s *Server) runAgentHook(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent hooks are not available.")
+		return
+	}
+	var input agent.HookExecutionInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	execution, err := s.agentRuntime.RunHook(r.Context(), r.PathValue("id"), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "hook execution", execution.HookRun.State, execution.HookRun.HookID)
+	writeJSON(w, http.StatusCreated, execution)
 }
 
 func (s *Server) listAgentCommandChecks(w http.ResponseWriter, r *http.Request) {

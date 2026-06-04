@@ -105,6 +105,36 @@ func TestRuntimeRejectsUnknownHookRun(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunsHookWithoutCommand(t *testing.T) {
+	runtime := NewRuntime("")
+
+	execution, err := runtime.RunHook(context.Background(), "before_tool", HookExecutionInput{Detail: "read file"})
+	if err != nil {
+		t.Fatalf("RunHook() error = %v", err)
+	}
+	if execution.HookRun.ID == "" || execution.HookRun.HookID != "before_tool" || execution.HookRun.State != "completed" {
+		t.Fatalf("execution = %#v", execution)
+	}
+	if execution.CommandRun != nil {
+		t.Fatalf("command run = %#v, want nil", execution.CommandRun)
+	}
+}
+
+func TestRuntimeRunsHookCommand(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+
+	execution, err := runtime.RunHook(context.Background(), "after_check", HookExecutionInput{Command: "printf ok"})
+	if err != nil {
+		t.Fatalf("RunHook() error = %v", err)
+	}
+	if execution.HookRun.State != "completed" || execution.HookRun.HookID != "after_check" {
+		t.Fatalf("hook run = %#v", execution.HookRun)
+	}
+	if execution.CommandRun == nil || execution.CommandRun.Output != "ok" {
+		t.Fatalf("command run = %#v", execution.CommandRun)
+	}
+}
+
 func TestStatusLoadsSkillsFromDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCheck a diff.")
