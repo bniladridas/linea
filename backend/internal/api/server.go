@@ -228,6 +228,7 @@ func (s *Server) readAgentWorkspaceFile(w http.ResponseWriter, r *http.Request) 
 		writeAgentToolError(w, err)
 		return
 	}
+	s.recordAgentTrace(r.Context(), "read file", "completed", result.Path)
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -241,7 +242,17 @@ func (s *Server) searchAgentWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeAgentToolError(w, err)
 		return
 	}
+	s.recordAgentTrace(r.Context(), "search files", "completed", r.URL.Query().Get("q"))
 	writeJSON(w, http.StatusOK, results)
+}
+
+func (s *Server) recordAgentTrace(ctx context.Context, event string, state string, detail string) {
+	if s.agentRuntime == nil {
+		return
+	}
+	if _, err := s.agentRuntime.AddTrace(ctx, agent.TraceInput{Event: event, State: state, Detail: detail}); err != nil {
+		slog.Warn("record agent trace", "error", err)
+	}
 }
 
 func writeAgentToolError(w http.ResponseWriter, err error) {

@@ -385,6 +385,10 @@ func TestAgentWorkspaceReadFileEndpoint(t *testing.T) {
 	if got.Path != "notes.md" || got.Content != "agent notes" {
 		t.Fatalf("file result = %#v", got)
 	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "read file" || traces[0].Detail != "notes.md" {
+		t.Fatalf("traces = %#v", traces)
+	}
 }
 
 func TestAgentWorkspaceSearchEndpoint(t *testing.T) {
@@ -409,6 +413,10 @@ func TestAgentWorkspaceSearchEndpoint(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Path != "notes.md" {
 		t.Fatalf("search result = %#v", got)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "search files" || traces[0].Detail != "agent" {
+		t.Fatalf("traces = %#v", traces)
 	}
 }
 
