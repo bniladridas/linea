@@ -7,6 +7,7 @@ import (
 
 type Config struct {
 	APIAddr          string
+	AgentRulesPath   string
 	DatabaseURL      string
 	GeminiAPIKey     string
 	GeminiModel      string
@@ -28,6 +29,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		APIAddr:          env("API_ADDR", ":8080"),
+		AgentRulesPath:   env("LINEA_RULES_FILE", "AGENTS.md"),
 		DatabaseURL:      os.Getenv("DATABASE_URL"),
 		GeminiAPIKey:     os.Getenv("GEMINI_API_KEY"),
 		GeminiModel:      env("GEMINI_MODEL", "gemini-2.5-flash-lite"),

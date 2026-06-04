@@ -40,6 +40,35 @@ Returns storage, search, and provider state.
 }
 ```
 
+`GET /api/agent`
+
+Returns the local agent contract. It is read-only.
+
+```json
+{
+  "mode": "local",
+  "rules": {
+    "source": "AGENTS.md",
+    "loaded": true,
+    "summary": ["Local-first"]
+  },
+  "tools": [
+    {"id":"read_file","name":"Read files","access":"workspace","approval":"not required"}
+  ],
+  "hooks": [
+    {"id":"before_tool","event":"Before tool calls","state":"planned"}
+  ],
+  "skills": [
+    {"id":"debug_test","name":"Debug failing test","state":"planned"}
+  ],
+  "boundaries": ["No destructive action without approval"],
+  "next": ["Persist action traces"],
+  "traceEvents": [
+    {"event":"agent runtime","state":"ready"}
+  ]
+}
+```
+
 # Settings
 
 `GET /api/settings`

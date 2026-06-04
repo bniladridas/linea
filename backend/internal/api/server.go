@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"linea/backend/internal/agent"
 	"linea/backend/internal/llm"
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
@@ -25,6 +26,7 @@ type Server struct {
 	staticFiles    http.FileSystem
 	origin         string
 	statusProvider StatusProvider
+	agentProvider  AgentStatusProvider
 	settingsStore  SettingsStore
 }
 
@@ -45,6 +47,8 @@ type ProviderStatus struct {
 }
 
 type StatusProvider func(context.Context) Status
+
+type AgentStatusProvider func(context.Context) agent.Status
 
 type Settings struct {
 	Providers []ProviderSetting `json:"providers"`
@@ -91,6 +95,19 @@ func NewServerWithStatusAndSettings(
 	statusProvider StatusProvider,
 	settingsStore SettingsStore,
 ) *Server {
+	return NewServerWithAgentStatus(store, llmClient, searchClient, staticFiles, origin, statusProvider, settingsStore, nil)
+}
+
+func NewServerWithAgentStatus(
+	store store.Store,
+	llmClient Assistant,
+	searchClient WebSearcher,
+	staticFiles http.FileSystem,
+	origin string,
+	statusProvider StatusProvider,
+	settingsStore SettingsStore,
+	agentProvider AgentStatusProvider,
+) *Server {
 	return &Server{
 		store:          store,
 		llmClient:      llmClient,
@@ -98,6 +115,7 @@ func NewServerWithStatusAndSettings(
 		staticFiles:    staticFiles,
 		origin:         origin,
 		statusProvider: statusProvider,
+		agentProvider:  agentProvider,
 		settingsStore:  settingsStore,
 	}
 }
@@ -106,6 +124,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/status", s.getStatus)
+	mux.HandleFunc("GET /api/agent", s.getAgentStatus)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
 	mux.HandleFunc("GET /api/conversations", s.listConversations)
@@ -124,6 +143,14 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.statusProvider(r.Context()))
+}
+
+func (s *Server) getAgentStatus(w http.ResponseWriter, r *http.Request) {
+	if s.agentProvider == nil {
+		writeJSON(w, http.StatusOK, agent.NewRuntime("").Status(r.Context()))
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentProvider(r.Context()))
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, _ *http.Request) {

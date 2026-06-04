@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"linea/backend/internal/agent"
 	"linea/backend/internal/api"
 	"linea/backend/internal/config"
 	"linea/backend/internal/doctor"
@@ -112,9 +113,10 @@ func main() {
 		os.Exit(1)
 	}
 	llmClient := newRoutingAssistant(cfg, settingsStore)
+	agentRuntime := agent.NewRuntime(cfg.AgentRulesPath)
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.NewServerWithStatusAndSettings(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore).Handler(),
+		Handler:           api.NewServerWithAgentStatus(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime.Status).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

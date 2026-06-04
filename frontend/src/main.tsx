@@ -75,6 +75,37 @@ type SystemStatus = {
   providers: ProviderStatus[];
 };
 
+type AgentStatus = {
+  mode: string;
+  rules: {
+    source: string;
+    loaded: boolean;
+    summary: string[];
+  };
+  tools: Array<{
+    id: string;
+    name: string;
+    access: string;
+    approval: string;
+  }>;
+  hooks: Array<{
+    id: string;
+    event: string;
+    state: string;
+  }>;
+  skills: Array<{
+    id: string;
+    name: string;
+    state: string;
+  }>;
+  boundaries: string[];
+  next: string[];
+  traceEvents: Array<{
+    event: string;
+    state: string;
+  }>;
+};
+
 type ProviderStatus = {
   name: string;
   model?: string;
@@ -137,6 +168,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !isNarrowViewport());
   const [isSystemPanelOpen, setIsSystemPanelOpen] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [openConversationMenu, setOpenConversationMenu] = useState<string | null>(null);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
@@ -196,6 +228,7 @@ function App() {
   useEffect(() => {
     void loadConversations();
     void loadSystemStatus();
+    void loadAgentStatus();
     void loadAppSettings();
   }, []);
 
@@ -298,6 +331,15 @@ function App() {
       setSystemStatus(data);
     } catch {
       setSystemStatus(null);
+    }
+  }
+
+  async function loadAgentStatus() {
+    try {
+      const data = await request<AgentStatus>('/api/agent');
+      setAgentStatus(data);
+    } catch {
+      setAgentStatus(null);
     }
   }
 
@@ -690,7 +732,7 @@ function App() {
           </nav>
 
           <div className="sidebar-footer" ref={sidebarFooterRef}>
-            {isSystemPanelOpen && <SystemPanel status={systemStatus} />}
+            {isSystemPanelOpen && <SystemPanel status={systemStatus} agentStatus={agentStatus} />}
             {isThemePanelOpen && <ThemePanel prefs={uiPrefs} systemTheme={systemTheme} onChange={setUIPrefs} />}
             {isSettingsPanelOpen && appSettings && (
               <SettingsPanel settings={appSettings} onChange={(next) => void saveAppSettings(next)} />
@@ -708,6 +750,9 @@ function App() {
                   setIsSettingsPanelOpen(false);
                   if (!systemStatus) {
                     void loadSystemStatus();
+                  }
+                  if (!agentStatus) {
+                    void loadAgentStatus();
                   }
                 }}
               >
@@ -1269,11 +1314,15 @@ function tidyUrlLabel(url: string): string {
   }
 }
 
-function SystemPanel({ status }: { status: SystemStatus | null }) {
+function SystemPanel({ status, agentStatus }: { status: SystemStatus | null; agentStatus: AgentStatus | null }) {
   const primary = status?.providers.find((provider) => provider.role === 'primary');
   const enabledProviders = status?.providers.filter((provider) => provider.enabled) ?? [];
   const disabledProviders = status?.providers.filter((provider) => !provider.enabled) ?? [];
   const localProvider = status?.providers.find((provider) => provider.role === 'local');
+  const agentValue = agentStatus
+    ? `${agentStatus.rules.loaded ? 'Rules' : 'Rules off'}, ${agentStatus.tools.length} tools`
+    : 'Ready';
+  const plannedHooks = agentStatus?.hooks.filter((hook) => hook.state === 'planned').length ?? 0;
 
   return (
     <div className="system-panel" role="status" aria-label="System status">
@@ -1291,6 +1340,12 @@ function SystemPanel({ status }: { status: SystemStatus | null }) {
         label="Local"
         value={localProvider ? providerStatusText(localProvider) : 'Off'}
       />
+      <SystemRow Icon={Route} label="Agent" value={agentValue} />
+      {agentStatus && (
+        <div className="system-detail">
+          {agentStatus.mode} mode. {plannedHooks} hooks planned.
+        </div>
+      )}
       {localProvider?.detail && localProvider.state !== 'ready' && (
         <div className="system-detail">{localProvider.detail}</div>
       )}
