@@ -738,6 +738,35 @@ func TestAgentSubagentsEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentSubagentRunEndpoint(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/subagents/search/run", strings.NewReader(`{"query":"agent"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var run agent.SubagentRun
+	if err := json.NewDecoder(res.Body).Decode(&run); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if run.SubagentID != "search" || run.State != "completed" {
+		t.Fatalf("run = %#v", run)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "subagent run" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestAgentMCPServersEndpoint(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
 	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"},"tools":[{"name":"search_docs","description":"Search docs"}]}}}`)
@@ -1264,6 +1293,35 @@ func TestAgentWorkspaceDiagnosticsEndpoint(t *testing.T) {
 	}
 	traces := runtime.ListTraces(context.Background())
 	if len(traces) != 1 || traces[0].Event != "read diagnostics" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestAgentWorkspaceSymbolsEndpoint(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "main.go"), "package main\n\ntype App struct{}\nfunc Run() {}\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/workspace/symbols?q=run", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var symbols []agent.WorkspaceSymbol
+	if err := json.NewDecoder(res.Body).Decode(&symbols); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "Run" || symbols[0].Path != "main.go" {
+		t.Fatalf("symbols = %#v", symbols)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "read symbols" {
 		t.Fatalf("traces = %#v", traces)
 	}
 }

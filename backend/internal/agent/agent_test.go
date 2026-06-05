@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -130,6 +131,31 @@ func TestRuntimeStartsBoundedAgentLoop(t *testing.T) {
 	status := runtime.Status(context.Background())
 	if status.RunSummary.AgentLoops != 1 || len(status.AgentLoops) != 1 {
 		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRuntimeAgentLoopInspectsSymbolsAndMCP(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\ntype App struct{}\nfunc Run() {}\n")
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","tools":[{"name":"search_docs"}]}}}`)
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithMCPConfigPath(configPath))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{Goal: "find definition Run and inspect mcp"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	kinds := map[string]bool{}
+	for _, step := range loop.Steps {
+		kinds[step.Kind] = true
+	}
+	if !kinds["symbols"] || !kinds["mcp"] {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+	for _, step := range loop.Steps {
+		if step.Kind == "symbols" && step.Detail != `1 symbol(s) for "Run"` {
+			t.Fatalf("symbol step = %#v", step)
+		}
 	}
 }
 
@@ -296,6 +322,45 @@ func TestStatusReportsUnavailableMCPConfig(t *testing.T) {
 
 	if len(status.MCPServers) != 1 || status.MCPServers[0].State != "unavailable" {
 		t.Fatalf("mcp servers = %#v", status.MCPServers)
+	}
+}
+
+func TestRuntimeRunsBoundedSubagent(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	run, err := runtime.RunSubagent(context.Background(), "search", SubagentRunInput{Query: "agent"})
+	if err != nil {
+		t.Fatalf("RunSubagent() error = %v", err)
+	}
+	if run.SubagentID != "search" || run.State != "completed" || !strings.Contains(run.Summary, "Found 1") {
+		t.Fatalf("run = %#v", run)
+	}
+	status := runtime.Status(context.Background())
+	if status.RunSummary.SubagentRuns != 1 || len(status.SubagentRuns) != 1 {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRuntimeListsWorkspaceSymbols(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nvar Foo, Bar int\ntype App struct{}\nfunc Run() {}\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	symbols, err := runtime.ListSymbols(context.Background(), "run")
+	if err != nil {
+		t.Fatalf("ListSymbols() error = %v", err)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "Run" || symbols[0].Kind != "func" || symbols[0].Path != "main.go" {
+		t.Fatalf("symbols = %#v", symbols)
+	}
+	symbols, err = runtime.ListSymbols(context.Background(), "bar")
+	if err != nil {
+		t.Fatalf("ListSymbols() error = %v", err)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "Bar" || symbols[0].Kind != "var" || symbols[0].Path != "main.go" {
+		t.Fatalf("symbols = %#v", symbols)
 	}
 }
 

@@ -71,8 +71,18 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 			file, err := r.ReadFile(ctx, filePath)
 			loop = appendLoopStep(loop, "read_file", "Read file", "read_file", err, fmt.Sprintf("%s · %d bytes", file.Path, file.Size), "")
 		}
+		if shouldReadSymbols(goalLower) {
+			query := loopSymbolQuery(input, loop.Goal)
+			symbols, err := r.ListSymbols(ctx, query)
+			loop = appendLoopStep(loop, "symbols", "Read symbols", "symbols", err, fmt.Sprintf("%d symbol(s) for %q", len(symbols), query), "")
+		}
 	} else if shouldUseWorkspace(goalLower) || strings.TrimSpace(input.Query) != "" || strings.TrimSpace(input.FilePath) != "" {
 		loop = appendLoopStep(loop, "workspace", "Use workspace tools", "workspace", ErrWorkspaceDisabled, "", "")
+	}
+	if strings.Contains(goalLower, "mcp") {
+		servers := r.ListMCPServers(ctx)
+		tools := r.ListMCPTools(ctx)
+		loop = appendLoopStep(loop, "mcp", "Inspect MCP", "mcp", nil, fmt.Sprintf("%d server(s), %d tool(s)", len(servers), len(tools)), "")
 	}
 	command := strings.Join(strings.Fields(input.Command), " ")
 	if command != "" {
@@ -177,6 +187,43 @@ func loopSearchQuery(input AgentLoopInput, goal string) string {
 	return ""
 }
 
+func loopSymbolQuery(input AgentLoopInput, goal string) string {
+	query := strings.TrimSpace(input.Query)
+	if query != "" {
+		return query
+	}
+	goal = strings.TrimSpace(goal)
+	lower := strings.ToLower(goal)
+	for _, prefix := range []string{
+		"find definition ",
+		"find reference ",
+		"find references ",
+		"definition ",
+		"reference ",
+		"references ",
+		"navigate ",
+		"symbol ",
+		"symbols ",
+	} {
+		if index := strings.Index(lower, prefix); index >= 0 {
+			return trimRunes(trimSymbolQueryTerm(goal[index+len(prefix):]), 80)
+		}
+	}
+	return ""
+}
+
+func trimSymbolQueryTerm(value string) string {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
+	for _, separator := range []string{" and ", " with ", " then ", ",", "."} {
+		if index := strings.Index(lower, separator); index >= 0 {
+			value = strings.TrimSpace(value[:index])
+			lower = strings.ToLower(value)
+		}
+	}
+	return value
+}
+
 func loopSummary(loop AgentLoop) string {
 	counts := map[string]int{}
 	for _, step := range loop.Steps {
@@ -199,7 +246,11 @@ func shouldReadDiagnostics(goal string) bool {
 }
 
 func shouldUseWorkspace(goal string) bool {
-	return shouldReadDiagnostics(goal) || strings.Contains(goal, "file") || strings.Contains(goal, "workspace") || strings.Contains(goal, "search") || strings.Contains(goal, "find")
+	return shouldReadDiagnostics(goal) || shouldReadSymbols(goal) || strings.Contains(goal, "file") || strings.Contains(goal, "workspace") || strings.Contains(goal, "search") || strings.Contains(goal, "find")
+}
+
+func shouldReadSymbols(goal string) bool {
+	return strings.Contains(goal, "symbol") || strings.Contains(goal, "reference") || strings.Contains(goal, "navigate") || strings.Contains(goal, "definition")
 }
 
 func mentionsCommand(goal string) bool {
