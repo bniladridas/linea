@@ -186,6 +186,13 @@ type WorkspaceSymbol struct {
 	Line int    `json:"line"`
 }
 
+type WorkspaceReference struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
 type MCPServer struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
@@ -761,6 +768,7 @@ func defaultTools() []Tool {
 		{ID: "run_command", Name: "Run commands", Access: "allowlist", Approval: "required by boundary"},
 		{ID: "diagnostics", Name: "Read diagnostics", Access: "workspace", Approval: "not required"},
 		{ID: "symbols", Name: "Read symbols", Access: "workspace", Approval: "not required"},
+		{ID: "references", Name: "Read references", Access: "workspace", Approval: "not required"},
 		{ID: "mcp", Name: "Inspect MCP", Access: "local config", Approval: "not required"},
 	}
 }

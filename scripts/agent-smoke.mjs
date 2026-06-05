@@ -259,6 +259,9 @@ async function checkWorkspaceEndpoints() {
   const symbols = await requestJSON('/api/agent/workspace/symbols?q=main');
   assert(Array.isArray(symbols), 'workspace symbols did not return a list');
 
+  const references = await requestJSON('/api/agent/workspace/references?q=main');
+  assert(Array.isArray(references), 'workspace references did not return a list');
+
   const proposal = await requestJSON('/api/agent/edit-proposals', {
     method: 'POST',
     headers: jsonHeaders(),

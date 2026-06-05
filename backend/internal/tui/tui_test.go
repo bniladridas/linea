@@ -306,7 +306,7 @@ func TestRunHandlesAgentCommands(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("agent notes\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc Run() {}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc Run() {}\nfunc main() { Run() }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(dir), agent.WithCommandAllowlist([]string{"printf ok"}))
@@ -315,6 +315,7 @@ func TestRunHandlesAgentCommands(t *testing.T) {
 		":help",
 		":agent",
 		":symbols run",
+		":refs Run",
 		":mcp",
 		":subagent search agent",
 		":search agent",
@@ -335,7 +336,9 @@ func TestRunHandlesAgentCommands(t *testing.T) {
 	for _, want := range []string{
 		"Agent ready",
 		":symbols [query]",
+		":refs <identifier>",
 		"func Run",
+		"main.go:4 func main() { Run() }",
 		"No MCP entries",
 		"Subagent search: completed",
 		"notes.md:1 agent notes",

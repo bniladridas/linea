@@ -5,16 +5,21 @@ import (
 	"errors"
 	"go/ast"
 	"go/parser"
+	"go/scanner"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
 	maxSymbolFiles = 200
 	maxSymbols     = 100
+	maxReferences  = 100
 )
 
 func (r *Runtime) ListSymbols(ctx context.Context, query string) ([]WorkspaceSymbol, error) {
@@ -92,6 +97,85 @@ func (r *Runtime) ListSymbols(ctx context.Context, query string) ([]WorkspaceSym
 	return symbols, err
 }
 
+func (r *Runtime) ListReferences(ctx context.Context, query string) ([]WorkspaceReference, error) {
+	query = strings.TrimSpace(query)
+	if !isGoIdentifier(query) {
+		return nil, errors.New("reference query must be a Go identifier")
+	}
+	root, err := r.workspaceRootPath()
+	if err != nil {
+		return nil, err
+	}
+	fileSet := token.NewFileSet()
+	references := []WorkspaceReference{}
+	filesSeen := 0
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if entry.IsDir() {
+			if shouldSkipDir(entry.Name()) && path != root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if shouldSkipFile(entry.Name()) || entry.Type()&fs.ModeSymlink != 0 || filepath.Ext(entry.Name()) != ".go" {
+			return nil
+		}
+		filesSeen++
+		if filesSeen > maxSymbolFiles || len(references) >= maxReferences {
+			return filepath.SkipAll
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil || len(data) > maxReadBytes || !utf8.Valid(data) {
+			return nil
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		displayPath := filepath.ToSlash(relative)
+		lines := strings.Split(string(data), "\n")
+		file := fileSet.AddFile(path, fileSet.Base(), len(data))
+		var scanned scanner.Scanner
+		scanned.Init(file, data, nil, 0)
+		for {
+			pos, tokenType, literal := scanned.Scan()
+			if tokenType == token.EOF {
+				break
+			}
+			if tokenType != token.IDENT || literal != query {
+				continue
+			}
+			position := fileSet.Position(pos)
+			text := ""
+			if position.Line > 0 && position.Line <= len(lines) {
+				text = strings.TrimSpace(lines[position.Line-1])
+			}
+			references = append(references, WorkspaceReference{Name: query, Path: displayPath, Line: position.Line, Text: text})
+			if len(references) >= maxReferences {
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, filepath.SkipAll) {
+		err = nil
+	}
+	sort.Slice(references, func(i, j int) bool {
+		if references[i].Path == references[j].Path {
+			return references[i].Line < references[j].Line
+		}
+		return references[i].Path < references[j].Path
+	})
+	return references, err
+}
+
 func symbolsFromNode(fileSet *token.FileSet, path string, node ast.Node) []WorkspaceSymbol {
 	switch item := node.(type) {
 	case *ast.FuncDecl:
@@ -113,6 +197,24 @@ func symbolsFromNode(fileSet *token.FileSet, path string, node ast.Node) []Works
 	default:
 		return nil
 	}
+}
+
+func isGoIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, char := range value {
+		if index == 0 {
+			if char != '_' && !unicode.IsLetter(char) {
+				return false
+			}
+			continue
+		}
+		if char != '_' && !unicode.IsLetter(char) && !unicode.IsDigit(char) {
+			return false
+		}
+	}
+	return true
 }
 
 func matchesSymbolQuery(symbol WorkspaceSymbol, query string) bool {

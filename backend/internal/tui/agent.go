@@ -16,6 +16,7 @@ func (a *App) handleAgentCommand(ctx context.Context, input string) (string, boo
 		trimmed != ":help" &&
 		!strings.HasPrefix(trimmed, ":diag") &&
 		!strings.HasPrefix(trimmed, ":symbols") &&
+		!strings.HasPrefix(trimmed, ":refs") &&
 		!strings.HasPrefix(trimmed, ":mcp") &&
 		!strings.HasPrefix(trimmed, ":subagent") &&
 		!strings.HasPrefix(trimmed, ":search ") &&
@@ -62,6 +63,13 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 			return "", err
 		}
 		return formatSymbols(symbols), nil
+	case strings.HasPrefix(input, ":refs "):
+		query := strings.TrimSpace(strings.TrimPrefix(input, ":refs "))
+		references, err := a.agent.ListReferences(ctx, query)
+		if err != nil {
+			return "", err
+		}
+		return formatReferences(references), nil
 	case input == ":mcp":
 		status := a.agent.Status(ctx)
 		return formatMCP(status.MCPServers, status.MCPTools), nil
@@ -190,6 +198,7 @@ func agentHelp() string {
 		":agent status",
 		":diag",
 		":symbols [query]",
+		":refs <identifier>",
 		":search <query>",
 		":read <path>",
 		":loop <goal>",
@@ -286,6 +295,21 @@ func formatSymbols(items []agent.WorkspaceSymbol) string {
 			break
 		}
 		fmt.Fprintf(&b, "%s %s · %s:%d\n", item.Kind, item.Name, item.Path, item.Line)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatReferences(items []agent.WorkspaceReference) string {
+	if len(items) == 0 {
+		return "No references."
+	}
+	var b strings.Builder
+	for index, item := range items {
+		if index >= 12 {
+			fmt.Fprintf(&b, "\n...%d more", len(items)-index)
+			break
+		}
+		fmt.Fprintf(&b, "%s:%d %s\n", item.Path, item.Line, item.Text)
 	}
 	return strings.TrimSpace(b.String())
 }

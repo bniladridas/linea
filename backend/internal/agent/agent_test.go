@@ -576,6 +576,47 @@ func TestRuntimeListsWorkspaceSymbols(t *testing.T) {
 	}
 }
 
+func TestRuntimeListsWorkspaceReferences(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\n// Run in a comment should not count.\nfunc Run() {}\nfunc main() { Run() }\nvar _ = \"Run\"\n")
+	writeTestFile(t, filepath.Join(root, "notes.txt"), "Run\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	references, err := runtime.ListReferences(context.Background(), "Run")
+	if err != nil {
+		t.Fatalf("ListReferences() error = %v", err)
+	}
+	if len(references) != 2 {
+		t.Fatalf("references = %#v", references)
+	}
+	if references[0].Path != "main.go" || references[0].Line != 4 || !strings.Contains(references[0].Text, "func Run") {
+		t.Fatalf("first reference = %#v", references[0])
+	}
+	if references[1].Path != "main.go" || references[1].Line != 5 || !strings.Contains(references[1].Text, "Run()") {
+		t.Fatalf("second reference = %#v", references[1])
+	}
+	if _, err := runtime.ListReferences(context.Background(), "Run()"); err == nil {
+		t.Fatal("ListReferences() error = nil, want invalid identifier error")
+	}
+}
+
+func TestRuntimeAgentLoopInspectsReferences(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc Run() {}\nfunc main() { Run() }\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{Goal: "find references Run"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	for _, step := range loop.Steps {
+		if step.Kind == "references" && step.Detail == `2 reference(s) for "Run"` {
+			return
+		}
+	}
+	t.Fatalf("loop steps = %#v", loop.Steps)
+}
+
 func TestRuntimeRunsSkillWithoutCommand(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCheck a diff.")

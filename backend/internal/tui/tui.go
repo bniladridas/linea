@@ -43,6 +43,7 @@ type AgentRuntime interface {
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	ListSymbols(context.Context, string) ([]agent.WorkspaceSymbol, error)
+	ListReferences(context.Context, string) ([]agent.WorkspaceReference, error)
 	StartAgentLoop(context.Context, agent.AgentLoopInput) (agent.AgentLoop, error)
 	ContinueAgentLoop(context.Context, string, agent.AgentLoopContinueInput) (agent.AgentLoop, error)
 	CancelAgentLoop(context.Context, string) (agent.AgentLoop, error)
@@ -288,7 +289,7 @@ func (a *App) render(conversation store.Conversation, messages []store.Message, 
 	}
 	fmt.Fprintln(a.out)
 	fmt.Fprintf(a.out, "%s %s\n", a.theme.muted("Status:"), status)
-	fmt.Fprintln(a.out, a.theme.muted("Commands: :new · :attach <path> · :help · :agent · :diag · :symbols <q> · :mcp · :loop <goal> · :quit"))
+	fmt.Fprintln(a.out, a.theme.muted("Commands: :new · :attach <path> · :help · :agent · :diag · :symbols <q> · :refs <id> · :mcp · :loop <goal> · :quit"))
 }
 
 func (a *App) renderHeader(title string) {

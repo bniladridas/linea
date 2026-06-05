@@ -571,6 +571,21 @@ Returns basic Go symbols from `LINEA_WORKSPACE_DIR`.
 ]
 ```
 
+`GET /api/agent/workspace/references?q=Run`
+
+Returns basic Go identifier references from `LINEA_WORKSPACE_DIR`.
+
+```json
+[
+  {
+    "name": "Run",
+    "path": "backend/main.go",
+    "line": 18,
+    "text": "Run()"
+  }
+]
+```
+
 `GET /api/agent/edit-proposals`
 
 Returns edit proposals.
@@ -734,7 +749,7 @@ Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
 
-Terminal clients can use the same agent surface with explicit commands such as `:help`, `:agent`, `:diag`, `:symbols [query]`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`.
+Terminal clients can use the same agent surface with explicit commands such as `:help`, `:agent`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

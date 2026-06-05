@@ -174,6 +174,11 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 			symbols, err := r.ListSymbols(ctx, query)
 			loop = appendLoopStep(loop, "symbols", "Read symbols", "symbols", err, fmt.Sprintf("%d symbol(s) for %q", len(symbols), query), "")
 		}
+		if shouldReadReferences(goalLower) {
+			query := loopSymbolQuery(input, loop.Goal)
+			references, err := r.ListReferences(ctx, query)
+			loop = appendLoopStep(loop, "references", "Read references", "references", err, fmt.Sprintf("%d reference(s) for %q", len(references), query), "")
+		}
 	} else if shouldUseWorkspace(goalLower) || strings.TrimSpace(input.Query) != "" || strings.TrimSpace(input.FilePath) != "" {
 		loop = appendLoopStep(loop, "workspace", "Use workspace tools", "workspace", ErrWorkspaceDisabled, "", "")
 	}
@@ -346,11 +351,15 @@ func shouldReadDiagnostics(goal string) bool {
 }
 
 func shouldUseWorkspace(goal string) bool {
-	return shouldReadDiagnostics(goal) || shouldReadSymbols(goal) || strings.Contains(goal, "file") || strings.Contains(goal, "workspace") || strings.Contains(goal, "search") || strings.Contains(goal, "find")
+	return shouldReadDiagnostics(goal) || shouldReadSymbols(goal) || shouldReadReferences(goal) || strings.Contains(goal, "file") || strings.Contains(goal, "workspace") || strings.Contains(goal, "search") || strings.Contains(goal, "find")
 }
 
 func shouldReadSymbols(goal string) bool {
-	return strings.Contains(goal, "symbol") || strings.Contains(goal, "reference") || strings.Contains(goal, "navigate") || strings.Contains(goal, "definition")
+	return strings.Contains(goal, "symbol") || strings.Contains(goal, "navigate") || strings.Contains(goal, "definition")
+}
+
+func shouldReadReferences(goal string) bool {
+	return strings.Contains(goal, "reference")
 }
 
 func mentionsCommand(goal string) bool {
