@@ -1,4 +1,4 @@
-.PHONY: build test check install-check release-check macos-package model-check agent-check agent-check-memory ui-check ui-check-agent ui-check-full
+.PHONY: build test check install-check release-check macos-package model-check agent-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full
 
 BREW_LINEA_BIN = $$(brew --prefix bniladridas/linea/linea)/bin/linea
 
@@ -50,6 +50,11 @@ agent-check: build
 
 agent-check-memory: build
 	LINEA_AGENT_SMOKE_MEMORY=1 node scripts/agent-smoke.mjs --start
+
+tui-check: build
+	cd backend && go test ./internal/tui -run TestSmokeCoversPickerNewSearchAndAttachments
+	printf ':quit\n' | LINEA_ENV_FILE=/dev/null ./bin/linea -tui
+	printf ':quit\n' | LINEA_ENV_FILE=/dev/null ./bin/linea -tui-beta
 
 ui-check:
 	node scripts/ui-smoke.mjs --attachment --light-theme --mobile
