@@ -1707,8 +1707,9 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function CodeBlock({ code, language }: { code: string; language?: string }) {
+function CodeBlock({ code, focusedLine, language }: { code: string; focusedLine?: number; language?: string }) {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const blockRef = useRef<HTMLPreElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const canPreview = isPreviewableHTML(code, language);
   const lines = useMemo(() => code.split('\n'), [code]);
@@ -1723,6 +1724,16 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
       previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     });
   }, [isPreviewOpen]);
+
+  useEffect(() => {
+    if (!focusedLine) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      const target = blockRef.current?.querySelector<HTMLElement>(`[data-line="${focusedLine}"]`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    });
+  }, [code, focusedLine]);
 
   return (
     <div className="code-shell">
@@ -1740,10 +1751,14 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
           </button>
         )}
       </div>
-      <pre className="code-block" data-language={language || undefined}>
+      <pre className="code-block" data-language={language || undefined} ref={blockRef}>
         <code>
           {lines.map((line, index) => (
-            <span className="code-line" key={index}>
+            <span
+              className={focusedLine === index + 1 ? 'code-line focused' : 'code-line'}
+              data-line={index + 1}
+              key={index}
+            >
               <span className="code-line-number">{index + 1}</span>
               <span className="code-line-text">{highlightCode(line || ' ', language)}</span>
             </span>
@@ -2099,6 +2114,7 @@ function SystemDetailsDialog({
   const [workspaceSymbols, setWorkspaceSymbols] = useState<AgentWorkspaceSymbol[]>([]);
   const [workspaceReferences, setWorkspaceReferences] = useState<AgentWorkspaceReference[]>([]);
   const [workspaceFile, setWorkspaceFile] = useState<AgentWorkspaceFile | null>(null);
+  const [workspaceFocusedLine, setWorkspaceFocusedLine] = useState<number | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const enabledAgentTools = agentStatus?.tools.filter((tool) => tool.access !== 'off').length ?? 0;
@@ -2160,6 +2176,7 @@ function SystemDetailsDialog({
     event.preventDefault();
     const query = workspaceQuery.trim();
     setWorkspaceFile(null);
+    setWorkspaceFocusedLine(null);
     if (query.length < 2) {
       setWorkspaceError('Use at least 2 characters.');
       setWorkspaceMode('search');
@@ -2211,6 +2228,7 @@ function SystemDetailsDialog({
       setWorkspaceSymbols([]);
       setWorkspaceReferences([]);
       setWorkspaceFile(null);
+      setWorkspaceFocusedLine(null);
       const symbols = await request<AgentWorkspaceSymbol[]>(
         `/api/agent/workspace/symbols?q=${encodeURIComponent(workspaceQuery.trim())}`,
       );
@@ -2234,6 +2252,7 @@ function SystemDetailsDialog({
       setWorkspaceSymbols([]);
       setWorkspaceReferences([]);
       setWorkspaceFile(null);
+      setWorkspaceFocusedLine(null);
       const references = await request<AgentWorkspaceReference[]>(
         `/api/agent/workspace/references?q=${encodeURIComponent(workspaceQuery.trim())}`,
       );
@@ -2696,7 +2715,10 @@ function SystemDetailsDialog({
                     className={workspaceFile?.path === symbol.path ? 'workspace-result active' : 'workspace-result'}
                     key={`${symbol.path}-${symbol.line}-${symbol.kind}-${symbol.name}`}
                     type="button"
-                    onClick={() => void readWorkspaceFile(symbol.path)}
+                    onClick={() => {
+                      setWorkspaceFocusedLine(symbol.line);
+                      void readWorkspaceFile(symbol.path);
+                    }}
                   >
                     <span>{symbol.path}</span>
                     <small>
@@ -2710,7 +2732,10 @@ function SystemDetailsDialog({
                     className={workspaceFile?.path === reference.path ? 'workspace-result active' : 'workspace-result'}
                     key={`${reference.path}-${reference.line}-${reference.name}-${index}`}
                     type="button"
-                    onClick={() => void readWorkspaceFile(reference.path)}
+                    onClick={() => {
+                      setWorkspaceFocusedLine(reference.line);
+                      void readWorkspaceFile(reference.path);
+                    }}
                   >
                     <span>{reference.path}</span>
                     <small>
@@ -2724,7 +2749,10 @@ function SystemDetailsDialog({
                     className={workspaceFile?.path === result.path ? 'workspace-result active' : 'workspace-result'}
                     key={`${result.path}-${result.line}-${index}`}
                     type="button"
-                    onClick={() => void readWorkspaceFile(result.path)}
+                    onClick={() => {
+                      setWorkspaceFocusedLine(result.line);
+                      void readWorkspaceFile(result.path);
+                    }}
                   >
                     <span>{result.path}</span>
                     <small>
@@ -2746,7 +2774,11 @@ function SystemDetailsDialog({
                       {workspaceFile.truncated ? ' · truncated' : ''}
                     </span>
                   </div>
-                  <CodeBlock code={workspaceFile.content} language={languageFromPath(workspaceFile.path)} />
+                  <CodeBlock
+                    code={workspaceFile.content}
+                    focusedLine={workspaceFocusedLine ?? undefined}
+                    language={languageFromPath(workspaceFile.path)}
+                  />
                 </>
               ) : (
                 <p>Select a result to read a file.</p>
