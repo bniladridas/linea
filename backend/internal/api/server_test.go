@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,121 @@ func TestCreateMessageStreamsAndPersistsAssistant(t *testing.T) {
 	}
 	if messages[1].Role != "assistant" || messages[1].Content != "hello world" {
 		t.Fatalf("assistant message = %#v", messages[1])
+	}
+}
+
+func TestCreateTemporaryMessageStreamsWithoutPersistence(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	server := NewServer(appStore, fakeAssistant{chunks: []string{"temp ", "ok"}}, nil, testFiles(), "", Status{}).Handler()
+
+	res := postTemporaryMessage(t, server, "hello", nil)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "event: user") || !strings.Contains(body, "event: chunk") || !strings.Contains(body, "event: done") {
+		t.Fatalf("stream body missing expected events:\n%s", body)
+	}
+	if !strings.Contains(body, "temp ") || !strings.Contains(body, "ok") {
+		t.Fatalf("stream body missing chunks:\n%s", body)
+	}
+	conversations, err := appStore.ListConversations(context.Background())
+	if err != nil {
+		t.Fatalf("ListConversations() error = %v", err)
+	}
+	if len(conversations) != 0 {
+		t.Fatalf("conversation count = %d, want 0", len(conversations))
+	}
+}
+
+func TestCreateTemporaryMessageUsesHistory(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	assistant := &capturingAssistant{chunks: []string{"ok"}}
+	server := NewServer(appStore, assistant, nil, testFiles(), "", Status{}).Handler()
+	history := []map[string]string{
+		{"role": "user", "content": "first"},
+		{"role": "assistant", "content": "second"},
+	}
+
+	res := postTemporaryMessage(t, server, "third", history)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	if len(assistant.messages) != 3 {
+		t.Fatalf("message count passed to assistant = %d, want 3", len(assistant.messages))
+	}
+	if assistant.messages[0].Content != "first" || assistant.messages[2].Content != "third" {
+		t.Fatalf("messages passed to assistant = %#v", assistant.messages)
+	}
+}
+
+func TestCreateConversationImportsMessages(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	body := strings.NewReader(`{"title":"Saved temp","messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/conversations", body)
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var conversation store.Conversation
+	if err := json.Unmarshal(res.Body.Bytes(), &conversation); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	messages, err := appStore.ListMessages(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatalf("ListMessages() error = %v", err)
+	}
+	if len(messages) != 2 || messages[0].Role != "user" || messages[1].Content != "hi" {
+		t.Fatalf("imported messages = %#v", messages)
+	}
+}
+
+func TestCreateConversationRejectsInvalidImportBeforePersisting(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	body := strings.NewReader(`{"title":"Bad import","messages":[{"role":"system","content":"hidden"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/conversations", body)
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+	}
+	conversations, err := appStore.ListConversations(context.Background())
+	if err != nil {
+		t.Fatalf("ListConversations() error = %v", err)
+	}
+	if len(conversations) != 0 {
+		t.Fatalf("conversation count = %d, want 0", len(conversations))
+	}
+}
+
+func TestCreateConversationRollsBackImportFailure(t *testing.T) {
+	baseStore := store.NewMemoryStore()
+	appStore := &failingImportStore{Store: baseStore, failOnCall: 2}
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	body := strings.NewReader(`{"title":"Partial","messages":[{"role":"user","content":"one"},{"role":"assistant","content":"two"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/conversations", body)
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusInternalServerError, res.Body.String())
+	}
+	conversations, err := baseStore.ListConversations(context.Background())
+	if err != nil {
+		t.Fatalf("ListConversations() error = %v", err)
+	}
+	if len(conversations) != 0 {
+		t.Fatalf("conversation count = %d, want 0", len(conversations))
 	}
 }
 
@@ -1202,6 +1318,73 @@ func TestAgentEditProposalReviewEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentEditProposalApplyEndpointWritesApprovedProposal(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "notes.md")
+	writeAPITestFile(t, filePath, "one\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	proposal, err := runtime.ProposeEdit(context.Background(), agent.EditProposalInput{Path: "notes.md", Content: "two\n"})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, agent.EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/edit-proposals/"+proposal.ID+"/apply", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var applied agent.EditProposal
+	if err := json.NewDecoder(res.Body).Decode(&applied); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if applied.Status != "applied" {
+		t.Fatalf("applied = %#v", applied)
+	}
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "two\n" {
+		t.Fatalf("file content = %q", string(content))
+	}
+}
+
+func TestAgentWorkspaceUpdateEndpointChangesRoot(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	writeAPITestFile(t, filepath.Join(secondRoot, "notes.md"), "agent\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(firstRoot))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(fmt.Sprintf(`{"root":%q}`, secondRoot))
+	req := httptest.NewRequest(http.MethodPatch, "/api/agent/workspace", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	results, err := runtime.SearchFiles(context.Background(), "agent")
+	if err != nil {
+		t.Fatalf("SearchFiles() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Path != "notes.md" {
+		t.Fatalf("results = %#v", results)
+	}
+}
+
 func TestReadAttachmentsPreservesImageBytes(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -1294,6 +1477,34 @@ func postMessage(t *testing.T, handler http.Handler, conversationID, content str
 	return res
 }
 
+func postTemporaryMessage(t *testing.T, handler http.Handler, content string, history any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("content", content); err != nil {
+		t.Fatalf("WriteField(content) error = %v", err)
+	}
+	if history != nil {
+		payload, err := json.Marshal(history)
+		if err != nil {
+			t.Fatalf("Marshal(history) error = %v", err)
+		}
+		if err := writer.WriteField("history", string(payload)); err != nil {
+			t.Fatalf("WriteField(history) error = %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/temp", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	return res
+}
+
 func testFiles() http.FileSystem {
 	return http.FS(fstest.MapFS{
 		"index.html": {Data: []byte("<!doctype html><html><body>Linea</body></html>")},
@@ -1310,6 +1521,20 @@ func writeAPITestFile(t *testing.T, path string, content string) {
 type fakeAssistant struct {
 	chunks []string
 	err    error
+}
+
+type failingImportStore struct {
+	store.Store
+	addCalls   int
+	failOnCall int
+}
+
+func (s *failingImportStore) AddMessage(ctx context.Context, conversationID, role, content string) (store.Message, error) {
+	s.addCalls++
+	if s.addCalls == s.failOnCall {
+		return store.Message{}, errors.New("forced add failure")
+	}
+	return s.Store.AddMessage(ctx, conversationID, role, content)
 }
 
 type providerAssistant struct {
@@ -1350,10 +1575,12 @@ func (f fakeAssistant) GenerateStream(_ context.Context, _ []store.Message, _ []
 
 type capturingAssistant struct {
 	chunks        []string
+	messages      []store.Message
 	searchResults []llm.SearchResult
 }
 
-func (f *capturingAssistant) GenerateStream(_ context.Context, _ []store.Message, _ []llm.Attachment, searchResults []llm.SearchResult, onChunk func(string) error) error {
+func (f *capturingAssistant) GenerateStream(_ context.Context, messages []store.Message, _ []llm.Attachment, searchResults []llm.SearchResult, onChunk func(string) error) error {
+	f.messages = messages
 	f.searchResults = searchResults
 	for _, chunk := range f.chunks {
 		if err := onChunk(chunk); err != nil {

@@ -634,6 +634,111 @@ func TestReviewEditProposalUpdatesStatusWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestApplyEditProposalRequiresApproval(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "one\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "two\n",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposal.ID); err == nil {
+		t.Fatal("ApplyEditProposal() error = nil, want error")
+	}
+	content, err := os.ReadFile(filepath.Join(root, "notes.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "one\n" {
+		t.Fatalf("file was changed: %q", string(content))
+	}
+}
+
+func TestApplyEditProposalWritesApprovedContent(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "one\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "two\n",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+
+	applied, err := runtime.ApplyEditProposal(context.Background(), proposal.ID)
+	if err != nil {
+		t.Fatalf("ApplyEditProposal() error = %v", err)
+	}
+	if applied.Status != "applied" || applied.AppliedAt == nil {
+		t.Fatalf("applied = %#v", applied)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "notes.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "two\n" {
+		t.Fatalf("file content = %q, want two", string(content))
+	}
+}
+
+func TestApplyEditProposalRejectsStaleFile(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "notes.md")
+	writeTestFile(t, filePath, "one\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "two\n",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	writeTestFile(t, filePath, "local change\n")
+
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposal.ID); err == nil {
+		t.Fatal("ApplyEditProposal() error = nil, want stale error")
+	}
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "local change\n" {
+		t.Fatalf("file content = %q, want local change", string(content))
+	}
+}
+
+func TestSetWorkspaceRootClearsProposals(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(firstRoot, "notes.md"), "one\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(firstRoot))
+	if _, err := runtime.ProposeEdit(context.Background(), EditProposalInput{Path: "notes.md", Content: "two\n"}); err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+
+	root, err := runtime.SetWorkspaceRoot(secondRoot)
+	if err != nil {
+		t.Fatalf("SetWorkspaceRoot() error = %v", err)
+	}
+	if root == "" || runtime.WorkspaceRoot() != root {
+		t.Fatalf("workspace root = %q, want %q", runtime.WorkspaceRoot(), root)
+	}
+	if proposals := runtime.ListEditProposals(context.Background()); len(proposals) != 0 {
+		t.Fatalf("proposals = %#v, want empty", proposals)
+	}
+}
+
 func TestReviewEditProposalRejectsInvalidStatus(t *testing.T) {
 	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
 

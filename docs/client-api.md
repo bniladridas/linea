@@ -461,6 +461,16 @@ Searches text files in `LINEA_WORKSPACE_DIR`.
 ]
 ```
 
+`PATCH /api/agent/workspace`
+
+Updates the workspace root for the running server. Existing edit proposals are cleared.
+
+```json
+{
+  "root": "/Users/name/project"
+}
+```
+
 `GET /api/agent/workspace/diagnostics`
 
 Returns local workspace diagnostics. It currently reports Go syntax errors.
@@ -523,6 +533,10 @@ Reviews an edit proposal. It does not write the file.
 ```
 
 Valid statuses are `approved` and `rejected`.
+
+`POST /api/agent/edit-proposals/{id}/apply`
+
+Writes an approved proposal to disk and marks it applied. Pending and rejected proposals cannot be applied.
 
 # Settings
 

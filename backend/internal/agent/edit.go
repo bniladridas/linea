@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"strings"
@@ -28,9 +30,12 @@ type EditProposal struct {
 	Summary      string     `json:"summary,omitempty"`
 	Status       string     `json:"status"`
 	ReviewDetail string     `json:"reviewDetail,omitempty"`
+	BaseHash     string     `json:"-"`
+	Content      string     `json:"-"`
 	Diff         []DiffLine `json:"diff"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	ReviewedAt   *time.Time `json:"reviewedAt,omitempty"`
+	AppliedAt    *time.Time `json:"appliedAt,omitempty"`
 }
 
 type DiffLine struct {
@@ -80,6 +85,8 @@ func (r *Runtime) ProposeEdit(ctx context.Context, input EditProposalInput) (Edi
 		Path:      displayPath,
 		Summary:   strings.TrimSpace(input.Summary),
 		Status:    "pending",
+		BaseHash:  contentHash(current),
+		Content:   input.Content,
 		Diff:      buildDiff(string(current), input.Content),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -119,6 +126,66 @@ func (r *Runtime) ReviewEditProposal(_ context.Context, id string, input EditPro
 		}
 	}
 	return EditProposal{}, errors.New("Edit proposal was not found.")
+}
+
+func (r *Runtime) ApplyEditProposal(ctx context.Context, id string) (EditProposal, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return EditProposal{}, errors.New("Edit proposal ID is required.")
+	}
+	r.mu.RLock()
+	var proposal EditProposal
+	found := false
+	for _, item := range r.editProposals {
+		if item.ID == id {
+			proposal = item
+			found = true
+			break
+		}
+	}
+	r.mu.RUnlock()
+	if !found {
+		return EditProposal{}, errors.New("Edit proposal was not found.")
+	}
+	if proposal.Status != "approved" {
+		return EditProposal{}, errors.New("Edit proposal must be approved before applying.")
+	}
+	fullPath, displayPath, err := r.workspacePath(proposal.Path)
+	if err != nil {
+		return EditProposal{}, err
+	}
+	select {
+	case <-ctx.Done():
+		return EditProposal{}, ctx.Err()
+	default:
+	}
+	current, err := os.ReadFile(fullPath)
+	if err != nil {
+		return EditProposal{}, err
+	}
+	if contentHash(current) != proposal.BaseHash {
+		return EditProposal{}, errors.New("Edit proposal is stale. Review the latest file before applying.")
+	}
+	if err := os.WriteFile(fullPath, []byte(proposal.Content), 0o600); err != nil {
+		return EditProposal{}, err
+	}
+	appliedAt := time.Now().UTC()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for index := range r.editProposals {
+		if r.editProposals[index].ID == id {
+			r.editProposals[index].Path = displayPath
+			r.editProposals[index].Status = "applied"
+			r.editProposals[index].AppliedAt = &appliedAt
+			return r.editProposals[index], nil
+		}
+	}
+	return EditProposal{}, errors.New("Edit proposal was not found.")
+}
+
+func contentHash(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 func buildDiff(before string, after string) []DiffLine {

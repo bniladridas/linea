@@ -42,7 +42,58 @@ func WithWorkspaceRoot(root string) func(*Runtime) {
 }
 
 func (r *Runtime) WorkspaceEnabled() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return strings.TrimSpace(r.workspaceRoot) != ""
+}
+
+func (r *Runtime) WorkspaceRoot() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	root := strings.TrimSpace(r.workspaceRoot)
+	if root == "" {
+		return ""
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return root
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return absolute
+	}
+	return resolved
+}
+
+func (r *Runtime) SetWorkspaceRoot(root string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		r.mu.Lock()
+		r.workspaceRoot = ""
+		r.editProposals = nil
+		r.mu.Unlock()
+		return "", nil
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", errors.New("workspace root is not a directory")
+	}
+	r.mu.Lock()
+	r.workspaceRoot = resolved
+	r.editProposals = nil
+	r.mu.Unlock()
+	return resolved, nil
 }
 
 func (r *Runtime) ReadFile(ctx context.Context, name string) (FileResult, error) {
@@ -175,10 +226,13 @@ func (r *Runtime) workspacePath(name string) (string, string, error) {
 }
 
 func (r *Runtime) workspaceRootPath() (string, error) {
-	if !r.WorkspaceEnabled() {
+	r.mu.RLock()
+	rootValue := strings.TrimSpace(r.workspaceRoot)
+	r.mu.RUnlock()
+	if rootValue == "" {
 		return "", ErrWorkspaceDisabled
 	}
-	root, err := filepath.Abs(r.workspaceRoot)
+	root, err := filepath.Abs(rootValue)
 	if err != nil {
 		return "", err
 	}

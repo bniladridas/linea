@@ -322,6 +322,24 @@ async function runProbe() {
       returnByValue: true,
     });
     await sleep(500);
+    await send('Runtime.evaluate', {
+      expression: `(() => {
+        const input = document.querySelector('input[aria-label="Search workspace"]');
+        if (!input) return false;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, 'Linea');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.closest('form')?.requestSubmit();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    await sleep(500);
+    await send('Runtime.evaluate', {
+      expression: `document.querySelector('.workspace-result')?.click()`,
+      returnByValue: true,
+    });
+    await sleep(500);
     agentReviewObserved = await send('Runtime.evaluate', {
       expression: `(() => {
         const dialog = document.querySelector('.details-dialog');
@@ -329,6 +347,9 @@ async function runProbe() {
         return {
           ok:
             Boolean(dialog) &&
+            bodyText.includes('Workspace') &&
+            Boolean(dialog.querySelector('.workspace-result')) &&
+            Boolean(dialog.querySelector('.workspace-file .code-shell')) &&
             bodyText.includes('Edit proposals') &&
             bodyText.includes('Agent review smoke') &&
             Boolean(dialog.querySelector('.proposal-diff')) &&
@@ -477,7 +498,8 @@ async function runProbe() {
   if (sendMessage) {
     await send('Runtime.evaluate', {
       expression: `(() => {
-        document.querySelector('.new-chat')?.click();
+        ${startSavedChatExpression()}
+        startSavedChat();
         const textarea = document.querySelector('textarea');
         const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
         setter.call(textarea, 'Reply with only ok.');
@@ -505,7 +527,8 @@ async function runProbe() {
   if (checkSearchSources) {
     await send('Runtime.evaluate', {
       expression: `(() => {
-        document.querySelector('.new-chat')?.click();
+        ${startSavedChatExpression()}
+        startSavedChat();
         const textarea = document.querySelector('textarea');
         const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
         setter.call(textarea, 'search OpenAI');
@@ -531,7 +554,8 @@ async function runProbe() {
   if (checkAttachment) {
     await send('Runtime.evaluate', {
       expression: `(() => {
-        document.querySelector('.new-chat')?.click();
+        ${startSavedChatExpression()}
+        startSavedChat();
         const input = document.querySelector('input[type="file"]');
         if (!input) return false;
         const transfer = new DataTransfer();
@@ -631,6 +655,21 @@ async function runProbe() {
     agentReviewDetail: JSON.stringify(agentReviewObserved?.result?.result?.value ?? {}),
     errorCount: events.filter((event) => event.method === 'Runtime.exceptionThrown').length,
   };
+}
+
+function startSavedChatExpression() {
+  return `
+    function startSavedChat() {
+      const newChat = document.querySelector('.new-chat');
+      if (!newChat) return false;
+      newChat.click();
+      const savedChat = Array.from(document.querySelectorAll('.new-chat-menu button'))
+        .find((button) => button.textContent.trim() === 'Saved');
+      if (!savedChat) return false;
+      savedChat.click();
+      return true;
+    }
+  `;
 }
 
 async function ensureAgentReviewProposal() {

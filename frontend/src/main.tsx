@@ -32,7 +32,6 @@ import {
   Route,
   Search as SearchIcon,
   Share2,
-  SlidersHorizontal,
   Smile,
   Trash2,
   Sun,
@@ -80,6 +79,7 @@ type SystemStatus = {
 
 type AgentStatus = {
   mode: string;
+  workspaceRoot?: string;
   rules: {
     source: string;
     loaded: boolean;
@@ -167,6 +167,19 @@ type AgentDiagnostic = {
   message: string;
 };
 
+type AgentWorkspaceSearchResult = {
+  path: string;
+  line: number;
+  text: string;
+};
+
+type AgentWorkspaceFile = {
+  path: string;
+  content: string;
+  size: number;
+  truncated: boolean;
+};
+
 type AgentEditProposal = {
   id: string;
   path: string;
@@ -176,6 +189,7 @@ type AgentEditProposal = {
   diff: AgentDiffLine[];
   createdAt: string;
   reviewedAt?: string;
+  appliedAt?: string;
 };
 
 type AgentDiffLine = {
@@ -243,6 +257,8 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [content, setContent] = useState('');
   const [draftContent, setDraftContent] = useState('');
+  const [chatMode, setChatMode] = useState<'saved' | 'temporary'>('saved');
+  const [temporaryTitle, setTemporaryTitle] = useState('Untitled');
   const [files, setFiles] = useState<File[]>([]);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -255,6 +271,7 @@ function App() {
   const [agentDiagnostics, setAgentDiagnostics] = useState<AgentDiagnostic[]>([]);
   const [agentEditProposals, setAgentEditProposals] = useState<AgentEditProposal[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [isNewChatMenuOpen, setIsNewChatMenuOpen] = useState(false);
   const [openConversationMenu, setOpenConversationMenu] = useState<string | null>(null);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
@@ -270,7 +287,6 @@ function App() {
   const [uiPrefs, setUIPrefs] = useState<UIPrefs>(() => loadUIPrefs());
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme());
   const [isThemePanelOpen, setIsThemePanelOpen] = useState(false);
-  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [isSystemDetailsOpen, setIsSystemDetailsOpen] = useState(false);
   const [areTooltipsSuppressed, setAreTooltipsSuppressed] = useState(false);
   const sidebarFooterRef = useRef<HTMLDivElement | null>(null);
@@ -280,6 +296,7 @@ function App() {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const activeIdRef = useRef<string | null>(null);
+  const chatModeRef = useRef<'saved' | 'temporary'>(chatMode);
   const [hasScrollableMessages, setHasScrollableMessages] = useState(false);
   const [isAtMessageEnd, setIsAtMessageEnd] = useState(true);
   const [composerHeight, setComposerHeight] = useState(108);
@@ -303,15 +320,18 @@ function App() {
     () => visibleConversations.filter((conversation) => !pinnedIds.has(conversation.id)),
     [pinnedIds, visibleConversations],
   );
-  const chatTitle = activeConversation?.title ?? 'Untitled';
-  const sourceConversationId = activeId ?? pendingSourceConversationId;
+  const isTemporaryChat = chatMode === 'temporary' && !activeId;
+  const chatTitle = activeConversation?.title ?? (isTemporaryChat ? temporaryTitle : 'Untitled');
+  const sourceConversationId = isTemporaryChat ? 'temporary' : activeId ?? pendingSourceConversationId;
   const activeSearchResults = sourceConversationId ? (searchResultsByConversation[sourceConversationId] ?? []) : [];
   const showSources = activeSearchResults.length > 0 && areSourcesVisible;
   const shellClassName = [
     'shell',
     !isSidebarOpen ? 'sidebar-collapsed' : '',
     showSources ? 'sources-open' : '',
-    (areTooltipsSuppressed || isSystemPanelOpen || isThemePanelOpen || isSettingsPanelOpen) ? 'tooltips-suppressed' : '',
+    (areTooltipsSuppressed || isNewChatMenuOpen || isSystemPanelOpen || isThemePanelOpen)
+      ? 'tooltips-suppressed'
+      : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -328,13 +348,16 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const closeMenu = () => setOpenConversationMenu(null);
+    const closeMenu = () => {
+      setIsNewChatMenuOpen(false);
+      setOpenConversationMenu(null);
+    };
     window.addEventListener('click', closeMenu);
     return () => window.removeEventListener('click', closeMenu);
   }, []);
 
   useEffect(() => {
-    if (!isSystemPanelOpen && !isThemePanelOpen && !isSettingsPanelOpen) {
+    if (!isSystemPanelOpen && !isThemePanelOpen) {
       return;
     }
 
@@ -348,7 +371,6 @@ function App() {
       }
       setIsSystemPanelOpen(false);
       setIsThemePanelOpen(false);
-      setIsSettingsPanelOpen(false);
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') {
@@ -356,7 +378,6 @@ function App() {
       }
       setIsSystemPanelOpen(false);
       setIsThemePanelOpen(false);
-      setIsSettingsPanelOpen(false);
     };
 
     window.addEventListener('pointerdown', closeFooterPanels, true);
@@ -365,7 +386,7 @@ function App() {
       window.removeEventListener('pointerdown', closeFooterPanels, true);
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [isSystemPanelOpen, isThemePanelOpen, isSettingsPanelOpen]);
+  }, [isSystemPanelOpen, isThemePanelOpen]);
 
   useEffect(() => {
     if (!areTooltipsSuppressed) {
@@ -382,13 +403,16 @@ function App() {
   }, [areTooltipsSuppressed]);
 
   useEffect(() => {
+    chatModeRef.current = chatMode;
     activeIdRef.current = activeId;
     if (!activeId) {
-      setMessages([]);
+      if (chatMode !== 'temporary') {
+        setMessages([]);
+      }
       return;
     }
     void loadMessages(activeId);
-  }, [activeId]);
+  }, [activeId, chatMode]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -444,7 +468,12 @@ function App() {
     const data = await request<Conversation[]>('/api/conversations');
     const nextConversations = Array.isArray(data) ? data : [];
     setConversations(nextConversations);
-    setActiveId((current) => (current === null && draftContent.trim() ? null : current ?? nextConversations[0]?.id ?? null));
+    setActiveId((current) => {
+      if (chatModeRef.current === 'temporary') {
+        return current;
+      }
+      return current === null && draftContent.trim() ? null : current ?? nextConversations[0]?.id ?? null;
+    });
   }
 
   async function loadSystemStatus() {
@@ -506,6 +535,33 @@ function App() {
     }
   }
 
+  async function applyAgentEditProposal(proposalId: string) {
+    try {
+      const proposal = await request<AgentEditProposal>(`/api/agent/edit-proposals/${proposalId}/apply`, {
+        method: 'POST',
+      });
+      setAgentEditProposals((items) => items.map((item) => (item.id === proposal.id ? proposal : item)));
+      await loadAgentStatus();
+    } catch (applyError) {
+      setError(applyError instanceof Error ? applyError.message : 'Could not apply proposal.');
+    }
+  }
+
+  async function saveAgentWorkspaceRoot(root: string) {
+    try {
+      await request<{ root: string }>('/api/agent/workspace', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root }),
+      });
+      setAgentEditProposals([]);
+      setAgentDiagnostics([]);
+      await loadAgentStatus();
+    } catch (workspaceError) {
+      setError(workspaceError instanceof Error ? workspaceError.message : 'Could not update workspace.');
+    }
+  }
+
   async function loadAppSettings() {
     try {
       const data = await request<AppSettings>('/api/settings');
@@ -537,12 +593,17 @@ function App() {
     }
   }
 
-  async function createConversation(initialTitle = 'Untitled', activate = true) {
+  async function createConversation(initialTitle = 'Untitled', activate = true, initialMessages: Message[] = []) {
     setError(null);
     const conversation = await request<Conversation>('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: initialTitle }),
+      body: JSON.stringify({
+        title: initialTitle,
+        messages: initialMessages
+          .filter((message) => message.role === 'user' || message.role === 'assistant')
+          .map((message) => ({ role: message.role, content: message.content })),
+      }),
     });
     setConversations((items) => [conversation, ...items]);
     if (activate) {
@@ -552,6 +613,7 @@ function App() {
   }
 
   function startNewChat() {
+    setChatMode('saved');
     setPendingSourceConversationId(null);
     setActiveId(null);
     setMessages([]);
@@ -561,10 +623,27 @@ function App() {
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
-  function selectConversation(conversationId: string) {
-    if (!activeId) {
+  function startTemporaryChat() {
+    if (!activeId && chatMode === 'saved') {
       setDraftContent(content);
     }
+    setChatMode('temporary');
+    setTemporaryTitle('Untitled');
+    setPendingSourceConversationId(null);
+    setActiveId(null);
+    setMessages([]);
+    setContent('');
+    setFiles([]);
+    setError(null);
+    setConversationSearchResults('temporary', []);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function selectConversation(conversationId: string) {
+    if (!activeId && chatMode === 'saved') {
+      setDraftContent(content);
+    }
+    setChatMode('saved');
     setPendingSourceConversationId(null);
     setActiveId(conversationId);
     setContent('');
@@ -574,7 +653,7 @@ function App() {
 
   function updateContent(value: string) {
     setContent(value);
-    if (!activeId) {
+    if (!activeId && chatMode === 'saved') {
       setDraftContent(value);
     }
   }
@@ -691,6 +770,35 @@ function App() {
     }
   }
 
+  async function saveTemporaryChat() {
+    if (!isTemporaryChat || messages.length === 0) {
+      return;
+    }
+    try {
+      setError(null);
+      const title = storeTitleFromMessages(messages);
+      const conversation = await createConversation(title, false, messages);
+      setChatMode('saved');
+      setTemporaryTitle('Untitled');
+      setDraftContent('');
+      setConversationSearchResults(conversation.id, searchResultsByConversation.temporary ?? []);
+      setConversations((items) => {
+        const seen = new Set<string>();
+        return [conversation, ...items].filter((item) => {
+          if (seen.has(item.id)) {
+            return false;
+          }
+          seen.add(item.id);
+          return true;
+        });
+      });
+      setActiveId(conversation.id);
+      setConversationSearchResults('temporary', []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save temporary chat.');
+    }
+  }
+
   function editMessage(message: Message) {
     setContent(message.content);
     setError(null);
@@ -717,18 +825,29 @@ function App() {
     updateContent('');
 
     try {
-      const conversation = activeId
-        ? conversations.find((item) => item.id === activeId)
-        : await createConversation(trimmed.slice(0, 60) || 'Untitled', false);
-      if (!conversation) {
-        throw new Error('No active conversation.');
+      const conversation = activeId ? conversations.find((item) => item.id === activeId) : null;
+      if (!isTemporaryChat && !conversation) {
+        const created = await createConversation(trimmed.slice(0, 60) || 'Untitled', false);
+        submittedConversationId = created.id;
+        setPendingSourceConversationId(created.id);
+      } else if (conversation) {
+        submittedConversationId = conversation.id;
+        setPendingSourceConversationId(conversation.id);
       }
-      submittedConversationId = conversation.id;
-      setPendingSourceConversationId(conversation.id);
 
       const form = new FormData();
       form.append('content', content);
       files.forEach((file) => form.append('files', file));
+      if (isTemporaryChat) {
+        form.append(
+          'history',
+          JSON.stringify(
+            messages
+              .filter((message) => message.role === 'user' || message.role === 'assistant')
+              .map((message) => ({ role: message.role, content: message.content })),
+          ),
+        );
+      }
 
       setFiles([]);
       const assistantClientId = `response-${Date.now()}`;
@@ -736,14 +855,18 @@ function App() {
       const draft: Message = { clientId: assistantClientId, role: 'assistant', content: '' };
       assistantDraft = draft;
       setMessages((items) => [...items.filter((item) => item !== optimisticUser), optimisticUser, draft]);
-      setConversationSearchResults(conversation.id, []);
+      const streamConversationId = isTemporaryChat ? 'temporary' : submittedConversationId;
+      if (!streamConversationId) {
+        throw new Error('No active conversation.');
+      }
+      setConversationSearchResults(streamConversationId, []);
 
-      await streamMessage(`/api/conversations/${conversation.id}/messages`, form, {
+      await streamMessage(isTemporaryChat ? '/api/chat/temp' : `/api/conversations/${streamConversationId}/messages`, form, {
         onUser: (message) => {
           setMessages((items) => items.map((item) => (item === optimisticUser ? message : item)));
         },
         onSearch: (result) => {
-          appendConversationSearchResult(conversation.id, result);
+          appendConversationSearchResult(streamConversationId, result);
         },
         onProvider: (provider) => {
           assistantProvider = provider;
@@ -777,10 +900,14 @@ function App() {
       });
       void loadAgentStatus();
       void loadAgentEditProposals();
-      await loadConversations();
-      setActiveId(conversation.id);
-      if (!activeId) {
-        setDraftContent('');
+      if (isTemporaryChat) {
+        setTemporaryTitle((current) => (current === 'Untitled' ? storeTitleFromContent(trimmed) : current));
+      } else {
+        await loadConversations();
+        setActiveId(streamConversationId);
+        if (!activeId) {
+          setDraftContent('');
+        }
       }
     } catch (err) {
       setMessages((items) => items.filter((item) => item !== optimisticUser && item !== assistantDraft));
@@ -867,10 +994,46 @@ function App() {
             </button>
           </div>
 
-          <button className="new-chat has-tooltip" data-tooltip="New chat" type="button" onClick={startNewChat}>
-            <Plus size={14} strokeWidth={ICON_STROKE} />
-            New
-          </button>
+          <div className="new-chat-group" aria-label="Create chat">
+            <button
+              className="new-chat has-tooltip"
+              data-tooltip="New chat"
+              type="button"
+              onPointerDown={() => setAreTooltipsSuppressed(true)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenConversationMenu(null);
+                setIsNewChatMenuOpen((open) => !open);
+              }}
+            >
+              <Plus size={14} strokeWidth={ICON_STROKE} />
+              New
+            </button>
+            {isNewChatMenuOpen && (
+              <div className="new-chat-menu" onClick={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNewChatMenuOpen(false);
+                    startNewChat();
+                  }}
+                >
+                  <Plus size={14} strokeWidth={ICON_STROKE} />
+                  Saved
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNewChatMenuOpen(false);
+                    startTemporaryChat();
+                  }}
+                >
+                  <BellOff size={14} strokeWidth={ICON_STROKE} />
+                  Temporary
+                </button>
+              </div>
+            )}
+          </div>
 
           <nav className="conversation-list" aria-label="Conversations">
             {pinnedConversations.length > 0 && (
@@ -907,13 +1070,22 @@ function App() {
             )}
             <div className="conversation-section" aria-label="Recent conversations">
               {pinnedConversations.length > 0 && <div className="conversation-section-title">Recent</div>}
-              {(!activeId || draftContent.trim()) && (
-                <div className={!activeId ? 'conversation active draft-conversation' : 'conversation draft-conversation'}>
-                  <button className="conversation-select" type="button" onClick={startNewChat}>
-                    <span>Untitled</span>
-                    <time>Draft</time>
+              {isTemporaryChat ? (
+                <div className="conversation active draft-conversation">
+                  <button className="conversation-select" type="button" onClick={startTemporaryChat}>
+                    <span>{temporaryTitle}</span>
+                    <time>Temporary</time>
                   </button>
                 </div>
+              ) : (
+                (!activeId || draftContent.trim()) && (
+                  <div className={!activeId ? 'conversation active draft-conversation' : 'conversation draft-conversation'}>
+                    <button className="conversation-select" type="button" onClick={startNewChat}>
+                      <span>Untitled</span>
+                      <time>Draft</time>
+                    </button>
+                  </div>
+                )
               )}
               {unpinnedConversations.map((conversation) => (
                 <ConversationRow
@@ -951,15 +1123,15 @@ function App() {
                 onOpenDetails={() => {
                   setIsSystemDetailsOpen(true);
                   setIsSystemPanelOpen(false);
+                  if (!appSettings) {
+                    void loadAppSettings();
+                  }
                   void loadAgentDiagnostics();
                   void loadAgentEditProposals();
                 }}
               />
             )}
             {isThemePanelOpen && <ThemePanel prefs={uiPrefs} systemTheme={systemTheme} onChange={setUIPrefs} />}
-            {isSettingsPanelOpen && appSettings && (
-              <SettingsPanel settings={appSettings} onChange={(next) => void saveAppSettings(next)} />
-            )}
             <div className="footer-actions">
               <button
                 aria-label={isSystemPanelOpen ? 'Hide system status' : 'Show system status'}
@@ -970,7 +1142,6 @@ function App() {
                 onClick={() => {
                   setIsSystemPanelOpen((open) => !open);
                   setIsThemePanelOpen(false);
-                  setIsSettingsPanelOpen(false);
                   if (!systemStatus) {
                     void loadSystemStatus();
                   }
@@ -992,27 +1163,9 @@ function App() {
                 onClick={() => {
                   setIsThemePanelOpen((open) => !open);
                   setIsSystemPanelOpen(false);
-                  setIsSettingsPanelOpen(false);
                 }}
               >
                 <Brush size={14} strokeWidth={ICON_STROKE} />
-              </button>
-              <button
-                aria-label={isSettingsPanelOpen ? 'Hide settings' : 'Show settings'}
-                className="system-button has-tooltip tooltip-above"
-                data-tooltip="Settings"
-                type="button"
-                onPointerDown={() => setAreTooltipsSuppressed(true)}
-                onClick={() => {
-                  setIsSettingsPanelOpen((open) => !open);
-                  setIsSystemPanelOpen(false);
-                  setIsThemePanelOpen(false);
-                  if (!appSettings) {
-                    void loadAppSettings();
-                  }
-                }}
-              >
-                <SlidersHorizontal size={14} strokeWidth={ICON_STROKE} />
               </button>
             </div>
           </div>
@@ -1039,6 +1192,11 @@ function App() {
             <div>
               <h2>{chatTitle}</h2>
             </div>
+            {isTemporaryChat && (
+              <span className="temporary-badge" title="This chat is not saved">
+                Temporary
+              </span>
+            )}
             {activeSearchResults.length > 0 && (
               <button
                 aria-label={areSourcesVisible ? 'Hide sources' : 'Show sources'}
@@ -1050,6 +1208,20 @@ function App() {
               >
                 <FileText size={14} strokeWidth={ICON_STROKE} />
                 {activeSearchResults.length}
+              </button>
+            )}
+            {isTemporaryChat && messages.length > 0 && (
+              <button
+                aria-label="Save temporary chat"
+                className="save-chat-button has-tooltip tooltip-align-left"
+                data-tooltip="Save chat"
+                disabled={isSending}
+                type="button"
+                onPointerDown={() => setAreTooltipsSuppressed(true)}
+                onClick={() => void saveTemporaryChat()}
+              >
+                <Check size={14} strokeWidth={ICON_STROKE} />
+                Save
               </button>
             )}
           </div>
@@ -1201,7 +1373,11 @@ function App() {
           agentRuns={agentRuns}
           diagnostics={agentDiagnostics}
           editProposals={agentEditProposals}
+          settings={appSettings}
           onReviewProposal={(proposalId, status) => void reviewAgentEditProposal(proposalId, status)}
+          onApplyProposal={(proposalId) => void applyAgentEditProposal(proposalId)}
+          onWorkspaceChange={(root) => void saveAgentWorkspaceRoot(root)}
+          onSettingsChange={(next) => void saveAppSettings(next)}
           onClose={() => setIsSystemDetailsOpen(false)}
         />
       )}
@@ -1634,19 +1810,33 @@ function SystemDetailsDialog({
   agentStatus,
   diagnostics,
   editProposals,
+  onApplyProposal,
   onClose,
   onReviewProposal,
+  onSettingsChange,
+  onWorkspaceChange,
+  settings,
   status,
 }: {
   agentRuns: AgentRun[];
   agentStatus: AgentStatus | null;
   diagnostics: AgentDiagnostic[];
   editProposals: AgentEditProposal[];
+  onApplyProposal: (proposalId: string) => void;
   onClose: () => void;
   onReviewProposal: (proposalId: string, status: 'approved' | 'rejected') => void;
+  onSettingsChange: (settings: AppSettings) => void;
+  onWorkspaceChange: (root: string) => void;
+  settings: AppSettings | null;
   status: SystemStatus | null;
 }) {
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(editProposals[0]?.id ?? null);
+  const [workspaceRootInput, setWorkspaceRootInput] = useState(agentStatus?.workspaceRoot ?? '');
+  const [workspaceQuery, setWorkspaceQuery] = useState('');
+  const [workspaceResults, setWorkspaceResults] = useState<AgentWorkspaceSearchResult[]>([]);
+  const [workspaceFile, setWorkspaceFile] = useState<AgentWorkspaceFile | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const enabledAgentTools = agentStatus?.tools.filter((tool) => tool.access !== 'off').length ?? 0;
   const workspaceOn = agentStatus?.tools
     .filter((tool) => ['read_file', 'search_files', 'diagnostics'].includes(tool.id))
@@ -1666,6 +1856,10 @@ function SystemDetailsDialog({
   }, [editProposals, selectedProposalId]);
 
   useEffect(() => {
+    setWorkspaceRootInput(agentStatus?.workspaceRoot ?? '');
+  }, [agentStatus?.workspaceRoot]);
+
+  useEffect(() => {
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
@@ -1674,6 +1868,43 @@ function SystemDetailsDialog({
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
+
+  async function searchWorkspace(event: FormEvent) {
+    event.preventDefault();
+    const query = workspaceQuery.trim();
+    setWorkspaceFile(null);
+    if (query.length < 2) {
+      setWorkspaceError('Use at least 2 characters.');
+      setWorkspaceResults([]);
+      return;
+    }
+    try {
+      setIsWorkspaceLoading(true);
+      setWorkspaceError(null);
+      const results = await request<AgentWorkspaceSearchResult[]>(
+        `/api/agent/workspace/search?q=${encodeURIComponent(query)}`,
+      );
+      setWorkspaceResults(Array.isArray(results) ? results : []);
+    } catch (err) {
+      setWorkspaceResults([]);
+      setWorkspaceError(err instanceof Error ? err.message : 'Could not search workspace.');
+    } finally {
+      setIsWorkspaceLoading(false);
+    }
+  }
+
+  async function readWorkspaceFile(path: string) {
+    try {
+      setIsWorkspaceLoading(true);
+      setWorkspaceError(null);
+      const file = await request<AgentWorkspaceFile>(`/api/agent/workspace/file?path=${encodeURIComponent(path)}`);
+      setWorkspaceFile(file);
+    } catch (err) {
+      setWorkspaceError(err instanceof Error ? err.message : 'Could not read file.');
+    } finally {
+      setIsWorkspaceLoading(false);
+    }
+  }
 
   return (
     <div className="dialog-backdrop" onPointerDown={onClose}>
@@ -1722,6 +1953,84 @@ function SystemDetailsDialog({
           </DetailsSection>
         </div>
 
+        {settings && (
+          <section className="details-list providers-review">
+            <SettingsPanel settings={settings} onChange={onSettingsChange} variant="details" />
+          </section>
+        )}
+
+        <section className="details-list workspace-review">
+          <div className="details-list-header">
+            <h3>Workspace</h3>
+            <span>{workspaceOn ? 'On' : 'Off'}</span>
+          </div>
+          <form
+            className="workspace-root"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onWorkspaceChange(workspaceRootInput);
+            }}
+          >
+            <input
+              aria-label="Workspace path"
+              placeholder="Workspace path"
+              value={workspaceRootInput}
+              onChange={(event) => setWorkspaceRootInput(event.target.value)}
+            />
+            <button type="submit">Use</button>
+          </form>
+          <form className="workspace-search" onSubmit={searchWorkspace}>
+            <input
+              aria-label="Search workspace"
+              disabled={!workspaceOn}
+              placeholder="Search files"
+              value={workspaceQuery}
+              onChange={(event) => setWorkspaceQuery(event.target.value)}
+            />
+            <button disabled={!workspaceOn || isWorkspaceLoading || workspaceQuery.trim().length < 2} type="submit">
+              Search
+            </button>
+          </form>
+          {workspaceError && <p className="workspace-error">{workspaceError}</p>}
+          <div className="workspace-layout">
+            <div className="workspace-results" role="list">
+              {workspaceResults.length > 0 ? (
+                workspaceResults.map((result, index) => (
+                  <button
+                    className={workspaceFile?.path === result.path ? 'workspace-result active' : 'workspace-result'}
+                    key={`${result.path}-${result.line}-${index}`}
+                    type="button"
+                    onClick={() => void readWorkspaceFile(result.path)}
+                  >
+                    <span>{result.path}</span>
+                    <small>
+                      {result.line}: {result.text}
+                    </small>
+                  </button>
+                ))
+              ) : (
+                <p>{workspaceOn ? 'No search results' : 'Workspace tools are off'}</p>
+              )}
+            </div>
+            <div className="workspace-file">
+              {workspaceFile ? (
+                <>
+                  <div className="workspace-file-meta">
+                    <strong>{workspaceFile.path}</strong>
+                    <span>
+                      {formatBytes(workspaceFile.size)}
+                      {workspaceFile.truncated ? ' · truncated' : ''}
+                    </span>
+                  </div>
+                  <CodeBlock code={workspaceFile.content} language={languageFromPath(workspaceFile.path)} />
+                </>
+              ) : (
+                <p>Select a result to read a file.</p>
+              )}
+            </div>
+          </div>
+        </section>
+
         <section className="details-list proposal-review">
           <div className="details-list-header">
             <h3>Edit proposals</h3>
@@ -1765,6 +2074,13 @@ function SystemDetailsDialog({
                         onClick={() => onReviewProposal(selectedProposal.id, 'rejected')}
                       >
                         Reject
+                      </button>
+                      <button
+                        disabled={selectedProposal.status !== 'approved'}
+                        type="button"
+                        onClick={() => onApplyProposal(selectedProposal.id)}
+                      >
+                        Apply
                       </button>
                     </div>
                   </div>
@@ -1834,6 +2150,43 @@ function diffLineNumber(line: AgentDiffLine) {
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function languageFromPath(path: string) {
+  const extension = path.split('.').pop()?.toLowerCase();
+  switch (extension) {
+    case 'html':
+    case 'htm':
+      return 'html';
+    case 'css':
+      return 'css';
+    case 'js':
+    case 'jsx':
+    case 'mjs':
+    case 'cjs':
+      return 'javascript';
+    case 'ts':
+    case 'tsx':
+      return 'typescript';
+    case 'json':
+      return 'json';
+    case 'go':
+      return 'go';
+    case 'md':
+      return 'markdown';
+    default:
+      return extension;
+  }
 }
 
 function formatCommandRun(run: NonNullable<AgentStatus['commandRuns']>[number]) {
@@ -1969,9 +2322,11 @@ function ThemePanel({
 function SettingsPanel({
   settings,
   onChange,
+  variant = 'panel',
 }: {
   settings: AppSettings;
   onChange: (settings: AppSettings) => void;
+  variant?: 'panel' | 'details';
 }) {
   const updateProvider = (providerId: string, enabled: boolean) => {
     onChange({
@@ -1994,7 +2349,7 @@ function SettingsPanel({
   };
 
   return (
-    <div className="settings-panel" aria-label="Provider settings">
+    <div className={variant === 'details' ? 'settings-panel settings-panel-inline' : 'settings-panel'} aria-label="Provider settings">
       <div className="settings-panel-title">Providers</div>
       {settings.providers.map((provider, index) => (
         <div className={!provider.configured ? 'settings-provider muted' : 'settings-provider'} key={provider.id}>
@@ -2265,6 +2620,19 @@ function defaultResponseProvider(status: SystemStatus | null): ProviderStatus | 
     status?.providers.find((provider) => provider.enabled && provider.role === 'primary') ??
     status?.providers.find((provider) => provider.enabled)
   );
+}
+
+function storeTitleFromMessages(messages: Message[]) {
+  const firstUserMessage = messages.find((message) => message.role === 'user' && message.content.trim());
+  return storeTitleFromContent(firstUserMessage?.content ?? 'Untitled');
+}
+
+function storeTitleFromContent(value: string) {
+  const title = value.trim().replace(/\s+/g, ' ');
+  if (!title) {
+    return 'Untitled';
+  }
+  return title.length > 60 ? `${title.slice(0, 57).trim()}...` : title;
 }
 
 function SourcesPanel({ results }: { results: SearchResult[] }) {
