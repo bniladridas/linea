@@ -60,6 +60,8 @@ type AgentRuntime interface {
 	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
 	ListMCPServers(context.Context) []agent.MCPServer
 	ListMCPTools(context.Context) []agent.MCPTool
+	ListMCPCalls(context.Context) []agent.MCPCall
+	CallMCPTool(context.Context, agent.MCPCallInput) (agent.MCPCall, error)
 	ListTraces(context.Context) []agent.Trace
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ListHookRuns(context.Context) []agent.HookRun
@@ -69,6 +71,8 @@ type AgentRuntime interface {
 	RunSkill(context.Context, string, agent.SkillExecutionInput) (agent.SkillExecution, error)
 	ListAgentLoops(context.Context) []agent.AgentLoop
 	StartAgentLoop(context.Context, agent.AgentLoopInput) (agent.AgentLoop, error)
+	ContinueAgentLoop(context.Context, string, agent.AgentLoopContinueInput) (agent.AgentLoop, error)
+	CancelAgentLoop(context.Context, string) (agent.AgentLoop, error)
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
 	ListCommandChecks(context.Context) []agent.CommandCheck
@@ -191,6 +195,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/subagents/{id}/run", s.runAgentSubagent)
 	mux.HandleFunc("GET /api/agent/mcp-servers", s.listAgentMCPServers)
 	mux.HandleFunc("GET /api/agent/mcp-tools", s.listAgentMCPTools)
+	mux.HandleFunc("GET /api/agent/mcp-calls", s.listAgentMCPCalls)
+	mux.HandleFunc("POST /api/agent/mcp-calls", s.callAgentMCPTool)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
 	mux.HandleFunc("GET /api/agent/hook-runs", s.listAgentHookRuns)
@@ -200,6 +206,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/skills/{id}/run", s.runAgentSkill)
 	mux.HandleFunc("GET /api/agent/loops", s.listAgentLoops)
 	mux.HandleFunc("POST /api/agent/loops", s.startAgentLoop)
+	mux.HandleFunc("POST /api/agent/loops/{id}/continue", s.continueAgentLoop)
+	mux.HandleFunc("POST /api/agent/loops/{id}/cancel", s.cancelAgentLoop)
 	mux.HandleFunc("GET /api/agent/command-approvals", s.listAgentCommandApprovals)
 	mux.HandleFunc("POST /api/agent/command-approvals", s.createAgentCommandApproval)
 	mux.HandleFunc("GET /api/agent/command-checks", s.listAgentCommandChecks)
@@ -338,6 +346,33 @@ func (s *Server) listAgentMCPTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPTools(r.Context()))
 }
 
+func (s *Server) listAgentMCPCalls(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.MCPCall{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPCalls(r.Context()))
+}
+
+func (s *Server) callAgentMCPTool(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "MCP tools are not available.")
+		return
+	}
+	var input agent.MCPCallInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	call, err := s.agentRuntime.CallMCPTool(r.Context(), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "mcp call", call.State, call.ToolID)
+	writeJSON(w, http.StatusCreated, call)
+}
+
 func (s *Server) listAgentTraces(w http.ResponseWriter, r *http.Request) {
 	if s.agentRuntime == nil {
 		writeJSON(w, http.StatusOK, []agent.Trace{})
@@ -462,6 +497,39 @@ func (s *Server) startAgentLoop(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "agent loop", loop.State, loop.Goal)
 	writeJSON(w, http.StatusCreated, loop)
+}
+
+func (s *Server) continueAgentLoop(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent loops are not available.")
+		return
+	}
+	var input agent.AgentLoopContinueInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	loop, err := s.agentRuntime.ContinueAgentLoop(r.Context(), r.PathValue("id"), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.recordAgentTrace(r.Context(), "agent loop", loop.State, loop.ID)
+	writeJSON(w, http.StatusOK, loop)
+}
+
+func (s *Server) cancelAgentLoop(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent loops are not available.")
+		return
+	}
+	loop, err := s.agentRuntime.CancelAgentLoop(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.recordAgentTrace(r.Context(), "agent loop", loop.State, loop.ID)
+	writeJSON(w, http.StatusOK, loop)
 }
 
 func (s *Server) listAgentCommandApprovals(w http.ResponseWriter, r *http.Request) {

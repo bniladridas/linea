@@ -54,6 +54,104 @@ func (r *Runtime) StartAgentLoop(ctx context.Context, input AgentLoopInput) (Age
 	return loop, nil
 }
 
+func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentLoopContinueInput) (AgentLoop, error) {
+	loop, err := r.agentLoopByID(id)
+	if err != nil {
+		return AgentLoop{}, err
+	}
+	if loop.State == "canceled" {
+		return AgentLoop{}, errors.New("Agent loop is canceled.")
+	}
+	if loop.State == "completed" {
+		return AgentLoop{}, errors.New("Agent loop is already completed.")
+	}
+	loop.State = "running"
+	continued := false
+	for _, step := range loop.Steps {
+		if step.Kind != "command_approval" || step.State != "waiting_approval" || strings.TrimSpace(step.Command) == "" {
+			continue
+		}
+		approvalID := step.CreatedID
+		if err := r.checkCommandApproval(step.Command, approvalID); err != nil {
+			approvalID = r.approvedCommandApprovalID(step.Command)
+		}
+		run, runErr := r.RunCommand(ctx, CommandCheckInput{Command: step.Command, ApprovalID: approvalID})
+		detail := fmt.Sprintf("exit %d", run.ExitCode)
+		if runErr == nil && run.ExitCode != 0 {
+			runErr = fmt.Errorf("command exited with %d", run.ExitCode)
+		}
+		if runErr != nil {
+			detail = runErr.Error()
+		}
+		loop = appendLoopStep(loop, "command_run", "Run command", "run_command", runErr, detail, step.Command)
+		continued = true
+		break
+	}
+	if !continued {
+		loop = r.runLoopSteps(ctx, loop, AgentLoopInput{
+			Goal:     loop.Goal,
+			Command:  input.Command,
+			Query:    input.Query,
+			FilePath: input.FilePath,
+		})
+	}
+	if loop.State == "running" {
+		loop.State = "completed"
+	}
+	loop.UpdatedAt = time.Now().UTC()
+	loop.Summary = loopSummary(loop)
+	r.replaceAgentLoop(loop)
+	return loop, nil
+}
+
+func (r *Runtime) CancelAgentLoop(_ context.Context, id string) (AgentLoop, error) {
+	loop, err := r.agentLoopByID(id)
+	if err != nil {
+		return AgentLoop{}, err
+	}
+	if loop.State == "completed" {
+		return AgentLoop{}, errors.New("Agent loop is already completed.")
+	}
+	loop.State = "canceled"
+	loop.Steps = append(loop.Steps, AgentLoopStep{
+		ID:     newTraceID(),
+		Kind:   "cancel",
+		Title:  "Cancel loop",
+		State:  "completed",
+		Detail: "Canceled by user.",
+	})
+	loop.UpdatedAt = time.Now().UTC()
+	loop.Summary = loopSummary(loop)
+	r.replaceAgentLoop(loop)
+	return loop, nil
+}
+
+func (r *Runtime) agentLoopByID(id string) (AgentLoop, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return AgentLoop{}, errors.New("Agent loop ID is required.")
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, loop := range r.agentLoops {
+		if loop.ID == id {
+			return loop, nil
+		}
+	}
+	return AgentLoop{}, errors.New("Agent loop was not found.")
+}
+
+func (r *Runtime) replaceAgentLoop(loop AgentLoop) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for index, current := range r.agentLoops {
+		if current.ID == loop.ID {
+			r.agentLoops[index] = loop
+			return
+		}
+	}
+}
+
 func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentLoopInput) AgentLoop {
 	goalLower := strings.ToLower(loop.Goal)
 	if r.WorkspaceEnabled() {
@@ -236,6 +334,8 @@ func loopSummary(loop AgentLoop) string {
 		return "Waiting for explicit approval."
 	case "waiting_input":
 		return "Waiting for workspace or command input."
+	case "canceled":
+		return "Canceled."
 	default:
 		return "Needs attention."
 	}

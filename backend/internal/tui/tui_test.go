@@ -390,6 +390,38 @@ func TestRunSkillUsesDefaultCommandApproval(t *testing.T) {
 	}
 }
 
+func TestRunAgentCommandControlsLoops(t *testing.T) {
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+	loop, err := runtime.StartAgentLoop(context.Background(), agent.AgentLoopInput{Goal: "run command", Command: "printf ok"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), agent.CommandApprovalInput{Command: "printf ok", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	output, err := app.runAgentCommand(context.Background(), ":loop continue "+loop.ID)
+	if err != nil {
+		t.Fatalf("runAgentCommand() error = %v", err)
+	}
+	if !strings.Contains(output, "completed") || !strings.Contains(output, "Run command") {
+		t.Fatalf("output = %q", output)
+	}
+
+	editLoop, err := runtime.StartAgentLoop(context.Background(), agent.AgentLoopInput{Goal: "edit file"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	output, err = app.runAgentCommand(context.Background(), ":loop cancel "+editLoop.ID)
+	if err != nil {
+		t.Fatalf("runAgentCommand() error = %v", err)
+	}
+	if !strings.Contains(output, "canceled") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
 func TestBubbleModelSendsMessage(t *testing.T) {
 	assistant := &fakeAssistant{response: "hello"}
 	app := New(store.NewMemoryStore(), assistant, strings.NewReader(""), &strings.Builder{})

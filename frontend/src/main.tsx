@@ -132,6 +132,17 @@ type AgentStatus = {
     description?: string;
     state?: string;
   }>;
+  mcpCalls?: Array<{
+    id: string;
+    toolId: string;
+    serverId: string;
+    name: string;
+    state: string;
+    output?: string;
+    error?: string;
+    truncated: boolean;
+    createdAt: string;
+  }>;
   runSummary?: {
     state: string;
     traceEvents: number;
@@ -139,6 +150,7 @@ type AgentStatus = {
     skillRuns: number;
     subagentRuns?: number;
     agentLoops?: number;
+    mcpCalls?: number;
     commandApprovals: number;
     commandChecks: number;
     commandRuns: number;
@@ -708,6 +720,28 @@ function App() {
       await refreshAgentDetails();
     } catch (loopError) {
       setError(loopError instanceof Error ? loopError.message : 'Could not start agent loop.');
+    }
+  }
+
+  async function continueAgentLoop(loopId: string, input: { command?: string; query?: string; filePath?: string } = {}) {
+    try {
+      await request(`/api/agent/loops/${loopId}/continue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      await refreshAgentDetails();
+    } catch (loopError) {
+      setError(loopError instanceof Error ? loopError.message : 'Could not continue agent loop.');
+    }
+  }
+
+  async function cancelAgentLoop(loopId: string) {
+    try {
+      await request(`/api/agent/loops/${loopId}/cancel`, { method: 'POST' });
+      await refreshAgentDetails();
+    } catch (loopError) {
+      setError(loopError instanceof Error ? loopError.message : 'Could not cancel agent loop.');
     }
   }
 
@@ -1548,6 +1582,8 @@ function App() {
           onRunSubagent={(subagentId, query) => void runAgentSubagent(subagentId, query)}
           onSaveRun={() => void saveAgentRunSnapshot()}
           onStartLoop={(input) => void startAgentLoop(input)}
+          onContinueLoop={(loopId, input) => void continueAgentLoop(loopId, input)}
+          onCancelLoop={(loopId) => void cancelAgentLoop(loopId)}
           onWorkspaceChange={(root) => void saveAgentWorkspaceRoot(root)}
           onSettingsChange={(next) => void saveAppSettings(next)}
           onClose={() => setIsSystemDetailsOpen(false)}
@@ -1993,6 +2029,8 @@ function SystemDetailsDialog({
   onRunSubagent,
   onSaveRun,
   onStartLoop,
+  onContinueLoop,
+  onCancelLoop,
   onSettingsChange,
   onWorkspaceChange,
   settings,
@@ -2013,6 +2051,8 @@ function SystemDetailsDialog({
   onRunSubagent: (subagentId: string, query: string) => void;
   onSaveRun: () => void;
   onStartLoop: (input: { goal: string; command?: string; query?: string; filePath?: string }) => void;
+  onContinueLoop: (loopId: string, input: { command?: string; query?: string; filePath?: string }) => void;
+  onCancelLoop: (loopId: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
   onWorkspaceChange: (root: string) => void;
   settings: AppSettings | null;
@@ -2206,6 +2246,7 @@ function SystemDetailsDialog({
             <DetailLine label="Hooks" value={String(agentStatus?.runSummary?.hookRuns ?? 0)} />
             <DetailLine label="Skills" value={String(agentStatus?.runSummary?.skillRuns ?? 0)} />
             <DetailLine label="Subagents" value={String(agentStatus?.runSummary?.subagentRuns ?? 0)} />
+            <DetailLine label="MCP calls" value={String(agentStatus?.runSummary?.mcpCalls ?? 0)} />
             <DetailLine label="Commands" value={String(agentStatus?.runSummary?.commandRuns ?? 0)} />
             <DetailLine label="Proposals" value={String(agentStatus?.runSummary?.editProposals ?? editProposals.length)} />
             <DetailLine label="Runs" value={String(agentRuns.length)} />
@@ -2275,6 +2316,25 @@ function SystemDetailsDialog({
                     </span>
                   ))}
                 </div>
+                {loop.state !== 'completed' && loop.state !== 'canceled' && (
+                  <div className="agent-loop-actions">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onContinueLoop(loop.id, {
+                          command: loopCommandInput.trim() || undefined,
+                          query: loopQueryInput.trim() || undefined,
+                          filePath: loopFileInput.trim() || undefined,
+                        })
+                      }
+                    >
+                      Continue
+                    </button>
+                    <button type="button" onClick={() => onCancelLoop(loop.id)}>
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
             {(agentStatus?.agentLoops ?? []).length === 0 && <p>No loops</p>}
@@ -2417,7 +2477,7 @@ function SystemDetailsDialog({
         <section className="details-list agent-control">
           <div className="details-list-header">
             <h3>MCP</h3>
-            <span>{agentStatus?.mcpServers?.length ?? 0}</span>
+            <span>{agentStatus?.runSummary?.mcpCalls ?? 0}</span>
           </div>
           <div className="agent-card-list two-column">
             {(agentStatus?.mcpServers ?? []).map((server) => (
@@ -2433,6 +2493,14 @@ function SystemDetailsDialog({
                 <div>
                   <strong>{tool.name}</strong>
                   <span>{tool.description || tool.serverName || tool.serverId}</span>
+                </div>
+              </div>
+            ))}
+            {(agentStatus?.mcpCalls ?? []).slice(0, 3).map((call) => (
+              <div className="agent-card read-only" key={call.id}>
+                <div>
+                  <strong>{call.name || call.toolId}</strong>
+                  <span>{call.state}{call.error ? ` · ${call.error}` : ''}</span>
                 </div>
               </div>
             ))}

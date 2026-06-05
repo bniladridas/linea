@@ -105,7 +105,7 @@ Vite runs at `http://localhost:5173`.
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
 | Server | `linea -check-server http://localhost:8080` |
-| Terminal chat | `linea -tui` (`:new`, `:attach <path>`, `:help`, `:agent`, `:diag`, `:symbols <q>`, `:mcp`, `:subagent <id>`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:quit`) |
+| Terminal chat | `linea -tui` (`:new`, `:attach <path>`, `:help`, `:agent`, `:diag`, `:symbols <q>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent <id>`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:quit`) |
 | Hand-rolled TUI | `linea -tui-beta` |
 | Agent status | `linea -agent-status` |
 | Agent API | `make agent-check` |
@@ -149,6 +149,8 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/subagents/{id}/run` |
 | `GET` | `/api/agent/mcp-servers` |
 | `GET` | `/api/agent/mcp-tools` |
+| `GET` | `/api/agent/mcp-calls` |
+| `POST` | `/api/agent/mcp-calls` |
 | `GET` | `/api/agent/traces` |
 | `POST` | `/api/agent/traces` |
 | `GET` | `/api/agent/hook-runs` |
@@ -158,6 +160,8 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/skills/{id}/run` |
 | `GET` | `/api/agent/loops` |
 | `POST` | `/api/agent/loops` |
+| `POST` | `/api/agent/loops/{id}/continue` |
+| `POST` | `/api/agent/loops/{id}/cancel` |
 | `GET` | `/api/agent/command-approvals` |
 | `POST` | `/api/agent/command-approvals` |
 | `GET` | `/api/agent/command-checks` |

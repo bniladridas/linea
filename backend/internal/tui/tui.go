@@ -38,11 +38,14 @@ type Searcher interface {
 
 type AgentRuntime interface {
 	Status(context.Context) agent.Status
+	CallMCPTool(context.Context, agent.MCPCallInput) (agent.MCPCall, error)
 	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	ListSymbols(context.Context, string) ([]agent.WorkspaceSymbol, error)
 	StartAgentLoop(context.Context, agent.AgentLoopInput) (agent.AgentLoop, error)
+	ContinueAgentLoop(context.Context, string, agent.AgentLoopContinueInput) (agent.AgentLoop, error)
+	CancelAgentLoop(context.Context, string) (agent.AgentLoop, error)
 	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
 	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
 	ListCommandApprovals(context.Context) []agent.CommandApproval
@@ -285,7 +288,7 @@ func (a *App) render(conversation store.Conversation, messages []store.Message, 
 	}
 	fmt.Fprintln(a.out)
 	fmt.Fprintf(a.out, "%s %s\n", a.theme.muted("Status:"), status)
-	fmt.Fprintln(a.out, a.theme.muted("Commands: :new · :attach <path> · :help · :agent · :diag · :symbols <q> · :search <q> · :read <path> · :loop <goal> · :quit"))
+	fmt.Fprintln(a.out, a.theme.muted("Commands: :new · :attach <path> · :help · :agent · :diag · :symbols <q> · :mcp · :loop <goal> · :quit"))
 }
 
 func (a *App) renderHeader(title string) {

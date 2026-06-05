@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -64,6 +65,17 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 	case input == ":mcp":
 		status := a.agent.Status(ctx)
 		return formatMCP(status.MCPServers, status.MCPTools), nil
+	case strings.HasPrefix(input, ":mcp call "):
+		toolID, rawArgs := splitIDAndRest(strings.TrimSpace(strings.TrimPrefix(input, ":mcp call ")))
+		args, err := parseMCPArguments(rawArgs)
+		if err != nil {
+			return "", err
+		}
+		call, err := a.agent.CallMCPTool(ctx, agent.MCPCallInput{ToolID: toolID, Arguments: args})
+		if err != nil {
+			return "", err
+		}
+		return formatMCPCall(call), nil
 	case input == ":subagent":
 		return formatSubagents(a.agent.Status(ctx).Subagents), nil
 	case strings.HasPrefix(input, ":subagent "):
@@ -88,7 +100,22 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		}
 		return fmt.Sprintf("%s · %d bytes\n\n```%s\n%s\n```", file.Path, file.Size, languageFromPath(file.Path), strings.TrimRight(file.Content, "\n")), nil
 	case strings.HasPrefix(input, ":loop "):
-		loop, err := a.agent.StartAgentLoop(ctx, agent.AgentLoopInput{Goal: strings.TrimSpace(strings.TrimPrefix(input, ":loop "))})
+		value := strings.TrimSpace(strings.TrimPrefix(input, ":loop "))
+		if strings.HasPrefix(value, "continue ") {
+			loop, err := a.agent.ContinueAgentLoop(ctx, strings.TrimSpace(strings.TrimPrefix(value, "continue ")), agent.AgentLoopContinueInput{})
+			if err != nil {
+				return "", err
+			}
+			return formatAgentLoop(loop), nil
+		}
+		if strings.HasPrefix(value, "cancel ") {
+			loop, err := a.agent.CancelAgentLoop(ctx, strings.TrimSpace(strings.TrimPrefix(value, "cancel ")))
+			if err != nil {
+				return "", err
+			}
+			return formatAgentLoop(loop), nil
+		}
+		loop, err := a.agent.StartAgentLoop(ctx, agent.AgentLoopInput{Goal: value})
 		if err != nil {
 			return "", err
 		}
@@ -166,7 +193,10 @@ func agentHelp() string {
 		":search <query>",
 		":read <path>",
 		":loop <goal>",
+		":loop continue <id>",
+		":loop cancel <id>",
 		":mcp",
+		":mcp call <tool-id> [json]",
 		":subagent [id] [query]",
 		":check <command>",
 		":approve <command>",
@@ -276,6 +306,25 @@ func formatMCP(servers []agent.MCPServer, tools []agent.MCPTool) string {
 		fmt.Fprintf(&b, "Tool %s/%s · %s\n", tool.ServerName, tool.Name, tool.State)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func parseMCPArguments(value string) (map[string]any, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return map[string]any{}, nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(value), &out); err != nil {
+		return nil, errors.New("MCP arguments must be a JSON object.")
+	}
+	return out, nil
+}
+
+func formatMCPCall(call agent.MCPCall) string {
+	if call.Output == "" {
+		return fmt.Sprintf("MCP %s: %s", call.ToolID, call.State)
+	}
+	return fmt.Sprintf("MCP %s: %s\n\n```json\n%s\n```", call.ToolID, call.State, call.Output)
 }
 
 func formatSubagents(items []agent.Subagent) string {

@@ -1464,6 +1464,7 @@ textarea {
 .workspace-search button,
 .agent-command-form button,
 .agent-loop-form button,
+.agent-loop-actions button,
 .agent-card button,
 .details-list-header button {
   min-height: 30px;
@@ -1485,6 +1486,8 @@ textarea {
 .agent-command-form button:focus-visible:not(:disabled),
 .agent-loop-form button:hover:not(:disabled),
 .agent-loop-form button:focus-visible:not(:disabled),
+.agent-loop-actions button:hover:not(:disabled),
+.agent-loop-actions button:focus-visible:not(:disabled),
 .agent-card button:hover:not(:disabled),
 .agent-card button:focus-visible:not(:disabled),
 .details-list-header button:hover:not(:disabled),
@@ -1497,6 +1500,7 @@ textarea {
 .workspace-search button:disabled,
 .agent-command-form button:disabled,
 .agent-loop-form button:disabled,
+.agent-loop-actions button:disabled,
 .agent-card button:disabled {
   cursor: default;
   opacity: 0.45;
@@ -1607,6 +1611,11 @@ textarea {
   display: grid;
   min-width: 0;
   gap: 3px;
+}
+
+.agent-loop-actions {
+  display: flex;
+  gap: 6px;
 }
 
 @media (max-width: 760px) {
@@ -2434,6 +2443,7 @@ textarea:focus {
 :root[data-theme="light"] .proposal-actions button,
 :root[data-theme="light"] .agent-command-form button,
 :root[data-theme="light"] .agent-loop-form button,
+:root[data-theme="light"] .agent-loop-actions button,
 :root[data-theme="light"] .agent-card button,
 :root[data-theme="light"] .details-list-header button,
 :root[data-theme="light"] .checkbox-mark,
@@ -2511,6 +2521,7 @@ textarea:focus {
 :root[data-theme="light"] .agent-command-form button,
 :root[data-theme="light"] .agent-loop-form input,
 :root[data-theme="light"] .agent-loop-form button,
+:root[data-theme="light"] .agent-loop-actions button,
 :root[data-theme="light"] .agent-inline-input,
 :root[data-theme="light"] .agent-card button,
 :root[data-theme="light"] .details-list-header button {
@@ -2531,6 +2542,8 @@ textarea:focus {
 :root[data-theme="light"] .agent-loop-form input:focus,
 :root[data-theme="light"] .agent-loop-form button:hover:not(:disabled),
 :root[data-theme="light"] .agent-loop-form button:focus-visible:not(:disabled),
+:root[data-theme="light"] .agent-loop-actions button:hover:not(:disabled),
+:root[data-theme="light"] .agent-loop-actions button:focus-visible:not(:disabled),
 :root[data-theme="light"] .agent-inline-input:focus,
 :root[data-theme="light"] .agent-card button:hover:not(:disabled),
 :root[data-theme="light"] .agent-card button:focus-visible:not(:disabled),
