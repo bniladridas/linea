@@ -123,18 +123,22 @@ Initial scope:
 * Hooks
 * Skills
 * Review-only edit proposals
+* Bounded agent loops
+* Workspace search, file read, diagnostics, and symbols
+* TUI agent commands
+* Local MCP status and configured tool calls
+* Bounded subagent runs
 * Model and provider status
 * Better fallback handling
 * macOS app polish
 
 Later scope:
 
-* MCP servers
 * LSP integration
-* Subagents
-* TUI
 * Android app
 * Optional sync
+* Broader MCP flows
+* Deeper subagent orchestration
 
 ## Non-goals
 
@@ -204,7 +208,7 @@ Skills:
 
 MCP:
 
-* Add MCP only when it gives clear value.
+* Use configured stdio MCP tools only when they give clear value.
 * Prefer local MCP servers first.
 * Keep permissions narrow.
 
