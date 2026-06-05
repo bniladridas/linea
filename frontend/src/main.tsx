@@ -137,6 +137,7 @@ type AgentStatus = {
     traceEvents: number;
     hookRuns: number;
     skillRuns: number;
+    subagentRuns?: number;
     agentLoops?: number;
     commandApprovals: number;
     commandChecks: number;
@@ -178,6 +179,13 @@ type AgentStatus = {
     detail?: string;
     createdAt: string;
   }>;
+  subagentRuns?: Array<{
+    id: string;
+    subagentId: string;
+    state: string;
+    summary: string;
+    createdAt: string;
+  }>;
   agentLoops?: Array<{
     id: string;
     goal: string;
@@ -210,6 +218,13 @@ type AgentDiagnostic = {
   column: number;
   severity: string;
   message: string;
+};
+
+type AgentWorkspaceSymbol = {
+  name: string;
+  kind: string;
+  path: string;
+  line: number;
 };
 
 type AgentWorkspaceSearchResult = {
@@ -658,6 +673,19 @@ function App() {
       await refreshAgentDetails();
     } catch (skillError) {
       setError(skillError instanceof Error ? skillError.message : 'Could not run skill.');
+    }
+  }
+
+  async function runAgentSubagent(subagentId: string, query: string) {
+    try {
+      await request(`/api/agent/subagents/${subagentId}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goal: query, query }),
+      });
+      await refreshAgentDetails();
+    } catch (subagentError) {
+      setError(subagentError instanceof Error ? subagentError.message : 'Could not run subagent.');
     }
   }
 
@@ -1517,6 +1545,7 @@ function App() {
           onRunCommand={(command, approvalId) => void runAgentCommand(command, approvalId)}
           onRunHook={(hookId, command, approvalId) => void runAgentHook(hookId, command, approvalId)}
           onRunSkill={(skillId, command, approvalId) => void runAgentSkill(skillId, command, approvalId)}
+          onRunSubagent={(subagentId, query) => void runAgentSubagent(subagentId, query)}
           onSaveRun={() => void saveAgentRunSnapshot()}
           onStartLoop={(input) => void startAgentLoop(input)}
           onWorkspaceChange={(root) => void saveAgentWorkspaceRoot(root)}
@@ -1961,6 +1990,7 @@ function SystemDetailsDialog({
   onRunCommand,
   onRunHook,
   onRunSkill,
+  onRunSubagent,
   onSaveRun,
   onStartLoop,
   onSettingsChange,
@@ -1980,6 +2010,7 @@ function SystemDetailsDialog({
   onRunCommand: (command: string, approvalId: string) => void;
   onRunHook: (hookId: string, command: string, approvalId?: string) => void;
   onRunSkill: (skillId: string, command: string, approvalId?: string) => void;
+  onRunSubagent: (subagentId: string, query: string) => void;
   onSaveRun: () => void;
   onStartLoop: (input: { goal: string; command?: string; query?: string; filePath?: string }) => void;
   onSettingsChange: (settings: AppSettings) => void;
@@ -1998,6 +2029,7 @@ function SystemDetailsDialog({
   const [workspaceRootInput, setWorkspaceRootInput] = useState(agentStatus?.workspaceRoot ?? '');
   const [workspaceQuery, setWorkspaceQuery] = useState('');
   const [workspaceResults, setWorkspaceResults] = useState<AgentWorkspaceSearchResult[]>([]);
+  const [workspaceSymbols, setWorkspaceSymbols] = useState<AgentWorkspaceSymbol[]>([]);
   const [workspaceFile, setWorkspaceFile] = useState<AgentWorkspaceFile | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
@@ -2050,6 +2082,7 @@ function SystemDetailsDialog({
     try {
       setIsWorkspaceLoading(true);
       setWorkspaceError(null);
+      setWorkspaceSymbols([]);
       const results = await request<AgentWorkspaceSearchResult[]>(
         `/api/agent/workspace/search?q=${encodeURIComponent(query)}`,
       );
@@ -2070,6 +2103,25 @@ function SystemDetailsDialog({
       setWorkspaceFile(file);
     } catch (err) {
       setWorkspaceError(err instanceof Error ? err.message : 'Could not read file.');
+    } finally {
+      setIsWorkspaceLoading(false);
+    }
+  }
+
+  async function searchWorkspaceSymbols() {
+    try {
+      setIsWorkspaceLoading(true);
+      setWorkspaceError(null);
+      setWorkspaceResults([]);
+      setWorkspaceFile(null);
+      const symbols = await request<AgentWorkspaceSymbol[]>(
+        `/api/agent/workspace/symbols?q=${encodeURIComponent(workspaceQuery.trim())}`,
+      );
+      setWorkspaceSymbols(Array.isArray(symbols) ? symbols : []);
+    } catch (err) {
+      setWorkspaceResults([]);
+      setWorkspaceSymbols([]);
+      setWorkspaceError(err instanceof Error ? err.message : 'Could not read symbols.');
     } finally {
       setIsWorkspaceLoading(false);
     }
@@ -2153,6 +2205,7 @@ function SystemDetailsDialog({
           <DetailsSection title="Counts">
             <DetailLine label="Hooks" value={String(agentStatus?.runSummary?.hookRuns ?? 0)} />
             <DetailLine label="Skills" value={String(agentStatus?.runSummary?.skillRuns ?? 0)} />
+            <DetailLine label="Subagents" value={String(agentStatus?.runSummary?.subagentRuns ?? 0)} />
             <DetailLine label="Commands" value={String(agentStatus?.runSummary?.commandRuns ?? 0)} />
             <DetailLine label="Proposals" value={String(agentStatus?.runSummary?.editProposals ?? editProposals.length)} />
             <DetailLine label="Runs" value={String(agentRuns.length)} />
@@ -2348,11 +2401,14 @@ function SystemDetailsDialog({
               </div>
             ))}
             {(agentStatus?.subagents ?? []).map((subagent) => (
-              <div className="agent-card read-only" key={subagent.id}>
+              <div className="agent-card" key={subagent.id}>
                 <div>
                   <strong>{subagent.name}</strong>
                   <span>{subagent.state} · {subagent.purpose}</span>
                 </div>
+                <button type="button" onClick={() => onRunSubagent(subagent.id, workspaceQuery.trim())}>
+                  Run
+                </button>
               </div>
             ))}
           </div>
@@ -2415,11 +2471,32 @@ function SystemDetailsDialog({
             <button disabled={!workspaceOn || isWorkspaceLoading || workspaceQuery.trim().length < 2} type="submit">
               Search
             </button>
+            <button
+              disabled={!workspaceOn || isWorkspaceLoading}
+              type="button"
+              onClick={() => void searchWorkspaceSymbols()}
+            >
+              Symbols
+            </button>
           </form>
           {workspaceError && <p className="workspace-error">{workspaceError}</p>}
           <div className="workspace-layout">
             <div className="workspace-results" role="list">
-              {workspaceResults.length > 0 ? (
+              {workspaceSymbols.length > 0 ? (
+                workspaceSymbols.map((symbol) => (
+                  <button
+                    className={workspaceFile?.path === symbol.path ? 'workspace-result active' : 'workspace-result'}
+                    key={`${symbol.path}-${symbol.line}-${symbol.kind}-${symbol.name}`}
+                    type="button"
+                    onClick={() => void readWorkspaceFile(symbol.path)}
+                  >
+                    <span>{symbol.path}</span>
+                    <small>
+                      {symbol.kind} {symbol.name} · {symbol.line}
+                    </small>
+                  </button>
+                ))
+              ) : workspaceResults.length > 0 ? (
                 workspaceResults.map((result, index) => (
                   <button
                     className={workspaceFile?.path === result.path ? 'workspace-result active' : 'workspace-result'}
@@ -2533,6 +2610,12 @@ function SystemDetailsDialog({
           render={(diagnostic) =>
             `${diagnostic.path}:${diagnostic.line}:${diagnostic.column} ${diagnostic.severity}: ${diagnostic.message}`
           }
+        />
+        <DetailsList
+          empty="No subagent runs"
+          items={agentStatus?.subagentRuns ?? []}
+          title="Subagent runs"
+          render={(run) => `${run.subagentId}: ${run.state} · ${run.summary}`}
         />
         <DetailsList
           empty="No traces"

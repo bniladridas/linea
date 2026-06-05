@@ -17,6 +17,7 @@ type Runtime struct {
 	traces           []Trace
 	hookRuns         []HookRun
 	skillRuns        []SkillRun
+	subagentRuns     []SubagentRun
 	agentLoops       []AgentLoop
 	editProposals    []EditProposal
 	commandApprovals []CommandApproval
@@ -44,6 +45,7 @@ type Status struct {
 	RunSummary       RunSummary        `json:"runSummary"`
 	HookRuns         []HookRun         `json:"hookRuns"`
 	SkillRuns        []SkillRun        `json:"skillRuns"`
+	SubagentRuns     []SubagentRun     `json:"subagentRuns"`
 	AgentLoops       []AgentLoop       `json:"agentLoops"`
 	CommandApprovals []CommandApproval `json:"commandApprovals"`
 	CommandChecks    []CommandCheck    `json:"commandChecks"`
@@ -156,6 +158,26 @@ type Subagent struct {
 	Tools   []string `json:"tools"`
 }
 
+type SubagentRun struct {
+	ID         string    `json:"id"`
+	SubagentID string    `json:"subagentId"`
+	State      string    `json:"state"`
+	Summary    string    `json:"summary"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+type SubagentRunInput struct {
+	Goal  string `json:"goal,omitempty"`
+	Query string `json:"query,omitempty"`
+}
+
+type WorkspaceSymbol struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	Path string `json:"path"`
+	Line int    `json:"line"`
+}
+
 type MCPServer struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
@@ -230,6 +252,7 @@ type RunSummary struct {
 	TraceEvents      int       `json:"traceEvents"`
 	HookRuns         int       `json:"hookRuns"`
 	SkillRuns        int       `json:"skillRuns"`
+	SubagentRuns     int       `json:"subagentRuns"`
 	AgentLoops       int       `json:"agentLoops"`
 	CommandApprovals int       `json:"commandApprovals"`
 	CommandChecks    int       `json:"commandChecks"`
@@ -268,6 +291,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		RunSummary:       r.RunSummary(ctx),
 		HookRuns:         r.statusHookRuns(),
 		SkillRuns:        r.statusSkillRuns(),
+		SubagentRuns:     r.statusSubagentRuns(),
 		AgentLoops:       r.statusAgentLoops(),
 		CommandApprovals: r.statusCommandApprovals(),
 		CommandChecks:    r.statusCommandChecks(),
@@ -332,6 +356,14 @@ func (r *Runtime) RunSummary(context.Context) RunSummary {
 			state = "attention"
 		}
 	}
+	for _, run := range r.subagentRuns {
+		if run.CreatedAt.After(updatedAt) {
+			updatedAt = run.CreatedAt
+		}
+		if run.State == "blocked" || run.State == "waiting_input" {
+			state = "attention"
+		}
+	}
 	for _, loop := range r.agentLoops {
 		if loop.UpdatedAt.After(updatedAt) {
 			updatedAt = loop.UpdatedAt
@@ -356,6 +388,7 @@ func (r *Runtime) RunSummary(context.Context) RunSummary {
 		TraceEvents:      len(r.traces),
 		HookRuns:         len(r.hookRuns),
 		SkillRuns:        len(r.skillRuns),
+		SubagentRuns:     len(r.subagentRuns),
 		AgentLoops:       len(r.agentLoops),
 		CommandApprovals: len(r.commandApprovals),
 		CommandChecks:    len(r.commandChecks),
@@ -559,6 +592,23 @@ func (r *Runtime) statusSkillRuns() []SkillRun {
 	return runs
 }
 
+func (r *Runtime) ListSubagentRuns(context.Context) []SubagentRun {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.subagentRuns) == 0 {
+		return []SubagentRun{}
+	}
+	return append([]SubagentRun(nil), r.subagentRuns...)
+}
+
+func (r *Runtime) statusSubagentRuns() []SubagentRun {
+	runs := r.ListSubagentRuns(context.Background())
+	if len(runs) > 5 {
+		return runs[:5]
+	}
+	return runs
+}
+
 func (r *Runtime) statusAgentLoops() []AgentLoop {
 	loops := r.ListAgentLoops(context.Background())
 	if len(loops) > 5 {
@@ -657,6 +707,8 @@ func defaultTools() []Tool {
 		{ID: "edit_file", Name: "Edit files", Access: "workspace", Approval: "required by boundary"},
 		{ID: "run_command", Name: "Run commands", Access: "allowlist", Approval: "required by boundary"},
 		{ID: "diagnostics", Name: "Read diagnostics", Access: "workspace", Approval: "not required"},
+		{ID: "symbols", Name: "Read symbols", Access: "workspace", Approval: "not required"},
+		{ID: "mcp", Name: "Inspect MCP", Access: "local config", Approval: "not required"},
 	}
 }
 

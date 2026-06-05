@@ -56,6 +56,8 @@ type AgentRuntime interface {
 	Status(context.Context) agent.Status
 	RunSummary(context.Context) agent.RunSummary
 	ListSubagents(context.Context) []agent.Subagent
+	ListSubagentRuns(context.Context) []agent.SubagentRun
+	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
 	ListMCPServers(context.Context) []agent.MCPServer
 	ListMCPTools(context.Context) []agent.MCPTool
 	ListTraces(context.Context) []agent.Trace
@@ -75,6 +77,7 @@ type AgentRuntime interface {
 	RunCommand(context.Context, agent.CommandCheckInput) (agent.CommandRun, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
+	ListSymbols(context.Context, string) ([]agent.WorkspaceSymbol, error)
 	SetWorkspaceRoot(string) (string, error)
 	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
 	ListEditProposals(context.Context) []agent.EditProposal
@@ -184,6 +187,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent/runs", s.listAgentRuns)
 	mux.HandleFunc("POST /api/agent/runs", s.createAgentRun)
 	mux.HandleFunc("GET /api/agent/subagents", s.listAgentSubagents)
+	mux.HandleFunc("GET /api/agent/subagent-runs", s.listAgentSubagentRuns)
+	mux.HandleFunc("POST /api/agent/subagents/{id}/run", s.runAgentSubagent)
 	mux.HandleFunc("GET /api/agent/mcp-servers", s.listAgentMCPServers)
 	mux.HandleFunc("GET /api/agent/mcp-tools", s.listAgentMCPTools)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
@@ -205,6 +210,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/agent/workspace", s.updateAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/workspace/diagnostics", s.listAgentWorkspaceDiagnostics)
+	mux.HandleFunc("GET /api/agent/workspace/symbols", s.listAgentWorkspaceSymbols)
 	mux.HandleFunc("GET /api/agent/edit-proposals", s.listAgentEditProposals)
 	mux.HandleFunc("POST /api/agent/edit-proposals", s.createAgentEditProposal)
 	mux.HandleFunc("PATCH /api/agent/edit-proposals/{id}", s.reviewAgentEditProposal)
@@ -287,6 +293,33 @@ func (s *Server) listAgentSubagents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.agentRuntime.ListSubagents(r.Context()))
+}
+
+func (s *Server) listAgentSubagentRuns(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.SubagentRun{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListSubagentRuns(r.Context()))
+}
+
+func (s *Server) runAgentSubagent(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent subagents are not available.")
+		return
+	}
+	var input agent.SubagentRunInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	run, err := s.agentRuntime.RunSubagent(r.Context(), r.PathValue("id"), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.recordAgentTrace(r.Context(), "subagent run", run.State, run.SubagentID)
+	writeJSON(w, http.StatusCreated, run)
 }
 
 func (s *Server) listAgentMCPServers(w http.ResponseWriter, r *http.Request) {
@@ -585,6 +618,20 @@ func (s *Server) listAgentWorkspaceDiagnostics(w http.ResponseWriter, r *http.Re
 	}
 	s.recordAgentTrace(r.Context(), "read diagnostics", "completed", fmt.Sprintf("%d", len(diagnostics)))
 	writeJSON(w, http.StatusOK, diagnostics)
+}
+
+func (s *Server) listAgentWorkspaceSymbols(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent workspace is not available.")
+		return
+	}
+	symbols, err := s.agentRuntime.ListSymbols(r.Context(), r.URL.Query().Get("q"))
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "read symbols", "completed", fmt.Sprintf("%d", len(symbols)))
+	writeJSON(w, http.StatusOK, symbols)
 }
 
 func (s *Server) listAgentEditProposals(w http.ResponseWriter, r *http.Request) {

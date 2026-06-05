@@ -12,7 +12,11 @@ import (
 func (a *App) handleAgentCommand(ctx context.Context, input string) (string, bool) {
 	trimmed := strings.TrimSpace(input)
 	if !strings.HasPrefix(trimmed, ":agent") &&
+		trimmed != ":help" &&
 		!strings.HasPrefix(trimmed, ":diag") &&
+		!strings.HasPrefix(trimmed, ":symbols") &&
+		!strings.HasPrefix(trimmed, ":mcp") &&
+		!strings.HasPrefix(trimmed, ":subagent") &&
 		!strings.HasPrefix(trimmed, ":search ") &&
 		!strings.HasPrefix(trimmed, ":read ") &&
 		!strings.HasPrefix(trimmed, ":loop ") &&
@@ -36,9 +40,11 @@ func (a *App) handleAgentCommand(ctx context.Context, input string) (string, boo
 
 func (a *App) runAgentCommand(ctx context.Context, input string) (string, error) {
 	switch {
+	case input == ":help":
+		return agentHelp(), nil
 	case input == ":agent" || input == ":agent status":
 		status := a.agent.Status(ctx)
-		return fmt.Sprintf("Agent %s. Tools %d. Workspace %s.", status.RunSummary.State, len(status.Tools), onOff(status.WorkspaceRoot != "")), nil
+		return fmt.Sprintf("Agent %s. Tools %d. Workspace %s. Subagents %d. MCP %d/%d.", status.RunSummary.State, len(status.Tools), onOff(status.WorkspaceRoot != ""), len(status.Subagents), len(status.MCPServers), len(status.MCPTools)), nil
 	case input == ":diag":
 		diagnostics, err := a.agent.ListDiagnostics(ctx)
 		if err != nil {
@@ -48,6 +54,25 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 			return "No diagnostics.", nil
 		}
 		return formatDiagnostics(diagnostics), nil
+	case input == ":symbols" || strings.HasPrefix(input, ":symbols "):
+		query := strings.TrimSpace(strings.TrimPrefix(input, ":symbols"))
+		symbols, err := a.agent.ListSymbols(ctx, query)
+		if err != nil {
+			return "", err
+		}
+		return formatSymbols(symbols), nil
+	case input == ":mcp":
+		status := a.agent.Status(ctx)
+		return formatMCP(status.MCPServers, status.MCPTools), nil
+	case input == ":subagent":
+		return formatSubagents(a.agent.Status(ctx).Subagents), nil
+	case strings.HasPrefix(input, ":subagent "):
+		id, query := splitIDAndRest(strings.TrimSpace(strings.TrimPrefix(input, ":subagent ")))
+		run, err := a.agent.RunSubagent(ctx, id, agent.SubagentRunInput{Goal: query, Query: query})
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Subagent %s: %s · %s", run.SubagentID, run.State, run.Summary), nil
 	case strings.HasPrefix(input, ":search "):
 		query := strings.TrimSpace(strings.TrimPrefix(input, ":search "))
 		results, err := a.agent.SearchFiles(ctx, query)
@@ -132,6 +157,26 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 	}
 }
 
+func agentHelp() string {
+	return strings.Join([]string{
+		"Commands:",
+		":agent status",
+		":diag",
+		":symbols [query]",
+		":search <query>",
+		":read <path>",
+		":loop <goal>",
+		":mcp",
+		":subagent [id] [query]",
+		":check <command>",
+		":approve <command>",
+		":run <command>",
+		":hook <id> [command]",
+		":skill <id> [command]",
+		":proposal list",
+	}, "\n")
+}
+
 func (a *App) approvalIDForOptionalCommand(ctx context.Context, command string) (string, error) {
 	if strings.TrimSpace(command) == "" {
 		return "", nil
@@ -196,6 +241,50 @@ func formatDiagnostics(items []agent.Diagnostic) string {
 			break
 		}
 		fmt.Fprintf(&b, "%s:%d:%d %s: %s\n", item.Path, item.Line, item.Column, item.Severity, item.Message)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatSymbols(items []agent.WorkspaceSymbol) string {
+	if len(items) == 0 {
+		return "No symbols."
+	}
+	var b strings.Builder
+	for index, item := range items {
+		if index >= 12 {
+			fmt.Fprintf(&b, "\n...%d more", len(items)-index)
+			break
+		}
+		fmt.Fprintf(&b, "%s %s · %s:%d\n", item.Kind, item.Name, item.Path, item.Line)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatMCP(servers []agent.MCPServer, tools []agent.MCPTool) string {
+	if len(servers) == 0 && len(tools) == 0 {
+		return "No MCP entries."
+	}
+	var b strings.Builder
+	for _, server := range servers {
+		fmt.Fprintf(&b, "Server %s · %s", server.Name, server.State)
+		if server.Command != "" {
+			fmt.Fprintf(&b, " · %s", server.Command)
+		}
+		b.WriteByte('\n')
+	}
+	for _, tool := range tools {
+		fmt.Fprintf(&b, "Tool %s/%s · %s\n", tool.ServerName, tool.Name, tool.State)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatSubagents(items []agent.Subagent) string {
+	if len(items) == 0 {
+		return "No subagents."
+	}
+	var b strings.Builder
+	for _, item := range items {
+		fmt.Fprintf(&b, "%s · %s · %s\n", item.ID, item.State, item.Purpose)
 	}
 	return strings.TrimSpace(b.String())
 }

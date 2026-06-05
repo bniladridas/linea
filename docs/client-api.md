@@ -199,7 +199,7 @@ Starts a bounded local agent loop. Read-only workspace steps may run immediately
 
 `GET /api/agent/subagents`
 
-Returns planned bounded subagent roles. It does not start subagents.
+Returns bounded subagent roles.
 
 ```json
 [
@@ -212,6 +212,21 @@ Returns planned bounded subagent roles. It does not start subagents.
   }
 ]
 ```
+
+`POST /api/agent/subagents/{id}/run`
+
+Runs a bounded subagent inspection. It may read workspace diagnostics or search files, but it does not execute commands or edit files.
+
+```json
+{
+  "goal": "review current diagnostics",
+  "query": "diagnostic"
+}
+```
+
+`GET /api/agent/subagent-runs`
+
+Returns recent subagent runs.
 
 `GET /api/agent/mcp-servers`
 
@@ -510,6 +525,21 @@ Returns local workspace diagnostics. It currently reports Go syntax errors.
 ]
 ```
 
+`GET /api/agent/workspace/symbols?q=Run`
+
+Returns basic Go symbols from `LINEA_WORKSPACE_DIR`.
+
+```json
+[
+  {
+    "name": "Run",
+    "kind": "func",
+    "path": "backend/main.go",
+    "line": 12
+  }
+]
+```
+
 `GET /api/agent/edit-proposals`
 
 Returns edit proposals.
@@ -673,7 +703,7 @@ Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
 
-Terminal clients can use the same agent surface with explicit commands such as `:agent`, `:diag`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`.
+Terminal clients can use the same agent surface with explicit commands such as `:help`, `:agent`, `:diag`, `:symbols [query]`, `:mcp`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

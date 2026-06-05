@@ -100,6 +100,13 @@ async function runChecks() {
   const subagents = await requestJSON('/api/agent/subagents');
   assert(Array.isArray(subagents) && subagents.some((item) => item.id === 'review'), 'review subagent missing');
 
+  const subagentRun = await requestOptionalJSON('/api/agent/subagents/search/run', [201, 400, 404], {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ query: 'Linea' }),
+  });
+  assert(subagentRun.ok, 'subagent run endpoint returned an unexpected status');
+
   const mcpServers = await requestJSON('/api/agent/mcp-servers');
   assert(Array.isArray(mcpServers), 'mcp server list is not an array');
 
@@ -219,6 +226,9 @@ async function checkWorkspaceEndpoints() {
 
   const diagnostics = await requestJSON('/api/agent/workspace/diagnostics');
   assert(Array.isArray(diagnostics), 'workspace diagnostics did not return a list');
+
+  const symbols = await requestJSON('/api/agent/workspace/symbols?q=main');
+  assert(Array.isArray(symbols), 'workspace symbols did not return a list');
 
   const proposal = await requestJSON('/api/agent/edit-proposals', {
     method: 'POST',

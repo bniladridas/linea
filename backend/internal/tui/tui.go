@@ -41,7 +41,9 @@ type AgentRuntime interface {
 	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
+	ListSymbols(context.Context, string) ([]agent.WorkspaceSymbol, error)
 	StartAgentLoop(context.Context, agent.AgentLoopInput) (agent.AgentLoop, error)
+	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
 	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
@@ -283,7 +285,7 @@ func (a *App) render(conversation store.Conversation, messages []store.Message, 
 	}
 	fmt.Fprintln(a.out)
 	fmt.Fprintf(a.out, "%s %s\n", a.theme.muted("Status:"), status)
-	fmt.Fprintln(a.out, a.theme.muted("Commands: :new · :attach <path> · :agent · :diag · :search <q> · :read <path> · :loop <goal> · :quit"))
+	fmt.Fprintln(a.out, a.theme.muted("Commands: :new · :attach <path> · :help · :agent · :diag · :symbols <q> · :search <q> · :read <path> · :loop <goal> · :quit"))
 }
 
 func (a *App) renderHeader(title string) {
