@@ -453,9 +453,51 @@ func TestRuntimeContinuesAgentLoopAfterCommandApproval(t *testing.T) {
 	if !loopHasStep(continued, "command_run", "completed") {
 		t.Fatalf("continued steps = %#v", continued.Steps)
 	}
+	if !loopHasStep(continued, "review_result", "completed") {
+		t.Fatalf("continued steps = %#v", continued.Steps)
+	}
 	runs := runtime.ListCommandRuns(context.Background())
 	if len(runs) != 1 || runs[0].Output != "ok" {
 		t.Fatalf("runs = %#v", runs)
+	}
+}
+
+func TestRuntimeAgentLoopReadsDiagnosticsAfterApprovedCheck(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"printf ok"}))
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run tests and check diagnostics",
+		Command: "printf ok",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.State != "attention" {
+		t.Fatalf("continued state = %q", continued.State)
+	}
+	diagnosticSteps := 0
+	for _, step := range continued.Steps {
+		if step.Kind == "diagnostics" {
+			diagnosticSteps++
+		}
+	}
+	if diagnosticSteps < 2 {
+		t.Fatalf("continued steps = %#v", continued.Steps)
+	}
+	if continued.Steps[len(continued.Steps)-2].Detail != "1 diagnostic(s) after command" {
+		t.Fatalf("diagnostics step = %#v", continued.Steps[len(continued.Steps)-2])
+	}
+	if continued.Steps[len(continued.Steps)-1].Kind != "diagnostics_review" || continued.Steps[len(continued.Steps)-1].State != "attention" {
+		t.Fatalf("last step = %#v", continued.Steps[len(continued.Steps)-1])
 	}
 }
 

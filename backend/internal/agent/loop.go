@@ -84,6 +84,24 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 			detail = runErr.Error()
 		}
 		loop = appendLoopStep(loop, "command_run", "Run command", "run_command", runErr, detail, step.Command)
+		if runErr == nil {
+			loop = appendLoopStep(loop, "review_result", "Review result", "run_command", nil, "Command completed successfully.", step.Command)
+			if r.WorkspaceEnabled() && shouldReadDiagnostics(strings.ToLower(loop.Goal)) {
+				diagnostics, err := r.ListDiagnostics(ctx)
+				loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", err, fmt.Sprintf("%d diagnostic(s) after command", len(diagnostics)), "")
+				if err == nil && len(diagnostics) > 0 {
+					loop.Steps = append(loop.Steps, AgentLoopStep{
+						ID:     newTraceID(),
+						Kind:   "diagnostics_review",
+						Title:  "Review diagnostics",
+						State:  "attention",
+						Detail: fmt.Sprintf("%d diagnostic(s) remain.", len(diagnostics)),
+						ToolID: "diagnostics",
+					})
+					loop.State = "attention"
+				}
+			}
+		}
 		continued = true
 		break
 	}
