@@ -47,6 +47,7 @@ const UI_PREFS_STORAGE_KEY = 'linea:ui-prefs';
 const ACCEPTED_ATTACHMENT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'log', 'png', 'jpg', 'jpeg', 'webp']);
 const ACCEPTED_ATTACHMENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const ATTACHMENT_ACCEPT = '.txt,.md,.csv,.json,.log,image/png,image/jpeg,image/webp';
+const AGENT_ACTIVITY_LIMIT = 12;
 
 type Conversation = {
   id: string;
@@ -279,6 +280,18 @@ type AgentDiffLine = {
   text: string;
 };
 
+type AgentActivityState = 'running' | 'completed' | 'failed' | 'approved' | 'rejected' | 'blocked';
+
+type AgentActivity = {
+  id: string;
+  kind: string;
+  label: string;
+  state: AgentActivityState;
+  params?: string;
+  result?: string;
+  createdAt: string;
+};
+
 type ProviderStatus = {
   name: string;
   model?: string;
@@ -350,6 +363,7 @@ function App() {
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const [agentDiagnostics, setAgentDiagnostics] = useState<AgentDiagnostic[]>([]);
   const [agentEditProposals, setAgentEditProposals] = useState<AgentEditProposal[]>([]);
+  const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [isNewChatMenuOpen, setIsNewChatMenuOpen] = useState(false);
   const [openConversationMenu, setOpenConversationMenu] = useState<string | null>(null);
@@ -497,7 +511,7 @@ function App() {
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     window.setTimeout(updateMessageScrollState, 80);
-  }, [messages, isSending]);
+  }, [messages, isSending, agentActivities.length]);
 
   useEffect(() => {
     updateMessageScrollState();
@@ -508,7 +522,7 @@ function App() {
     const observer = new ResizeObserver(updateMessageScrollState);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [messages.length, showSources, isSidebarOpen]);
+  }, [messages.length, agentActivities.length, showSources, isSidebarOpen]);
 
   useEffect(() => {
     const node = composerRef.current;
@@ -601,7 +615,29 @@ function App() {
     }
   }
 
+  function recordAgentActivity(activity: Omit<AgentActivity, 'id' | 'createdAt'>) {
+    const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const next: AgentActivity = {
+      ...activity,
+      id,
+      createdAt: new Date().toISOString(),
+    };
+    setAgentActivities((items) => [...items, next].slice(-AGENT_ACTIVITY_LIMIT));
+    return id;
+  }
+
+  function updateAgentActivity(id: string, patch: Partial<Omit<AgentActivity, 'id' | 'createdAt'>>) {
+    setAgentActivities((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }
+
   async function reviewAgentEditProposal(proposalId: string, status: 'approved' | 'rejected') {
+    const currentProposal = agentEditProposals.find((proposal) => proposal.id === proposalId);
+    const activityId = recordAgentActivity({
+      kind: 'proposal',
+      label: status === 'approved' ? 'Approve proposal' : 'Reject proposal',
+      state: 'running',
+      params: currentProposal?.path ?? proposalId,
+    });
     try {
       const proposal = await request<AgentEditProposal>(`/api/agent/edit-proposals/${proposalId}`, {
         method: 'PATCH',
@@ -610,20 +646,37 @@ function App() {
       });
       setAgentEditProposals((items) => items.map((item) => (item.id === proposal.id ? proposal : item)));
       await loadAgentStatus();
+      updateAgentActivity(activityId, {
+        state: status,
+        params: proposal.path,
+        result: proposal.reviewDetail ?? 'Review saved.',
+      });
     } catch (reviewError) {
-      setError(reviewError instanceof Error ? reviewError.message : 'Could not review proposal.');
+      const message = reviewError instanceof Error ? reviewError.message : 'Could not review proposal.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function applyAgentEditProposal(proposalId: string) {
+    const currentProposal = agentEditProposals.find((proposal) => proposal.id === proposalId);
+    const activityId = recordAgentActivity({
+      kind: 'proposal',
+      label: 'Apply proposal',
+      state: 'running',
+      params: currentProposal?.path ?? proposalId,
+    });
     try {
       const proposal = await request<AgentEditProposal>(`/api/agent/edit-proposals/${proposalId}/apply`, {
         method: 'POST',
       });
       setAgentEditProposals((items) => items.map((item) => (item.id === proposal.id ? proposal : item)));
       await loadAgentStatus();
+      updateAgentActivity(activityId, { state: 'completed', params: proposal.path, result: 'Applied to disk.' });
     } catch (applyError) {
-      setError(applyError instanceof Error ? applyError.message : 'Could not apply proposal.');
+      const message = applyError instanceof Error ? applyError.message : 'Could not apply proposal.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
@@ -632,93 +685,177 @@ function App() {
   }
 
   async function checkAgentCommand(command: string) {
+    const activityId = recordAgentActivity({
+      kind: 'command',
+      label: 'Check command',
+      state: 'running',
+      params: command,
+    });
     try {
-      await request('/api/agent/command-checks', {
+      const check = await request<{ allowed: boolean; reason: string }>('/api/agent/command-checks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command }),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: check.allowed ? 'completed' : 'blocked',
+        result: check.reason,
+      });
     } catch (commandError) {
-      setError(commandError instanceof Error ? commandError.message : 'Could not check command.');
+      const message = commandError instanceof Error ? commandError.message : 'Could not check command.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function approveAgentCommand(command: string) {
+    const activityId = recordAgentActivity({
+      kind: 'command',
+      label: 'Approve command',
+      state: 'running',
+      params: command,
+    });
     try {
-      await request('/api/agent/command-approvals', {
+      const approval = await request<{ state: string; detail?: string }>('/api/agent/command-approvals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, state: 'approved', detail: 'Approved in Linea.' }),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: approval.state === 'approved' ? 'approved' : 'completed',
+        result: approval.detail ?? 'Approval saved.',
+      });
     } catch (approvalError) {
-      setError(approvalError instanceof Error ? approvalError.message : 'Could not approve command.');
+      const message = approvalError instanceof Error ? approvalError.message : 'Could not approve command.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function runAgentCommand(command: string, approvalId: string) {
+    const activityId = recordAgentActivity({
+      kind: 'command',
+      label: 'Run command',
+      state: 'running',
+      params: command,
+    });
     try {
-      await request('/api/agent/command-runs', {
+      const run = await request<{ exitCode: number; output?: string; truncated?: boolean }>('/api/agent/command-runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, approvalId }),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: run.exitCode === 0 ? 'completed' : 'failed',
+        result: summarizeAgentResult(`exit ${run.exitCode}`, run.output, run.truncated),
+      });
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : 'Could not run command.');
+      const message = runError instanceof Error ? runError.message : 'Could not run command.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function runAgentHook(hookId: string, command: string, approvalId?: string) {
+    const activityId = recordAgentActivity({
+      kind: 'hook',
+      label: 'Run hook',
+      state: 'running',
+      params: command || hookId,
+    });
     try {
-      await request(`/api/agent/hooks/${hookId}/run`, {
+      const run = await request<{ state: string; detail?: string }>(`/api/agent/hooks/${hookId}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, approvalId, detail: 'Run from Linea.' }),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: run.state === 'failed' ? 'failed' : 'completed',
+        result: run.detail ?? run.state,
+      });
     } catch (hookError) {
-      setError(hookError instanceof Error ? hookError.message : 'Could not run hook.');
+      const message = hookError instanceof Error ? hookError.message : 'Could not run hook.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function runAgentSkill(skillId: string, command: string, approvalId?: string) {
+    const activityId = recordAgentActivity({
+      kind: 'skill',
+      label: 'Run skill',
+      state: 'running',
+      params: command || skillId,
+    });
     try {
-      await request(`/api/agent/skills/${skillId}/run`, {
+      const run = await request<{ state: string; detail?: string }>(`/api/agent/skills/${skillId}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, approvalId, detail: 'Run from Linea.' }),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: run.state === 'failed' ? 'failed' : 'completed',
+        result: run.detail ?? run.state,
+      });
     } catch (skillError) {
-      setError(skillError instanceof Error ? skillError.message : 'Could not run skill.');
+      const message = skillError instanceof Error ? skillError.message : 'Could not run skill.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function runAgentSubagent(subagentId: string, query: string) {
+    const activityId = recordAgentActivity({
+      kind: 'subagent',
+      label: 'Run subagent',
+      state: 'running',
+      params: query || subagentId,
+    });
     try {
-      await request(`/api/agent/subagents/${subagentId}/run`, {
+      const run = await request<{ state: string; summary?: string }>(`/api/agent/subagents/${subagentId}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ goal: query, query }),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: run.state === 'failed' ? 'failed' : 'completed',
+        result: run.summary ?? run.state,
+      });
     } catch (subagentError) {
-      setError(subagentError instanceof Error ? subagentError.message : 'Could not run subagent.');
+      const message = subagentError instanceof Error ? subagentError.message : 'Could not run subagent.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function callAgentMCPTool(toolId: string, args: Record<string, unknown>) {
+    const activityId = recordAgentActivity({
+      kind: 'mcp',
+      label: 'Call tool',
+      state: 'running',
+      params: `${toolId} ${summarizeJSON(args)}`.trim(),
+    });
     try {
-      await request('/api/agent/mcp-calls', {
+      const call = await request<{ state: string; output?: string; error?: string; truncated?: boolean }>('/api/agent/mcp-calls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ toolId, arguments: args }),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: call.state === 'failed' ? 'failed' : 'completed',
+        result: summarizeAgentResult(call.state, call.error || call.output, call.truncated),
+      });
     } catch (mcpError) {
-      setError(mcpError instanceof Error ? mcpError.message : 'Could not call MCP tool.');
+      const message = mcpError instanceof Error ? mcpError.message : 'Could not call MCP tool.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
@@ -732,41 +869,80 @@ function App() {
   }
 
   async function startAgentLoop(input: { goal: string; command?: string; query?: string; filePath?: string }) {
+    const activityId = recordAgentActivity({
+      kind: 'loop',
+      label: 'Start loop',
+      state: 'running',
+      params: input.goal,
+    });
     try {
-      await request('/api/agent/loops', {
+      const loop = await request<{ state: string; summary?: string }>('/api/agent/loops', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: loop.state === 'failed' ? 'failed' : loop.state === 'waiting' ? 'blocked' : 'completed',
+        result: loop.summary ?? loop.state,
+      });
     } catch (loopError) {
-      setError(loopError instanceof Error ? loopError.message : 'Could not start agent loop.');
+      const message = loopError instanceof Error ? loopError.message : 'Could not start agent loop.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function continueAgentLoop(loopId: string, input: { command?: string; query?: string; filePath?: string } = {}) {
+    const activityId = recordAgentActivity({
+      kind: 'loop',
+      label: 'Continue loop',
+      state: 'running',
+      params: input.command || input.query || input.filePath || loopId,
+    });
     try {
-      await request(`/api/agent/loops/${loopId}/continue`, {
+      const loop = await request<{ state: string; summary?: string }>(`/api/agent/loops/${loopId}/continue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: loop.state === 'failed' ? 'failed' : loop.state === 'waiting' ? 'blocked' : 'completed',
+        result: loop.summary ?? loop.state,
+      });
     } catch (loopError) {
-      setError(loopError instanceof Error ? loopError.message : 'Could not continue agent loop.');
+      const message = loopError instanceof Error ? loopError.message : 'Could not continue agent loop.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function cancelAgentLoop(loopId: string) {
+    const activityId = recordAgentActivity({
+      kind: 'loop',
+      label: 'Cancel loop',
+      state: 'running',
+      params: loopId,
+    });
     try {
-      await request(`/api/agent/loops/${loopId}/cancel`, { method: 'POST' });
+      const loop = await request<{ state: string; summary?: string }>(`/api/agent/loops/${loopId}/cancel`, { method: 'POST' });
       await refreshAgentDetails();
+      updateAgentActivity(activityId, { state: 'completed', result: loop.summary ?? loop.state });
     } catch (loopError) {
-      setError(loopError instanceof Error ? loopError.message : 'Could not cancel agent loop.');
+      const message = loopError instanceof Error ? loopError.message : 'Could not cancel agent loop.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
   async function saveAgentWorkspaceRoot(root: string) {
+    const activityId = recordAgentActivity({
+      kind: 'workspace',
+      label: 'Set workspace',
+      state: 'running',
+      params: root,
+    });
     try {
       await request<{ root: string }>('/api/agent/workspace', {
         method: 'PATCH',
@@ -776,8 +952,11 @@ function App() {
       setAgentEditProposals([]);
       setAgentDiagnostics([]);
       await loadAgentStatus();
+      updateAgentActivity(activityId, { state: 'completed', result: 'Workspace updated.' });
     } catch (workspaceError) {
-      setError(workspaceError instanceof Error ? workspaceError.message : 'Could not update workspace.');
+      const message = workspaceError instanceof Error ? workspaceError.message : 'Could not update workspace.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
@@ -836,6 +1015,7 @@ function App() {
     setPendingSourceConversationId(null);
     setActiveId(null);
     setMessages([]);
+    setAgentActivities([]);
     setContent(draftContent);
     setFiles([]);
     setError(null);
@@ -851,6 +1031,7 @@ function App() {
     setPendingSourceConversationId(null);
     setActiveId(null);
     setMessages([]);
+    setAgentActivities([]);
     setContent('');
     setFiles([]);
     setError(null);
@@ -865,6 +1046,7 @@ function App() {
     setChatMode('saved');
     setPendingSourceConversationId(null);
     setActiveId(conversationId);
+    setAgentActivities([]);
     setContent('');
     setFiles([]);
     setError(null);
@@ -1447,61 +1629,66 @@ function App() {
         </header>
 
         <div className="messages" ref={messagesRef} style={messagesStyle} onScroll={updateMessageScrollState}>
-          {messages.length === 0 ? (
+          {messages.length === 0 && agentActivities.length === 0 ? (
             <div className="empty-state" aria-label="No messages" />
           ) : (
-            messages.map((message, index) => {
-              const key = messageKey(message, index);
-              return (
-              <article
-                aria-label={message.role === 'user' ? 'Your message' : 'Linea response'}
-                className={`message ${message.role} ${messageFeedback[key] ? 'has-feedback' : ''}`}
-                key={key}
-              >
-                {message.role === 'assistant' && message.content === '' ? (
-                  <LoadingResponse />
-                ) : (
-                  <>
-                    <MessageContent role={message.role} content={message.content} />
-                    {message.role === 'user' && (
-                      <button
-                        aria-label="Edit"
-                        className="message-edit has-tooltip"
-                        data-tooltip="Edit"
-                        type="button"
-                        onPointerDown={() => setAreTooltipsSuppressed(true)}
-                        onClick={() => editMessage(message)}
-                      >
-                        <PenLine size={14} strokeWidth={ICON_STROKE} />
-                      </button>
+            <>
+              {messages.map((message, index) => {
+                const key = messageKey(message, index);
+                return (
+                  <article
+                    aria-label={message.role === 'user' ? 'Your message' : 'Linea response'}
+                    className={`message ${message.role} ${messageFeedback[key] ? 'has-feedback' : ''}`}
+                    key={key}
+                  >
+                    {message.role === 'assistant' && message.content === '' ? (
+                      <LoadingResponse />
+                    ) : (
+                      <>
+                        <MessageContent role={message.role} content={message.content} />
+                        {message.role === 'user' && (
+                          <button
+                            aria-label="Edit"
+                            className="message-edit has-tooltip"
+                            data-tooltip="Edit"
+                            type="button"
+                            onPointerDown={() => setAreTooltipsSuppressed(true)}
+                            onClick={() => editMessage(message)}
+                          >
+                            <PenLine size={14} strokeWidth={ICON_STROKE} />
+                          </button>
+                        )}
+                        {message.role === 'assistant' && (
+                          <div className="response-tools">
+                            <ResponseMeta
+                              prefs={uiPrefs}
+                              provider={
+                                message.provider ??
+                                responseProviders[key] ??
+                                statusProviderInfo(defaultResponseProvider(systemStatus))
+                              }
+                              sleepingProviders={systemStatus?.providers.filter((provider) => provider.state === 'sleeping') ?? []}
+                            />
+                            <FeedbackRow
+                              selected={messageFeedback[key]}
+                              onSelect={(feedback) =>
+                                setMessageFeedback((current) => ({
+                                  ...current,
+                                  [key]: current[key] === feedback ? '' : feedback,
+                                }))
+                              }
+                            />
+                          </div>
+                        )}
+                      </>
                     )}
-                    {message.role === 'assistant' && (
-                      <div className="response-tools">
-                        <ResponseMeta
-                          prefs={uiPrefs}
-                          provider={
-                            message.provider ??
-                            responseProviders[key] ??
-                            statusProviderInfo(defaultResponseProvider(systemStatus))
-                          }
-                          sleepingProviders={systemStatus?.providers.filter((provider) => provider.state === 'sleeping') ?? []}
-                        />
-                        <FeedbackRow
-                          selected={messageFeedback[key]}
-                          onSelect={(feedback) =>
-                            setMessageFeedback((current) => ({
-                              ...current,
-                              [key]: current[key] === feedback ? '' : feedback,
-                            }))
-                          }
-                        />
-                      </div>
-                    )}
-                  </>
-                )}
-              </article>
-              );
-            })
+                  </article>
+                );
+              })}
+              {agentActivities.map((activity) => (
+                <AgentActivityRow activity={activity} key={activity.id} />
+              ))}
+            </>
           )}
           <div ref={messageEndRef} />
         </div>
@@ -1679,6 +1866,25 @@ function MessageContent({ role, content }: { role: Message['role']; content: str
   }
 
   return <MarkdownContent content={content} />;
+}
+
+function AgentActivityRow({ activity }: { activity: AgentActivity }) {
+  return (
+    <article className={`agent-activity ${activity.state}`} aria-label={`Agent ${activity.kind} ${activity.state}`}>
+      <div className="agent-activity-main">
+        <span>{activity.kind}</span>
+        <strong>{activity.label}</strong>
+        <em>{activity.state}</em>
+      </div>
+      {(activity.params || activity.result) && (
+        <p>
+          {activity.params && <span>{activity.params}</span>}
+          {activity.params && activity.result && <span aria-hidden="true">{' -> '}</span>}
+          {activity.result && <span>{activity.result}</span>}
+        </p>
+      )}
+    </article>
+  );
 }
 
 function MarkdownContent({ content }: { content: string }) {
@@ -3379,6 +3585,31 @@ function resizeComposer(textarea: HTMLTextAreaElement | null) {
   }
   textarea.style.height = '0px';
   textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+function summarizeAgentResult(prefix: string, value?: string, truncated = false) {
+  const parts = [prefix, value]
+    .filter(Boolean)
+    .map((part) => String(part).replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const summary = parts.join(': ');
+  if (!summary) {
+    return truncated ? 'Output truncated.' : undefined;
+  }
+  const capped = summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
+  return truncated && !capped.endsWith('...') ? `${capped}...` : capped;
+}
+
+function summarizeJSON(value: unknown) {
+  try {
+    const text = JSON.stringify(value);
+    if (!text || text === '{}') {
+      return '';
+    }
+    return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  } catch {
+    return '';
+  }
 }
 
 type ConversationRowProps = {
