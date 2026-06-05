@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode"
 
+	"linea/backend/internal/agent"
 	"linea/backend/internal/llm"
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
@@ -35,10 +36,28 @@ type Searcher interface {
 	Search(ctx context.Context, query string) ([]search.Result, error)
 }
 
+type AgentRuntime interface {
+	Status(context.Context) agent.Status
+	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
+	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
+	ReadFile(context.Context, string) (agent.FileResult, error)
+	StartAgentLoop(context.Context, agent.AgentLoopInput) (agent.AgentLoop, error)
+	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
+	ListCommandApprovals(context.Context) []agent.CommandApproval
+	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
+	RunCommand(context.Context, agent.CommandCheckInput) (agent.CommandRun, error)
+	RunHook(context.Context, string, agent.HookExecutionInput) (agent.HookExecution, error)
+	RunSkill(context.Context, string, agent.SkillExecutionInput) (agent.SkillExecution, error)
+	ListEditProposals(context.Context) []agent.EditProposal
+	ReviewEditProposal(context.Context, string, agent.EditProposalReviewInput) (agent.EditProposal, error)
+	ApplyEditProposal(context.Context, string) (agent.EditProposal, error)
+}
+
 type App struct {
 	store      store.Store
 	assistant  Assistant
 	searcher   Searcher
+	agent      AgentRuntime
 	in         *bufio.Scanner
 	input      io.Reader
 	out        io.Writer
@@ -61,6 +80,11 @@ func New(appStore store.Store, assistant Assistant, in io.Reader, out io.Writer)
 
 func (a *App) WithSearcher(searcher Searcher) *App {
 	a.searcher = searcher
+	return a
+}
+
+func (a *App) WithAgentRuntime(runtime AgentRuntime) *App {
+	a.agent = runtime
 	return a
 }
 
@@ -140,6 +164,11 @@ func (a *App) runHandRolled(ctx context.Context) error {
 			}
 			attachments = append(attachments, attachment)
 			a.render(conversation, messages, attachments, fmt.Sprintf("Attached %s.", attachment.Name))
+			continue
+		}
+		if output, ok := a.handleAgentCommand(ctx, input); ok {
+			messages = append(messages, store.Message{ID: store.NewID(), Role: "assistant", Content: output})
+			a.render(conversation, messages, attachments, "Ready.")
 			continue
 		}
 
@@ -254,7 +283,7 @@ func (a *App) render(conversation store.Conversation, messages []store.Message, 
 	}
 	fmt.Fprintln(a.out)
 	fmt.Fprintf(a.out, "%s %s\n", a.theme.muted("Status:"), status)
-	fmt.Fprintln(a.out, a.theme.muted("Commands: :new · :attach <path> · drop/paste file path · :quit"))
+	fmt.Fprintln(a.out, a.theme.muted("Commands: :new · :attach <path> · :agent · :diag · :search <q> · :read <path> · :loop <goal> · :quit"))
 }
 
 func (a *App) renderHeader(title string) {

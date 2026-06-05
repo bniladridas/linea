@@ -105,7 +105,7 @@ Vite runs at `http://localhost:5173`.
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
 | Server | `linea -check-server http://localhost:8080` |
-| Terminal chat | `linea -tui` (`:new`, `:attach <path>`, `:quit`) |
+| Terminal chat | `linea -tui` (`:new`, `:attach <path>`, `:agent`, `:diag`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:quit`) |
 | Hand-rolled TUI | `linea -tui-beta` |
 | Agent status | `linea -agent-status` |
 | Agent API | `make agent-check` |
@@ -154,6 +154,8 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/hooks/{id}/run` |
 | `GET` | `/api/agent/skill-runs` |
 | `POST` | `/api/agent/skills/{id}/run` |
+| `GET` | `/api/agent/loops` |
+| `POST` | `/api/agent/loops` |
 | `GET` | `/api/agent/command-approvals` |
 | `POST` | `/api/agent/command-approvals` |
 | `GET` | `/api/agent/command-checks` |

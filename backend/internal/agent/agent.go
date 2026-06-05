@@ -17,6 +17,7 @@ type Runtime struct {
 	traces           []Trace
 	hookRuns         []HookRun
 	skillRuns        []SkillRun
+	agentLoops       []AgentLoop
 	editProposals    []EditProposal
 	commandApprovals []CommandApproval
 	commandChecks    []CommandCheck
@@ -43,6 +44,7 @@ type Status struct {
 	RunSummary       RunSummary        `json:"runSummary"`
 	HookRuns         []HookRun         `json:"hookRuns"`
 	SkillRuns        []SkillRun        `json:"skillRuns"`
+	AgentLoops       []AgentLoop       `json:"agentLoops"`
 	CommandApprovals []CommandApproval `json:"commandApprovals"`
 	CommandChecks    []CommandCheck    `json:"commandChecks"`
 	CommandRuns      []CommandRun      `json:"commandRuns"`
@@ -82,8 +84,9 @@ type HookRunInput struct {
 }
 
 type HookExecutionInput struct {
-	Command string `json:"command,omitempty"`
-	Detail  string `json:"detail,omitempty"`
+	Command    string `json:"command,omitempty"`
+	ApprovalID string `json:"approvalId,omitempty"`
+	Detail     string `json:"detail,omitempty"`
 }
 
 type HookExecution struct {
@@ -107,13 +110,42 @@ type SkillRun struct {
 }
 
 type SkillExecutionInput struct {
-	Command string `json:"command,omitempty"`
-	Detail  string `json:"detail,omitempty"`
+	Command    string `json:"command,omitempty"`
+	ApprovalID string `json:"approvalId,omitempty"`
+	Detail     string `json:"detail,omitempty"`
 }
 
 type SkillExecution struct {
 	SkillRun   SkillRun    `json:"skillRun"`
 	CommandRun *CommandRun `json:"commandRun,omitempty"`
+}
+
+type AgentLoop struct {
+	ID        string          `json:"id"`
+	Goal      string          `json:"goal"`
+	State     string          `json:"state"`
+	Steps     []AgentLoopStep `json:"steps"`
+	Summary   string          `json:"summary"`
+	CreatedAt time.Time       `json:"createdAt"`
+	UpdatedAt time.Time       `json:"updatedAt"`
+}
+
+type AgentLoopStep struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	State     string `json:"state"`
+	Detail    string `json:"detail,omitempty"`
+	ToolID    string `json:"toolId,omitempty"`
+	Command   string `json:"command,omitempty"`
+	CreatedID string `json:"createdId,omitempty"`
+}
+
+type AgentLoopInput struct {
+	Goal     string `json:"goal"`
+	Command  string `json:"command,omitempty"`
+	Query    string `json:"query,omitempty"`
+	FilePath string `json:"filePath,omitempty"`
 }
 
 type Subagent struct {
@@ -198,6 +230,7 @@ type RunSummary struct {
 	TraceEvents      int       `json:"traceEvents"`
 	HookRuns         int       `json:"hookRuns"`
 	SkillRuns        int       `json:"skillRuns"`
+	AgentLoops       int       `json:"agentLoops"`
 	CommandApprovals int       `json:"commandApprovals"`
 	CommandChecks    int       `json:"commandChecks"`
 	CommandRuns      int       `json:"commandRuns"`
@@ -235,6 +268,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		RunSummary:       r.RunSummary(ctx),
 		HookRuns:         r.statusHookRuns(),
 		SkillRuns:        r.statusSkillRuns(),
+		AgentLoops:       r.statusAgentLoops(),
 		CommandApprovals: r.statusCommandApprovals(),
 		CommandChecks:    r.statusCommandChecks(),
 		CommandRuns:      r.statusCommandRuns(),
@@ -298,6 +332,14 @@ func (r *Runtime) RunSummary(context.Context) RunSummary {
 			state = "attention"
 		}
 	}
+	for _, loop := range r.agentLoops {
+		if loop.UpdatedAt.After(updatedAt) {
+			updatedAt = loop.UpdatedAt
+		}
+		if loop.State == "attention" || loop.State == "waiting_approval" || loop.State == "waiting_input" {
+			state = "attention"
+		}
+	}
 	for _, approval := range r.commandApprovals {
 		if approval.CreatedAt.After(updatedAt) {
 			updatedAt = approval.CreatedAt
@@ -314,6 +356,7 @@ func (r *Runtime) RunSummary(context.Context) RunSummary {
 		TraceEvents:      len(r.traces),
 		HookRuns:         len(r.hookRuns),
 		SkillRuns:        len(r.skillRuns),
+		AgentLoops:       len(r.agentLoops),
 		CommandApprovals: len(r.commandApprovals),
 		CommandChecks:    len(r.commandChecks),
 		CommandRuns:      len(r.commandRuns),
@@ -411,7 +454,7 @@ func (r *Runtime) RunHook(ctx context.Context, hookID string, input HookExecutio
 		}
 		return HookExecution{HookRun: run}, nil
 	}
-	commandRun, err := r.RunCommand(ctx, CommandCheckInput{Command: command})
+	commandRun, err := r.RunCommand(ctx, CommandCheckInput{Command: command, ApprovalID: input.ApprovalID})
 	state := "completed"
 	if err != nil {
 		state = "blocked"
@@ -514,6 +557,14 @@ func (r *Runtime) statusSkillRuns() []SkillRun {
 		return runs[:5]
 	}
 	return runs
+}
+
+func (r *Runtime) statusAgentLoops() []AgentLoop {
+	loops := r.ListAgentLoops(context.Background())
+	if len(loops) > 5 {
+		return loops[:5]
+	}
+	return loops
 }
 
 func (r *Runtime) statusCommandApprovals() []CommandApproval {

@@ -115,7 +115,7 @@ func (r *Runtime) RunSkill(ctx context.Context, skillID string, input SkillExecu
 		}
 		return SkillExecution{SkillRun: run}, nil
 	}
-	commandRun, err := r.RunCommand(ctx, CommandCheckInput{Command: command})
+	commandRun, err := r.RunCommand(ctx, CommandCheckInput{Command: command, ApprovalID: input.ApprovalID})
 	state := "completed"
 	if err != nil {
 		state = "blocked"

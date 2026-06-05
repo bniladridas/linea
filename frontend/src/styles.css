@@ -1419,14 +1419,28 @@ textarea {
 }
 
 .workspace-root,
-.workspace-search {
+.workspace-search,
+.agent-command-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
 }
 
+.agent-command-form,
+.agent-loop-options {
+  grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+}
+
+.agent-loop-options {
+  display: grid;
+  gap: 6px;
+}
+
 .workspace-root input,
-.workspace-search input {
+.workspace-search input,
+.agent-command-form input,
+.agent-loop-form input,
+.agent-inline-input {
   min-width: 0;
   height: 30px;
   border: 1px solid #171717;
@@ -1439,12 +1453,19 @@ textarea {
 }
 
 .workspace-root input:focus,
-.workspace-search input:focus {
+.workspace-search input:focus,
+.agent-command-form input:focus,
+.agent-loop-form input:focus,
+.agent-inline-input:focus {
   border-color: #242424;
 }
 
 .workspace-root button,
-.workspace-search button {
+.workspace-search button,
+.agent-command-form button,
+.agent-loop-form button,
+.agent-card button,
+.details-list-header button {
   min-height: 30px;
   border: 1px solid #1a1a1a;
   border-radius: 8px;
@@ -1459,15 +1480,155 @@ textarea {
 .workspace-root button:hover:not(:disabled),
 .workspace-root button:focus-visible:not(:disabled),
 .workspace-search button:hover:not(:disabled),
-.workspace-search button:focus-visible:not(:disabled) {
+.workspace-search button:focus-visible:not(:disabled),
+.agent-command-form button:hover:not(:disabled),
+.agent-command-form button:focus-visible:not(:disabled),
+.agent-loop-form button:hover:not(:disabled),
+.agent-loop-form button:focus-visible:not(:disabled),
+.agent-card button:hover:not(:disabled),
+.agent-card button:focus-visible:not(:disabled),
+.details-list-header button:hover:not(:disabled),
+.details-list-header button:focus-visible:not(:disabled) {
   background: #242424;
   color: #eeeeee;
 }
 
 .workspace-root button:disabled,
-.workspace-search button:disabled {
+.workspace-search button:disabled,
+.agent-command-form button:disabled,
+.agent-loop-form button:disabled,
+.agent-card button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.agent-control {
+  gap: 10px;
+}
+
+.agent-inline-input {
+  width: 100%;
+}
+
+.agent-loop-form {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.agent-list,
+.agent-card-list {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.agent-card-list.two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.agent-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #171717;
+  border-radius: 8px;
+  background: #101010;
+  padding: 8px;
+}
+
+.agent-card.read-only {
+  justify-content: flex-start;
+}
+
+.agent-card div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.agent-card strong,
+.agent-card span,
+.agent-list p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-loop-card {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  border: 1px solid #171717;
+  border-radius: 8px;
+  background: #101010;
+  padding: 8px;
+}
+
+.agent-loop-top {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-loop-top strong,
+.agent-loop-top span,
+.agent-loop-card p,
+.agent-loop-steps span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-loop-top strong {
+  color: #eeeeee;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-loop-top span,
+.agent-loop-card p,
+.agent-loop-steps span {
+  margin: 0;
+  color: #8f8f8f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.agent-loop-steps {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+@media (max-width: 760px) {
+  .agent-card-list.two-column,
+  .agent-loop-options,
+  .agent-command-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.agent-card strong {
+  color: #eeeeee;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-card span,
+.agent-list p {
+  margin: 0;
+  color: #8f8f8f;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .workspace-error {
@@ -2255,6 +2416,8 @@ textarea:focus {
 :root[data-theme="light"] .details-list h3,
 :root[data-theme="light"] .details-list-header span,
 :root[data-theme="light"] .proposal-detail-top strong,
+:root[data-theme="light"] .agent-card strong,
+:root[data-theme="light"] .agent-loop-top strong,
 :root[data-theme="light"] .detail-line strong {
   color: #252522;
 }
@@ -2269,6 +2432,10 @@ textarea:focus {
 :root[data-theme="light"] .system-details-button,
 :root[data-theme="light"] .details-close,
 :root[data-theme="light"] .proposal-actions button,
+:root[data-theme="light"] .agent-command-form button,
+:root[data-theme="light"] .agent-loop-form button,
+:root[data-theme="light"] .agent-card button,
+:root[data-theme="light"] .details-list-header button,
 :root[data-theme="light"] .checkbox-mark,
 :root[data-theme="light"] .composer-row .icon-button,
 :root[data-theme="light"] .composer-row .send-button,
@@ -2286,6 +2453,8 @@ textarea:focus {
 :root[data-theme="light"] .details-dialog,
 :root[data-theme="light"] .details-section,
 :root[data-theme="light"] .details-list,
+:root[data-theme="light"] .agent-card,
+:root[data-theme="light"] .agent-loop-card,
 :root[data-theme="light"] .proposal-diff,
 :root[data-theme="light"] .conversation-menu,
 :root[data-theme="light"] .conversation-rename {
@@ -2337,7 +2506,14 @@ textarea:focus {
 :root[data-theme="light"] .workspace-root input,
 :root[data-theme="light"] .workspace-root button,
 :root[data-theme="light"] .workspace-search input,
-:root[data-theme="light"] .workspace-search button {
+:root[data-theme="light"] .workspace-search button,
+:root[data-theme="light"] .agent-command-form input,
+:root[data-theme="light"] .agent-command-form button,
+:root[data-theme="light"] .agent-loop-form input,
+:root[data-theme="light"] .agent-loop-form button,
+:root[data-theme="light"] .agent-inline-input,
+:root[data-theme="light"] .agent-card button,
+:root[data-theme="light"] .details-list-header button {
   border-color: #e8e8e3;
   background: #ffffff;
   color: #252522;
@@ -2349,6 +2525,17 @@ textarea:focus {
 :root[data-theme="light"] .workspace-search input:focus,
 :root[data-theme="light"] .workspace-search button:hover:not(:disabled),
 :root[data-theme="light"] .workspace-search button:focus-visible:not(:disabled),
+:root[data-theme="light"] .agent-command-form input:focus,
+:root[data-theme="light"] .agent-command-form button:hover:not(:disabled),
+:root[data-theme="light"] .agent-command-form button:focus-visible:not(:disabled),
+:root[data-theme="light"] .agent-loop-form input:focus,
+:root[data-theme="light"] .agent-loop-form button:hover:not(:disabled),
+:root[data-theme="light"] .agent-loop-form button:focus-visible:not(:disabled),
+:root[data-theme="light"] .agent-inline-input:focus,
+:root[data-theme="light"] .agent-card button:hover:not(:disabled),
+:root[data-theme="light"] .agent-card button:focus-visible:not(:disabled),
+:root[data-theme="light"] .details-list-header button:hover:not(:disabled),
+:root[data-theme="light"] .details-list-header button:focus-visible:not(:disabled),
 :root[data-theme="light"] .workspace-result:hover,
 :root[data-theme="light"] .workspace-result:focus-visible,
 :root[data-theme="light"] .workspace-result.active {

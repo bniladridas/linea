@@ -77,6 +77,7 @@ Returns the local agent contract. It is read-only.
     "traceEvents": 1,
     "hookRuns": 0,
     "skillRuns": 0,
+    "agentLoops": 0,
     "commandApprovals": 0,
     "commandChecks": 0,
     "commandRuns": 0,
@@ -85,6 +86,7 @@ Returns the local agent contract. It is read-only.
   },
   "hookRuns": [],
   "skillRuns": [],
+  "agentLoops": [],
   "commandApprovals": [],
   "commandChecks": [],
   "commandRuns": [],
@@ -142,6 +144,7 @@ Returns saved agent run snapshots.
       "traceEvents": 1,
       "hookRuns": 0,
       "skillRuns": 0,
+      "agentLoops": 0,
       "commandApprovals": 0,
       "commandChecks": 0,
       "commandRuns": 0,
@@ -166,6 +169,7 @@ Saves the current agent run summary.
     "traceEvents": 1,
     "hookRuns": 0,
     "skillRuns": 0,
+    "agentLoops": 0,
     "commandApprovals": 0,
     "commandChecks": 0,
     "commandRuns": 0,
@@ -173,6 +177,23 @@ Saves the current agent run summary.
     "updatedAt": "2026-06-01T00:00:00Z"
   },
   "createdAt": "2026-06-01T00:00:00Z"
+}
+```
+
+`GET /api/agent/loops`
+
+Returns recent bounded agent loops.
+
+`POST /api/agent/loops`
+
+Starts a bounded local agent loop. Read-only workspace steps may run immediately. Commands and edits stop at approval boundaries.
+
+```json
+{
+  "goal": "check diagnostics and run tests",
+  "query": "diagnostic",
+  "filePath": "README.md",
+  "command": "make test"
 }
 ```
 
@@ -268,11 +289,12 @@ Records a known hook run. It does not execute commands.
 
 `POST /api/agent/hooks/{id}/run`
 
-Runs a known hook. If `command` is set, the command must pass the allowlist runner.
+Runs a known hook. If `command` is set, the command needs an approved `approvalId`.
 
 ```json
 {
   "command": "make test",
+  "approvalId": "approval-id",
   "detail": "before commit"
 }
 ```
@@ -317,11 +339,12 @@ Returns recent skill runs.
 
 `POST /api/agent/skills/{id}/run`
 
-Runs a ready local skill. If `command` is empty, Linea uses the skill `Command:` line. Commands must pass the allowlist runner.
+Runs a ready local skill. If `command` is empty, Linea uses the skill `Command:` line. Commands need an approved `approvalId`.
 
 ```json
 {
   "command": "make test",
+  "approvalId": "approval-id",
   "detail": "review change"
 }
 ```
@@ -423,7 +446,7 @@ Returns recent command runs.
 
 `POST /api/agent/command-runs`
 
-Runs a command only when it exactly matches `LINEA_COMMAND_ALLOWLIST`. It runs inside `LINEA_WORKSPACE_DIR`.
+Runs a command only when it exactly matches `LINEA_COMMAND_ALLOWLIST` and has an approved `approvalId`. It runs inside `LINEA_WORKSPACE_DIR`.
 
 ```json
 {
@@ -649,6 +672,8 @@ Limits:
 Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
+
+Terminal clients can use the same agent surface with explicit commands such as `:agent`, `:diag`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

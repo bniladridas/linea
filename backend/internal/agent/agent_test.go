@@ -104,6 +104,47 @@ func TestRuntimeRunSummaryCountsRecentState(t *testing.T) {
 	}
 }
 
+func TestRuntimeStartsBoundedAgentLoop(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "agent loop notes\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "search agent and run tests",
+		Query:   "agent",
+		Command: "make test",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.ID == "" || loop.State != "waiting_approval" || len(loop.Steps) < 4 {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if loop.Steps[len(loop.Steps)-1].Kind != "command_approval" || loop.Steps[len(loop.Steps)-1].CreatedID == "" {
+		t.Fatalf("last step = %#v", loop.Steps[len(loop.Steps)-1])
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || loops[0].ID != loop.ID {
+		t.Fatalf("loops = %#v", loops)
+	}
+	status := runtime.Status(context.Background())
+	if status.RunSummary.AgentLoops != 1 || len(status.AgentLoops) != 1 {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRuntimeAgentLoopStopsForWorkspaceInput(t *testing.T) {
+	runtime := NewRuntime("")
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{Goal: "check diagnostics"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_input" {
+		t.Fatalf("loop state = %q", loop.State)
+	}
+}
+
 func TestRuntimeRejectsEmptyTrace(t *testing.T) {
 	_, err := NewRuntime("").AddTrace(context.Background(), TraceInput{Event: " ", State: "ready"})
 	if err == nil {
@@ -160,8 +201,12 @@ func TestRuntimeRunsHookWithoutCommand(t *testing.T) {
 
 func TestRuntimeRunsHookCommand(t *testing.T) {
 	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
 
-	execution, err := runtime.RunHook(context.Background(), "after_check", HookExecutionInput{Command: "printf ok"})
+	execution, err := runtime.RunHook(context.Background(), "after_check", HookExecutionInput{Command: "printf ok", ApprovalID: approval.ID})
 	if err != nil {
 		t.Fatalf("RunHook() error = %v", err)
 	}
@@ -279,8 +324,12 @@ func TestRuntimeRunsSkillCommand(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCommand: printf ok\n")
 	runtime := NewRuntime("", WithSkillsDir(root), WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
 
-	execution, err := runtime.RunSkill(context.Background(), "review_change", SkillExecutionInput{})
+	execution, err := runtime.RunSkill(context.Background(), "review_change", SkillExecutionInput{ApprovalID: approval.ID})
 	if err != nil {
 		t.Fatalf("RunSkill() error = %v", err)
 	}
@@ -411,8 +460,12 @@ func TestRuntimeRejectsEmptyCommandCheck(t *testing.T) {
 func TestRuntimeRunsAllowedCommandInWorkspace(t *testing.T) {
 	root := t.TempDir()
 	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
 
-	run, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok"})
+	run, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok", ApprovalID: approval.ID})
 	if err != nil {
 		t.Fatalf("RunCommand() error = %v", err)
 	}
@@ -429,10 +482,23 @@ func TestRuntimeRunsAllowedCommandInWorkspace(t *testing.T) {
 	}
 }
 
-func TestRuntimeRejectsCommandRunOutsideAllowlist(t *testing.T) {
+func TestRuntimeRejectsCommandRunWithoutApproval(t *testing.T) {
 	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
 
-	_, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf no"})
+	_, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok"})
+	if err == nil {
+		t.Fatal("RunCommand() error = nil, want approval error")
+	}
+}
+
+func TestRuntimeRejectsCommandRunOutsideAllowlist(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf no", State: "pending"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	_, err = runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf no", ApprovalID: approval.ID})
 	if err == nil {
 		t.Fatal("RunCommand() error = nil, want error")
 	}
@@ -440,8 +506,12 @@ func TestRuntimeRejectsCommandRunOutsideAllowlist(t *testing.T) {
 
 func TestRuntimeRequiresWorkspaceForCommandRun(t *testing.T) {
 	runtime := NewRuntime("", WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
 
-	_, err := runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok"})
+	_, err = runtime.RunCommand(context.Background(), CommandCheckInput{Command: "printf ok", ApprovalID: approval.ID})
 	if !errors.Is(err, ErrWorkspaceDisabled) {
 		t.Fatalf("RunCommand() error = %v, want ErrWorkspaceDisabled", err)
 	}
