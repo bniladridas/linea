@@ -701,6 +701,19 @@ function App() {
     }
   }
 
+  async function callAgentMCPTool(toolId: string, args: Record<string, unknown>) {
+    try {
+      await request('/api/agent/mcp-calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toolId, arguments: args }),
+      });
+      await refreshAgentDetails();
+    } catch (mcpError) {
+      setError(mcpError instanceof Error ? mcpError.message : 'Could not call MCP tool.');
+    }
+  }
+
   async function saveAgentRunSnapshot() {
     try {
       await request('/api/agent/runs', { method: 'POST' });
@@ -1580,6 +1593,7 @@ function App() {
           onRunHook={(hookId, command, approvalId) => void runAgentHook(hookId, command, approvalId)}
           onRunSkill={(skillId, command, approvalId) => void runAgentSkill(skillId, command, approvalId)}
           onRunSubagent={(subagentId, query) => void runAgentSubagent(subagentId, query)}
+          onCallMCPTool={(toolId, args) => void callAgentMCPTool(toolId, args)}
           onSaveRun={() => void saveAgentRunSnapshot()}
           onStartLoop={(input) => void startAgentLoop(input)}
           onContinueLoop={(loopId, input) => void continueAgentLoop(loopId, input)}
@@ -2027,6 +2041,7 @@ function SystemDetailsDialog({
   onRunHook,
   onRunSkill,
   onRunSubagent,
+  onCallMCPTool,
   onSaveRun,
   onStartLoop,
   onContinueLoop,
@@ -2049,6 +2064,7 @@ function SystemDetailsDialog({
   onRunHook: (hookId: string, command: string, approvalId?: string) => void;
   onRunSkill: (skillId: string, command: string, approvalId?: string) => void;
   onRunSubagent: (subagentId: string, query: string) => void;
+  onCallMCPTool: (toolId: string, args: Record<string, unknown>) => void;
   onSaveRun: () => void;
   onStartLoop: (input: { goal: string; command?: string; query?: string; filePath?: string }) => void;
   onContinueLoop: (loopId: string, input: { command?: string; query?: string; filePath?: string }) => void;
@@ -2066,6 +2082,9 @@ function SystemDetailsDialog({
   const [loopCommandInput, setLoopCommandInput] = useState('');
   const [hookCommandInput, setHookCommandInput] = useState('');
   const [skillCommandInput, setSkillCommandInput] = useState('');
+  const [mcpToolId, setMCPToolId] = useState(agentStatus?.mcpTools?.[0]?.id ?? '');
+  const [mcpArguments, setMCPArguments] = useState('{}');
+  const [mcpError, setMCPError] = useState<string | null>(null);
   const [workspaceRootInput, setWorkspaceRootInput] = useState(agentStatus?.workspaceRoot ?? '');
   const [workspaceQuery, setWorkspaceQuery] = useState('');
   const [workspaceResults, setWorkspaceResults] = useState<AgentWorkspaceSearchResult[]>([]);
@@ -2085,6 +2104,7 @@ function SystemDetailsDialog({
   const hookCommandApproval = findApprovedCommandApproval(commandApprovals, normalizedHookCommandInput);
   const selectedProposal =
     editProposals.find((proposal) => proposal.id === selectedProposalId) ?? editProposals[0] ?? null;
+  const mcpTools = agentStatus?.mcpTools ?? [];
 
   useEffect(() => {
     if (!selectedProposalId && editProposals.length > 0) {
@@ -2099,6 +2119,16 @@ function SystemDetailsDialog({
   useEffect(() => {
     setWorkspaceRootInput(agentStatus?.workspaceRoot ?? '');
   }, [agentStatus?.workspaceRoot]);
+
+  useEffect(() => {
+    if (!mcpToolId && mcpTools.length > 0) {
+      setMCPToolId(mcpTools[0].id);
+      return;
+    }
+    if (mcpToolId && mcpTools.length > 0 && !mcpTools.some((tool) => tool.id === mcpToolId)) {
+      setMCPToolId(mcpTools[0].id);
+    }
+  }, [mcpToolId, mcpTools]);
 
   useEffect(() => {
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
@@ -2207,6 +2237,29 @@ function SystemDetailsDialog({
       return;
     }
     onRunSkill(skillId, command, approvalId);
+  }
+
+  function submitMCPCall(event: FormEvent) {
+    event.preventDefault();
+    if (!mcpToolId) {
+      return;
+    }
+    let args: unknown = {};
+    const rawArgs = mcpArguments.trim();
+    if (rawArgs) {
+      try {
+        args = JSON.parse(rawArgs);
+      } catch {
+        setMCPError('Arguments must be JSON.');
+        return;
+      }
+    }
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      setMCPError('Arguments must be a JSON object.');
+      return;
+    }
+    setMCPError(null);
+    onCallMCPTool(mcpToolId, args as Record<string, unknown>);
   }
 
   return (
@@ -2479,6 +2532,35 @@ function SystemDetailsDialog({
             <h3>MCP</h3>
             <span>{agentStatus?.runSummary?.mcpCalls ?? 0}</span>
           </div>
+          <form className="agent-mcp-form" onSubmit={submitMCPCall}>
+            <select
+              aria-label="MCP tool"
+              disabled={mcpTools.length === 0}
+              value={mcpToolId}
+              onChange={(event) => setMCPToolId(event.target.value)}
+            >
+              {mcpTools.length === 0 ? (
+                <option value="">No tools</option>
+              ) : (
+                mcpTools.map((tool) => (
+                  <option key={tool.id} value={tool.id}>
+                    {tool.serverName || tool.serverId}/{tool.name}
+                  </option>
+                ))
+              )}
+            </select>
+            <textarea
+              aria-label="MCP arguments"
+              disabled={mcpTools.length === 0}
+              rows={3}
+              value={mcpArguments}
+              onChange={(event) => setMCPArguments(event.target.value)}
+            />
+            <button disabled={!mcpToolId} type="submit">
+              Run
+            </button>
+          </form>
+          {mcpError && <p className="workspace-error">{mcpError}</p>}
           <div className="agent-card-list two-column">
             {(agentStatus?.mcpServers ?? []).map((server) => (
               <div className="agent-card read-only" key={server.id}>

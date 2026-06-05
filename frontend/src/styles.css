@@ -1420,7 +1420,8 @@ textarea {
 
 .workspace-root,
 .workspace-search,
-.agent-command-form {
+.agent-command-form,
+.agent-mcp-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
@@ -1429,6 +1430,10 @@ textarea {
 .agent-command-form,
 .agent-loop-options {
   grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+}
+
+.agent-mcp-form {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .agent-loop-options {
@@ -1440,9 +1445,10 @@ textarea {
 .workspace-search input,
 .agent-command-form input,
 .agent-loop-form input,
-.agent-inline-input {
+.agent-inline-input,
+.agent-mcp-form select,
+.agent-mcp-form textarea {
   min-width: 0;
-  height: 30px;
   border: 1px solid #171717;
   border-radius: 8px;
   outline: none;
@@ -1452,11 +1458,30 @@ textarea {
   font-size: 12px;
 }
 
+.workspace-root input,
+.workspace-search input,
+.agent-command-form input,
+.agent-loop-form input,
+.agent-inline-input,
+.agent-mcp-form select {
+  height: 30px;
+}
+
+.agent-mcp-form textarea {
+  grid-column: 1 / -1;
+  min-height: 68px;
+  resize: vertical;
+  padding-top: 8px;
+  line-height: 1.35;
+}
+
 .workspace-root input:focus,
 .workspace-search input:focus,
 .agent-command-form input:focus,
 .agent-loop-form input:focus,
-.agent-inline-input:focus {
+.agent-inline-input:focus,
+.agent-mcp-form select:focus,
+.agent-mcp-form textarea:focus {
   border-color: #242424;
 }
 
@@ -1465,6 +1490,7 @@ textarea {
 .agent-command-form button,
 .agent-loop-form button,
 .agent-loop-actions button,
+.agent-mcp-form button,
 .agent-card button,
 .details-list-header button {
   min-height: 30px;
@@ -1488,6 +1514,8 @@ textarea {
 .agent-loop-form button:focus-visible:not(:disabled),
 .agent-loop-actions button:hover:not(:disabled),
 .agent-loop-actions button:focus-visible:not(:disabled),
+.agent-mcp-form button:hover:not(:disabled),
+.agent-mcp-form button:focus-visible:not(:disabled),
 .agent-card button:hover:not(:disabled),
 .agent-card button:focus-visible:not(:disabled),
 .details-list-header button:hover:not(:disabled),
@@ -1501,6 +1529,7 @@ textarea {
 .agent-command-form button:disabled,
 .agent-loop-form button:disabled,
 .agent-loop-actions button:disabled,
+.agent-mcp-form button:disabled,
 .agent-card button:disabled {
   cursor: default;
   opacity: 0.45;
@@ -2444,6 +2473,7 @@ textarea:focus {
 :root[data-theme="light"] .agent-command-form button,
 :root[data-theme="light"] .agent-loop-form button,
 :root[data-theme="light"] .agent-loop-actions button,
+:root[data-theme="light"] .agent-mcp-form button,
 :root[data-theme="light"] .agent-card button,
 :root[data-theme="light"] .details-list-header button,
 :root[data-theme="light"] .checkbox-mark,
@@ -2523,6 +2553,9 @@ textarea:focus {
 :root[data-theme="light"] .agent-loop-form button,
 :root[data-theme="light"] .agent-loop-actions button,
 :root[data-theme="light"] .agent-inline-input,
+:root[data-theme="light"] .agent-mcp-form select,
+:root[data-theme="light"] .agent-mcp-form textarea,
+:root[data-theme="light"] .agent-mcp-form button,
 :root[data-theme="light"] .agent-card button,
 :root[data-theme="light"] .details-list-header button {
   border-color: #e8e8e3;
@@ -2545,6 +2578,10 @@ textarea:focus {
 :root[data-theme="light"] .agent-loop-actions button:hover:not(:disabled),
 :root[data-theme="light"] .agent-loop-actions button:focus-visible:not(:disabled),
 :root[data-theme="light"] .agent-inline-input:focus,
+:root[data-theme="light"] .agent-mcp-form select:focus,
+:root[data-theme="light"] .agent-mcp-form textarea:focus,
+:root[data-theme="light"] .agent-mcp-form button:hover:not(:disabled),
+:root[data-theme="light"] .agent-mcp-form button:focus-visible:not(:disabled),
 :root[data-theme="light"] .agent-card button:hover:not(:disabled),
 :root[data-theme="light"] .agent-card button:focus-visible:not(:disabled),
 :root[data-theme="light"] .details-list-header button:hover:not(:disabled),

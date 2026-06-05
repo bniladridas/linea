@@ -390,6 +390,10 @@ async function runProbe() {
             bodyText.includes('Commands') &&
             bodyText.includes('Hooks') &&
             bodyText.includes('Skills') &&
+            bodyText.includes('MCP') &&
+            Boolean(dialog.querySelector('.agent-mcp-form')) &&
+            Boolean(dialog.querySelector('select[aria-label="MCP tool"]')) &&
+            Boolean(dialog.querySelector('textarea[aria-label="MCP arguments"]')) &&
             Boolean(dialog.querySelector('.proposal-diff')) &&
             Boolean(dialog.querySelector('.proposal-actions button')),
           text: bodyText.slice(0, 600),
