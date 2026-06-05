@@ -125,7 +125,7 @@ func main() {
 		os.Exit(1)
 	}
 	llmClient := newRoutingAssistant(cfg, settingsStore)
-	agentRuntime := newAgentRuntime(cfg)
+	agentRuntime := newAgentRuntime(cfg, llmEditPlanner{assistant: llmClient})
 	if *runTUIBeta {
 		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).WithAgentRuntime(agentRuntime).RunBeta(ctx); err != nil {
 			slog.Error("hand-rolled tui", "error", err)
@@ -172,14 +172,112 @@ func printAgentStatus(ctx context.Context, cfg config.Config, out io.Writer) err
 	return encoder.Encode(newAgentRuntime(cfg).Status(ctx))
 }
 
-func newAgentRuntime(cfg config.Config) *agent.Runtime {
-	return agent.NewRuntime(
-		cfg.AgentRulesPath,
+func newAgentRuntime(cfg config.Config, planners ...agent.EditPlanner) *agent.Runtime {
+	options := []func(*agent.Runtime){
 		agent.WithWorkspaceRoot(cfg.AgentWorkspaceDir),
 		agent.WithSkillsDir(cfg.AgentSkillsDir),
 		agent.WithMCPConfigPath(cfg.AgentMCPConfig),
 		agent.WithCommandAllowlist(cfg.AgentCommandAllowlist),
+	}
+	if len(planners) > 0 && planners[0] != nil {
+		options = append(options, agent.WithEditPlanner(planners[0]))
+	}
+	return agent.NewRuntime(
+		cfg.AgentRulesPath,
+		options...,
 	)
+}
+
+type llmEditPlanner struct {
+	assistant interface {
+		GenerateStream(context.Context, []store.Message, []llm.Attachment, []llm.SearchResult, func(string) error) error
+	}
+}
+
+func (p llmEditPlanner) PlanEdit(ctx context.Context, request agent.EditPlanRequest) (agent.EditPlan, error) {
+	if p.assistant == nil {
+		return agent.EditPlan{}, errors.New("edit planner is unavailable")
+	}
+	prompt := buildEditPlannerPrompt(request)
+	var out strings.Builder
+	err := p.assistant.GenerateStream(ctx, []store.Message{{
+		ID:      store.NewID(),
+		Role:    "user",
+		Content: prompt,
+	}}, nil, nil, func(chunk string) error {
+		_, writeErr := out.WriteString(chunk)
+		return writeErr
+	})
+	if err != nil {
+		return agent.EditPlan{}, err
+	}
+	var plan agent.EditPlan
+	if err := json.Unmarshal([]byte(stripPlannerJSON(out.String())), &plan); err != nil {
+		return agent.EditPlan{}, fmt.Errorf("parse edit plan: %w", err)
+	}
+	if strings.TrimSpace(plan.Path) == "" {
+		return agent.EditPlan{}, errors.New("edit plan path is required")
+	}
+	return plan, nil
+}
+
+func buildEditPlannerPrompt(request agent.EditPlanRequest) string {
+	var builder strings.Builder
+	builder.WriteString("You are Linea's local edit planner. Return only JSON with path, content, and summary. ")
+	builder.WriteString("Content must be the complete replacement text for one existing file. Do not include markdown fences.\n\n")
+	builder.WriteString("Goal:\n")
+	builder.WriteString(request.Goal)
+	builder.WriteString("\n\n")
+	if request.Command != "" || request.CommandOutput != "" {
+		builder.WriteString("Command:\n")
+		builder.WriteString(request.Command)
+		builder.WriteString("\n\nCommand output:\n")
+		builder.WriteString(trimPlannerText(request.CommandOutput, 6000))
+		builder.WriteString("\n\n")
+	}
+	if len(request.Diagnostics) > 0 {
+		builder.WriteString("Diagnostics:\n")
+		for _, diagnostic := range request.Diagnostics {
+			builder.WriteString(fmt.Sprintf("- %s:%d:%d %s\n", diagnostic.Path, diagnostic.Line, diagnostic.Column, diagnostic.Message))
+		}
+		builder.WriteString("\n")
+	}
+	for _, file := range request.Files {
+		builder.WriteString("File: ")
+		builder.WriteString(file.Path)
+		if file.Truncated {
+			builder.WriteString(" (truncated)")
+		}
+		builder.WriteString("\n```")
+		builder.WriteString("\n")
+		builder.WriteString(trimPlannerText(file.Content, 20000))
+		builder.WriteString("\n```\n\n")
+	}
+	builder.WriteString(`Return shape: {"path":"relative/path","content":"complete file content","summary":"short summary"}`)
+	return builder.String()
+}
+
+func stripPlannerJSON(value string) string {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "```") {
+		return value
+	}
+	_, rest, ok := strings.Cut(value, "\n")
+	if !ok {
+		return value
+	}
+	index := strings.LastIndex(rest, "```")
+	if index < 0 {
+		return value
+	}
+	return strings.TrimSpace(rest[:index])
+}
+
+func trimPlannerText(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "\n... truncated ..."
 }
 
 func providerStatuses(ctx context.Context, cfg config.Config, settings api.Settings) []api.ProviderStatus {

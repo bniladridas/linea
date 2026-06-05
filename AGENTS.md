@@ -170,6 +170,14 @@ Start with one agent loop:
 5. Run checks.
 6. Show what changed.
 
+Loop modes:
+
+* Guided loops pause at approval, input, edit, and retry boundaries.
+* Auto loops may continue across safe local steps after explicit activation.
+* Auto loops may use diagnostics, command output, and file reads as evidence.
+* Auto loops may create review-only edit proposals.
+* Auto loops must stop before applying edits or running commands without approval.
+
 Rules:
 
 * Store project rules in plain files.

@@ -14,6 +14,7 @@ import (
 type Runtime struct {
 	mu               sync.RWMutex
 	rulesPath        string
+	editPlanner      EditPlanner
 	traces           []Trace
 	hookRuns         []HookRun
 	skillRuns        []SkillRun
@@ -28,6 +29,24 @@ type Runtime struct {
 	skillsDir        string
 	mcpConfigPath    string
 	commands         []string
+}
+
+type EditPlanner interface {
+	PlanEdit(context.Context, EditPlanRequest) (EditPlan, error)
+}
+
+type EditPlanRequest struct {
+	Goal          string       `json:"goal"`
+	Diagnostics   []Diagnostic `json:"diagnostics,omitempty"`
+	Command       string       `json:"command,omitempty"`
+	CommandOutput string       `json:"commandOutput,omitempty"`
+	Files         []FileResult `json:"files,omitempty"`
+}
+
+type EditPlan struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type Status struct {
@@ -125,13 +144,15 @@ type SkillExecution struct {
 }
 
 type AgentLoop struct {
-	ID        string          `json:"id"`
-	Goal      string          `json:"goal"`
-	State     string          `json:"state"`
-	Steps     []AgentLoopStep `json:"steps"`
-	Summary   string          `json:"summary"`
-	CreatedAt time.Time       `json:"createdAt"`
-	UpdatedAt time.Time       `json:"updatedAt"`
+	ID            string          `json:"id"`
+	Goal          string          `json:"goal"`
+	Mode          string          `json:"mode"`
+	State         string          `json:"state"`
+	MaxIterations int             `json:"maxIterations,omitempty"`
+	Steps         []AgentLoopStep `json:"steps"`
+	Summary       string          `json:"summary"`
+	CreatedAt     time.Time       `json:"createdAt"`
+	UpdatedAt     time.Time       `json:"updatedAt"`
 }
 
 type AgentLoopStep struct {
@@ -147,6 +168,8 @@ type AgentLoopStep struct {
 
 type AgentLoopInput struct {
 	Goal            string `json:"goal"`
+	Mode            string `json:"mode,omitempty"`
+	MaxIterations   int    `json:"maxIterations,omitempty"`
 	Command         string `json:"command,omitempty"`
 	Query           string `json:"query,omitempty"`
 	FilePath        string `json:"filePath,omitempty"`
@@ -156,6 +179,7 @@ type AgentLoopInput struct {
 
 type AgentLoopContinueInput struct {
 	Command         string `json:"command,omitempty"`
+	MaxIterations   int    `json:"maxIterations,omitempty"`
 	Query           string `json:"query,omitempty"`
 	FilePath        string `json:"filePath,omitempty"`
 	ProposalPath    string `json:"proposalPath,omitempty"`

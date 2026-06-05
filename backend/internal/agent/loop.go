@@ -8,7 +8,11 @@ import (
 	"time"
 )
 
-const maxAgentLoopItems = 25
+const (
+	maxAgentLoopItems          = 25
+	defaultAutoLoopIterations  = 5
+	maxAutoLoopIterationsLimit = 10
+)
 
 func (r *Runtime) ListAgentLoops(context.Context) []AgentLoop {
 	r.mu.RLock()
@@ -25,19 +29,22 @@ func (r *Runtime) StartAgentLoop(ctx context.Context, input AgentLoopInput) (Age
 		return AgentLoop{}, errors.New("Goal is required.")
 	}
 	now := time.Now().UTC()
+	mode := normalizeAgentLoopMode(input.Mode)
 	loop := AgentLoop{
-		ID:        newTraceID(),
-		Goal:      trimRunes(goal, 280),
-		State:     "running",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:            newTraceID(),
+		Goal:          trimRunes(goal, 280),
+		Mode:          mode,
+		State:         "running",
+		MaxIterations: normalizeAgentLoopIterations(mode, input.MaxIterations),
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	loop.Steps = append(loop.Steps, AgentLoopStep{
 		ID:     newTraceID(),
 		Kind:   "plan",
 		Title:  "Understand request",
 		State:  "completed",
-		Detail: "Created a bounded local plan.",
+		Detail: loopPlanDetail(mode),
 	})
 	loop = r.runLoopSteps(ctx, loop, input)
 	if loop.State == "running" {
@@ -65,6 +72,15 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 	if loop.State == "completed" {
 		return AgentLoop{}, errors.New("Agent loop is already completed.")
 	}
+	if loop.Mode == "auto" && input.MaxIterations != 0 {
+		nextMax := normalizeAgentLoopIterations(loop.Mode, input.MaxIterations)
+		if nextMax > loop.MaxIterations {
+			loop.MaxIterations = nextMax
+		}
+	}
+	if loop.Mode == "auto" && input.MaxIterations == 0 && autoLoopLimitReached(loop) && hasExplicitLoopContinueInput(input) {
+		loop.MaxIterations = normalizeAgentLoopIterations(loop.Mode, loop.MaxIterations+1)
+	}
 	loop.State = "running"
 	continued := false
 	for index, step := range loop.Steps {
@@ -87,7 +103,7 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 		}
 		loop = appendLoopStep(loop, "command_run", "Run command", "run_command", runErr, detail, step.Command)
 		if runErr != nil {
-			loop = appendRetryStep(loop, "Command failed. Provide another proposal or command to continue.")
+			loop = appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
 		}
 		if runErr == nil {
 			loop = appendLoopStep(loop, "review_result", "Review result", "run_command", nil, "Command completed successfully.", step.Command)
@@ -104,7 +120,16 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 						ToolID: "diagnostics",
 					})
 					loop.State = "attention"
-					loop = appendRetryStep(loop, "Diagnostics remain. Provide another proposal or command to continue.")
+					if loop.Mode == "auto" {
+						loop = r.autoProposeEdit(ctx, loop, EditPlanRequest{
+							Goal:          loop.Goal,
+							Diagnostics:   diagnostics,
+							Command:       step.Command,
+							CommandOutput: strings.TrimSpace(run.Output),
+						})
+					} else {
+						loop = appendRetryStep(loop, loopRetryDetail(loop, "Diagnostics remain."))
+					}
 				}
 			}
 		}
@@ -114,6 +139,8 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 	if !continued {
 		loop = r.runLoopSteps(ctx, loop, AgentLoopInput{
 			Goal:            loop.Goal,
+			Mode:            loop.Mode,
+			MaxIterations:   firstNonZero(input.MaxIterations, loop.MaxIterations),
 			Command:         input.Command,
 			Query:           input.Query,
 			FilePath:        input.FilePath,
@@ -184,6 +211,21 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		if shouldReadDiagnostics(goalLower) {
 			diagnostics, err := r.ListDiagnostics(ctx)
 			loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", err, fmt.Sprintf("%d diagnostic(s)", len(diagnostics)), "")
+			if err == nil && len(diagnostics) > 0 && loop.Mode == "auto" {
+				loop.Steps = append(loop.Steps, AgentLoopStep{
+					ID:     newTraceID(),
+					Kind:   "diagnostics_review",
+					Title:  "Review diagnostics",
+					State:  "attention",
+					Detail: fmt.Sprintf("%d diagnostic(s) found.", len(diagnostics)),
+					ToolID: "diagnostics",
+				})
+				loop.State = "attention"
+				loop = r.autoProposeEdit(ctx, loop, EditPlanRequest{Goal: loop.Goal, Diagnostics: diagnostics})
+				if loop.State == "waiting_approval" || loop.State == "waiting_input" || loop.State == "attention" {
+					return loop
+				}
+			}
 		}
 		query := loopSearchQuery(input, loop.Goal)
 		if query != "" {
@@ -213,6 +255,9 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		tools := r.ListMCPTools(ctx)
 		loop = appendLoopStep(loop, "mcp", "Inspect MCP", "mcp", nil, fmt.Sprintf("%d server(s), %d tool(s)", len(servers), len(tools)), "")
 	}
+	if loop.Mode == "auto" && autoLoopLimitReached(loop) {
+		return appendAutoLimitStep(loop)
+	}
 	proposalPath := strings.TrimSpace(input.ProposalPath)
 	if proposalPath != "" {
 		proposal, err := r.ProposeEdit(ctx, EditProposalInput{
@@ -229,6 +274,9 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		loop = appendLoopStep(loop, "edit_proposal", "Create edit proposal", "edit_file", err, detail, "")
 		if createdID != "" {
 			loop.Steps[len(loop.Steps)-1].CreatedID = createdID
+		}
+		if loop.Mode == "auto" && autoLoopLimitReached(loop) {
+			return appendAutoLimitStep(loop)
 		}
 	} else if mentionsEdit(goalLower) {
 		loop.Steps = append(loop.Steps, AgentLoopStep{
@@ -260,12 +308,16 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 			if approvalErr != nil {
 				loop = appendLoopStep(loop, "command_approval", "Request command approval", "run_command", approvalErr, "", command)
 			} else {
+				detail := "Approve before running."
+				if loop.Mode == "auto" {
+					detail = "Approve to let the auto loop continue."
+				}
 				step := AgentLoopStep{
 					ID:        newTraceID(),
 					Kind:      "command_approval",
 					Title:     "Request command approval",
 					State:     "waiting_approval",
-					Detail:    "Approve before running.",
+					Detail:    detail,
 					ToolID:    "run_command",
 					Command:   command,
 					CreatedID: approval.ID,
@@ -325,6 +377,202 @@ func appendRetryStep(loop AgentLoop, detail string) AgentLoop {
 	})
 	loop.State = "attention"
 	return loop
+}
+
+func appendAutoLimitStep(loop AgentLoop) AgentLoop {
+	loop.Steps = append(loop.Steps, AgentLoopStep{
+		ID:     newTraceID(),
+		Kind:   "auto_limit",
+		Title:  "Auto limit",
+		State:  "waiting_input",
+		Detail: fmt.Sprintf("Reached %d iteration(s). Continue explicitly to keep going.", loop.MaxIterations),
+	})
+	loop.State = "waiting_input"
+	return loop
+}
+
+func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request EditPlanRequest) AgentLoop {
+	if autoLoopLimitReached(loop) {
+		return appendAutoLimitStep(loop)
+	}
+	planner := r.editPlanner
+	if planner == nil {
+		loop.Steps = append(loop.Steps, AgentLoopStep{
+			ID:     newTraceID(),
+			Kind:   "plan_edit",
+			Title:  "Plan edit",
+			State:  "waiting_input",
+			Detail: "Auto edit planning is unavailable.",
+			ToolID: "edit_file",
+		})
+		loop.State = "waiting_input"
+		return loop
+	}
+	files, err := r.autoEditContextFiles(ctx, request.Diagnostics)
+	if err != nil {
+		loop = appendLoopStep(loop, "read_file", "Read fix context", "read_file", err, "", "")
+		return loop
+	}
+	if len(files) == 0 {
+		loop.Steps = append(loop.Steps, AgentLoopStep{
+			ID:     newTraceID(),
+			Kind:   "plan_edit",
+			Title:  "Plan edit",
+			State:  "waiting_input",
+			Detail: "No editable diagnostic file was found.",
+			ToolID: "edit_file",
+		})
+		loop.State = "waiting_input"
+		return loop
+	}
+	request.Files = files
+	plan, err := planner.PlanEdit(ctx, request)
+	if err != nil {
+		loop = appendLoopStep(loop, "plan_edit", "Plan edit", "edit_file", err, "", "")
+		return loop
+	}
+	plan.Path = strings.TrimSpace(plan.Path)
+	if plan.Path == "" {
+		loop = appendLoopStep(loop, "plan_edit", "Plan edit", "edit_file", errors.New("planner returned no path"), "", "")
+		return loop
+	}
+	if !editPlanPathInFiles(plan.Path, files) {
+		loop = appendLoopStep(loop, "plan_edit", "Plan edit", "edit_file", errors.New("planner returned a path outside diagnostic context"), "", "")
+		return loop
+	}
+	loop = appendLoopStep(loop, "plan_edit", "Plan edit", "edit_file", nil, plan.Path, "")
+	proposal, err := r.ProposeEdit(ctx, EditProposalInput{
+		Path:    plan.Path,
+		Content: plan.Content,
+		Summary: firstNonEmpty(strings.TrimSpace(plan.Summary), "Auto loop proposal"),
+	})
+	detail := plan.Path
+	createdID := ""
+	if err == nil {
+		detail = proposal.Path
+		createdID = proposal.ID
+	}
+	loop = appendLoopStep(loop, "edit_proposal", "Create edit proposal", "edit_file", err, detail, "")
+	if createdID != "" {
+		loop.Steps[len(loop.Steps)-1].CreatedID = createdID
+		loop.Steps = append(loop.Steps, AgentLoopStep{
+			ID:        newTraceID(),
+			Kind:      "edit_review",
+			Title:     "Review edit proposal",
+			State:     "waiting_approval",
+			Detail:    "Review and apply explicitly before running more checks.",
+			ToolID:    "edit_file",
+			CreatedID: createdID,
+		})
+		loop.State = "waiting_approval"
+	}
+	return loop
+}
+
+func (r *Runtime) autoEditContextFiles(ctx context.Context, diagnostics []Diagnostic) ([]FileResult, error) {
+	seen := map[string]bool{}
+	files := []FileResult{}
+	for _, diagnostic := range diagnostics {
+		path := strings.TrimSpace(diagnostic.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		file, err := r.ReadFile(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+		if len(files) >= 3 {
+			break
+		}
+	}
+	return files, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func hasExplicitLoopContinueInput(input AgentLoopContinueInput) bool {
+	return strings.TrimSpace(input.Command) != "" ||
+		strings.TrimSpace(input.Query) != "" ||
+		strings.TrimSpace(input.FilePath) != "" ||
+		strings.TrimSpace(input.ProposalPath) != ""
+}
+
+func editPlanPathInFiles(path string, files []FileResult) bool {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	for _, file := range files {
+		if strings.Trim(strings.TrimSpace(file.Path), "/") == path {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeAgentLoopMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "auto":
+		return "auto"
+	default:
+		return "guided"
+	}
+}
+
+func normalizeAgentLoopIterations(mode string, limit int) int {
+	if mode != "auto" {
+		return 0
+	}
+	if limit <= 0 {
+		return defaultAutoLoopIterations
+	}
+	if limit > maxAutoLoopIterationsLimit {
+		return maxAutoLoopIterationsLimit
+	}
+	return limit
+}
+
+func firstNonZero(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func loopPlanDetail(mode string) string {
+	if mode == "auto" {
+		return "Created an auto local plan with explicit approval boundaries."
+	}
+	return "Created a bounded local plan."
+}
+
+func loopRetryDetail(loop AgentLoop, reason string) string {
+	if loop.Mode == "auto" {
+		return reason + " Auto loop paused for the next proposal or approved command."
+	}
+	return reason + " Provide another proposal or command to continue."
+}
+
+func autoLoopLimitReached(loop AgentLoop) bool {
+	if loop.Mode != "auto" || loop.MaxIterations <= 0 {
+		return false
+	}
+	iterations := 0
+	for _, step := range loop.Steps {
+		switch step.Kind {
+		case "command_run", "edit_proposal":
+			iterations++
+		}
+	}
+	return iterations >= loop.MaxIterations
 }
 
 func loopSearchQuery(input AgentLoopInput, goal string) string {
@@ -389,10 +637,19 @@ func loopSummary(loop AgentLoop) string {
 	}
 	switch loop.State {
 	case "completed":
+		if loop.Mode == "auto" {
+			return fmt.Sprintf("Auto loop completed %d step(s).", counts["completed"])
+		}
 		return fmt.Sprintf("Completed %d step(s).", counts["completed"])
 	case "waiting_approval":
+		if loop.Mode == "auto" {
+			return "Auto loop waiting for explicit approval."
+		}
 		return "Waiting for explicit approval."
 	case "waiting_input":
+		if loop.Mode == "auto" {
+			return "Auto loop waiting for input."
+		}
 		return "Waiting for workspace or command input."
 	case "canceled":
 		return "Canceled."
