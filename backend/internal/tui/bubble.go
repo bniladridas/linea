@@ -376,7 +376,7 @@ func (m bubbleModel) viewChat(styles bubbleStyles) string {
 	b.WriteString("\n")
 	b.WriteString(styles.composer.Width(m.composerWidth()).Render(lipgloss.NewStyle().Width(m.input.Width).Render(m.input.View())))
 	b.WriteString("\n")
-	b.WriteString(styles.status.Render(m.status + "  :new · :attach <path> · :help · :agent · :diag · :symbols <q> · :mcp · :loop <goal> · :quit"))
+	b.WriteString(styles.status.Render(m.status + "  :new · :attach <path> · :help · :agent · :diag · :symbols <q> · :refs <id> · :mcp · :loop <goal> · :quit"))
 	return styles.frame.Width(m.contentWidth()).Render(b.String())
 }
 

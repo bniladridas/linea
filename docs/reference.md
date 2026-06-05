@@ -105,7 +105,7 @@ Vite runs at `http://localhost:5173`.
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
 | Server | `linea -check-server http://localhost:8080` |
-| Terminal chat | `linea -tui` (`:new`, `:attach <path>`, `:help`, `:agent`, `:diag`, `:symbols <q>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent <id>`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:quit`) |
+| Terminal chat | `linea -tui` (`:new`, `:attach <path>`, `:help`, `:agent`, `:diag`, `:symbols <q>`, `:refs <id>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent <id>`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:quit`) |
 | Hand-rolled TUI | `linea -tui-beta` |
 | Agent status | `linea -agent-status` |
 | Agent API | `make agent-check` |
@@ -173,6 +173,7 @@ UI checks need Chrome. Message checks need one working text model.
 | `PATCH` | `/api/agent/workspace` |
 | `GET` | `/api/agent/workspace/diagnostics` |
 | `GET` | `/api/agent/workspace/symbols` |
+| `GET` | `/api/agent/workspace/references` |
 | `GET` | `/api/agent/edit-proposals` |
 | `POST` | `/api/agent/edit-proposals` |
 | `PATCH` | `/api/agent/edit-proposals/{id}` |

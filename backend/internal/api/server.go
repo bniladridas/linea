@@ -82,6 +82,7 @@ type AgentRuntime interface {
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ListSymbols(context.Context, string) ([]agent.WorkspaceSymbol, error)
+	ListReferences(context.Context, string) ([]agent.WorkspaceReference, error)
 	SetWorkspaceRoot(string) (string, error)
 	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
 	ListEditProposals(context.Context) []agent.EditProposal
@@ -219,6 +220,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/workspace/diagnostics", s.listAgentWorkspaceDiagnostics)
 	mux.HandleFunc("GET /api/agent/workspace/symbols", s.listAgentWorkspaceSymbols)
+	mux.HandleFunc("GET /api/agent/workspace/references", s.listAgentWorkspaceReferences)
 	mux.HandleFunc("GET /api/agent/edit-proposals", s.listAgentEditProposals)
 	mux.HandleFunc("POST /api/agent/edit-proposals", s.createAgentEditProposal)
 	mux.HandleFunc("PATCH /api/agent/edit-proposals/{id}", s.reviewAgentEditProposal)
@@ -700,6 +702,20 @@ func (s *Server) listAgentWorkspaceSymbols(w http.ResponseWriter, r *http.Reques
 	}
 	s.recordAgentTrace(r.Context(), "read symbols", "completed", fmt.Sprintf("%d", len(symbols)))
 	writeJSON(w, http.StatusOK, symbols)
+}
+
+func (s *Server) listAgentWorkspaceReferences(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent workspace is not available.")
+		return
+	}
+	references, err := s.agentRuntime.ListReferences(r.Context(), r.URL.Query().Get("q"))
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "read references", "completed", fmt.Sprintf("%d", len(references)))
+	writeJSON(w, http.StatusOK, references)
 }
 
 func (s *Server) listAgentEditProposals(w http.ResponseWriter, r *http.Request) {

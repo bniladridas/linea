@@ -1394,6 +1394,35 @@ func TestAgentWorkspaceSymbolsEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentWorkspaceReferencesEndpoint(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc Run() {}\nfunc main() { Run() }\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/workspace/references?q=Run", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var references []agent.WorkspaceReference
+	if err := json.NewDecoder(res.Body).Decode(&references); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(references) != 2 || references[0].Path != "main.go" || references[1].Path != "main.go" {
+		t.Fatalf("references = %#v", references)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "read references" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestAgentWorkspaceDisabledReturnsNotFound(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")
