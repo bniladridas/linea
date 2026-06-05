@@ -970,6 +970,10 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		s.streamEditProposalResponse(w, r, conversationID, userMessage, input, parseErr)
 		return
 	}
+	if input, ok, parseErr := parseAgentLoopChatCommand(rawContent); ok {
+		s.streamAgentLoopResponse(w, r, conversationID, userMessage, input, parseErr)
+		return
+	}
 
 	messages, err := s.store.ListMessages(r.Context(), conversationID)
 	if err != nil {
@@ -1017,6 +1021,10 @@ func (s *Server) createTemporaryMessage(w http.ResponseWriter, r *http.Request) 
 
 	if input, ok, parseErr := parseEditProposalChatCommand(rawContent); ok {
 		s.streamTemporaryEditProposalResponse(w, r, userMessage, input, parseErr)
+		return
+	}
+	if input, ok, parseErr := parseAgentLoopChatCommand(rawContent); ok {
+		s.streamTemporaryAgentLoopResponse(w, r, userMessage, input, parseErr)
 		return
 	}
 
@@ -1139,6 +1147,76 @@ func (s *Server) streamTemporaryEditProposalResponse(w http.ResponseWriter, r *h
 	writeEvent(w, "chunk", map[string]string{"content": content})
 	writeEvent(w, "done", assistantMessage)
 	flusher.Flush()
+}
+
+func (s *Server) streamAgentLoopResponse(w http.ResponseWriter, r *http.Request, conversationID string, userMessage store.Message, input agent.AgentLoopInput, parseErr error) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "Streaming is not supported.")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusCreated)
+
+	writeEvent(w, "user", userMessage)
+	flusher.Flush()
+
+	content := s.agentLoopChatResponse(r.Context(), input, parseErr)
+	assistantMessage, err := s.store.AddMessage(r.Context(), conversationID, "assistant", content)
+	if err != nil {
+		slog.Error("add agent loop assistant message", "error", err)
+		writeEvent(w, "error", map[string]string{"error": "Could not save assistant response."})
+		flusher.Flush()
+		return
+	}
+	writeEvent(w, "chunk", map[string]string{"content": content})
+	writeEvent(w, "done", assistantMessage)
+	flusher.Flush()
+}
+
+func (s *Server) streamTemporaryAgentLoopResponse(w http.ResponseWriter, r *http.Request, userMessage store.Message, input agent.AgentLoopInput, parseErr error) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "Streaming is not supported.")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusCreated)
+
+	writeEvent(w, "user", userMessage)
+	flusher.Flush()
+
+	content := s.agentLoopChatResponse(r.Context(), input, parseErr)
+	assistantMessage := store.Message{
+		ID:        store.NewID(),
+		Role:      "assistant",
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
+	}
+	writeEvent(w, "chunk", map[string]string{"content": content})
+	writeEvent(w, "done", assistantMessage)
+	flusher.Flush()
+}
+
+func (s *Server) agentLoopChatResponse(ctx context.Context, input agent.AgentLoopInput, parseErr error) string {
+	if parseErr != nil {
+		return parseErr.Error()
+	}
+	if s.agentRuntime == nil {
+		return "Agent loops are not available."
+	}
+	loop, err := s.agentRuntime.StartAgentLoop(ctx, input)
+	if err != nil {
+		return err.Error()
+	}
+	s.recordAgentTrace(ctx, "agent loop", loop.State, loop.Goal)
+	return fmt.Sprintf("Started agent loop `%s`.\n\n%s", loop.Goal, loopSummaryText(loop))
 }
 
 func (s *Server) streamAssistantResponse(w http.ResponseWriter, r *http.Request, conversationID string, userMessage store.Message, messages []store.Message, attachments []llm.Attachment, searchResults []llm.SearchResult) {
@@ -1311,6 +1389,56 @@ func parseEditProposalChatCommand(content string) (agent.EditProposalInput, bool
 		Content: proposedContent,
 		Summary: "Chat proposal",
 	}, true, nil
+}
+
+func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, error) {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	firstLine, body, _ := strings.Cut(normalized, "\n")
+	firstLine = strings.TrimSpace(firstLine)
+	lowerFirstLine := strings.ToLower(firstLine)
+	goal := ""
+	switch {
+	case strings.HasPrefix(lowerFirstLine, "run agent "):
+		goal = strings.TrimSpace(firstLine[len("run agent "):])
+	case strings.HasPrefix(lowerFirstLine, "start agent "):
+		goal = strings.TrimSpace(firstLine[len("start agent "):])
+	case strings.HasPrefix(lowerFirstLine, "agent "):
+		goal = strings.TrimSpace(firstLine[len("agent "):])
+	default:
+		return agent.AgentLoopInput{}, false, nil
+	}
+	if goal == "" {
+		return agent.AgentLoopInput{}, true, errors.New("Use `agent <goal>` to start an agent loop.")
+	}
+	input := agent.AgentLoopInput{Goal: goal}
+	for _, line := range strings.Split(body, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "query":
+			input.Query = value
+		case "file", "path":
+			input.FilePath = value
+		case "command":
+			input.Command = value
+		}
+	}
+	return input, true, nil
+}
+
+func loopSummaryText(loop agent.AgentLoop) string {
+	lines := []string{fmt.Sprintf("State: %s.", loop.State)}
+	for _, step := range loop.Steps {
+		line := fmt.Sprintf("- %s: %s", step.Title, step.State)
+		if strings.TrimSpace(step.Detail) != "" {
+			line += fmt.Sprintf(" · %s", step.Detail)
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func editProposalBody(body string) string {
