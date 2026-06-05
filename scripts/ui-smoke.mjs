@@ -386,6 +386,7 @@ async function runProbe() {
             Array.from(dialog.querySelectorAll('button')).some((button) => button.textContent.trim() === 'References') &&
             bodyText.includes('Edit proposals') &&
             bodyText.includes('Agent review smoke') &&
+            bodyText.includes('Agent session') &&
             bodyText.includes('Agent loop') &&
             Boolean(dialog.querySelector('.agent-loop-card')) &&
             bodyText.includes('Commands') &&

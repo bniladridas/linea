@@ -161,6 +161,7 @@ type AgentStatus = {
     command: string;
     allowed: boolean;
     reason: string;
+    createdAt?: string;
   }>;
   commandApprovals?: Array<{
     id: string;
@@ -2130,6 +2131,7 @@ function SystemDetailsDialog({
   const selectedProposal =
     editProposals.find((proposal) => proposal.id === selectedProposalId) ?? editProposals[0] ?? null;
   const mcpTools = agentStatus?.mcpTools ?? [];
+  const agentTimeline = useMemo(() => buildAgentTimeline(agentStatus, editProposals), [agentStatus, editProposals]);
   const workspaceEmptyText = !workspaceOn
     ? 'Workspace tools are off'
     : workspaceMode === 'symbols'
@@ -2386,6 +2388,39 @@ function SystemDetailsDialog({
             <SettingsPanel settings={settings} onChange={onSettingsChange} variant="details" />
           </section>
         )}
+
+        <section className="details-list agent-session">
+          <div className="details-list-header">
+            <h3>Agent session</h3>
+            <span>{agentTimeline.length}</span>
+          </div>
+          <div className="agent-timeline">
+            {agentTimeline.length > 0 ? (
+              agentTimeline.map((item) => (
+                <div className={`agent-timeline-item ${item.state}`} key={item.id}>
+                  <div className="agent-timeline-main">
+                    <span>{item.kind}</span>
+                    <strong>{item.title}</strong>
+                    <em>{item.state}</em>
+                  </div>
+                  {item.detail && <p>{truncateText(item.detail.replace(/\s+/g, ' '), 140)}</p>}
+                  {item.children && item.children.length > 0 && (
+                    <div className="agent-timeline-children">
+                      {item.children.slice(0, 6).map((child) => (
+                        <span key={child.id}>
+                          {child.title}: {child.state}
+                          {child.detail ? ` · ${truncateText(child.detail, 90)}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <p>No agent activity</p>
+            )}
+          </div>
+        </section>
 
         <section className="details-list agent-control">
           <div className="details-list-header">
@@ -2955,6 +2990,137 @@ function formatCommandRun(run: NonNullable<AgentStatus['commandRuns']>[number]) 
   const output = run.output.trim().replace(/\s+/g, ' ');
   const preview = output ? ` · ${truncateText(output, 90)}` : '';
   return `${run.command} · exit ${run.exitCode}${preview}`;
+}
+
+type AgentTimelineItem = {
+  id: string;
+  kind: string;
+  title: string;
+  state: string;
+  detail?: string;
+  createdAt: string;
+  children?: Array<{
+    id: string;
+    title: string;
+    state: string;
+    detail?: string;
+  }>;
+};
+
+function buildAgentTimeline(agentStatus: AgentStatus | null, editProposals: AgentEditProposal[]): AgentTimelineItem[] {
+  if (!agentStatus) {
+    return [];
+  }
+  const items: AgentTimelineItem[] = [];
+  for (const loop of agentStatus.agentLoops ?? []) {
+    items.push({
+      id: `loop-${loop.id}`,
+      kind: 'loop',
+      title: loop.goal,
+      state: loop.state,
+      detail: loop.summary,
+      createdAt: loop.updatedAt || loop.createdAt,
+      children: loop.steps.map((step) => ({
+        id: step.id,
+        title: step.toolId || step.kind || step.title,
+        state: step.state,
+        detail: [step.title, step.detail, step.command].filter(Boolean).join(' · '),
+      })),
+    });
+  }
+  for (const run of agentStatus.commandRuns ?? []) {
+    items.push({
+      id: `command-run-${run.id}`,
+      kind: 'command',
+      title: run.command,
+      state: run.exitCode === 0 ? 'completed' : 'failed',
+      detail: formatCommandRun(run),
+      createdAt: run.createdAt,
+    });
+  }
+  for (const check of agentStatus.commandChecks ?? []) {
+    items.push({
+      id: `command-check-${check.id}`,
+      kind: 'check',
+      title: check.command,
+      state: check.allowed ? 'allowed' : 'blocked',
+      detail: check.reason,
+      createdAt: check.createdAt || new Date(0).toISOString(),
+    });
+  }
+  for (const approval of agentStatus.commandApprovals ?? []) {
+    items.push({
+      id: `approval-${approval.id}`,
+      kind: 'approval',
+      title: approval.command,
+      state: approval.state,
+      detail: approval.detail,
+      createdAt: approval.createdAt,
+    });
+  }
+  for (const run of agentStatus.hookRuns ?? []) {
+    items.push({
+      id: `hook-${run.id}`,
+      kind: 'hook',
+      title: run.hookId,
+      state: run.state,
+      detail: run.detail,
+      createdAt: run.createdAt,
+    });
+  }
+  for (const run of agentStatus.skillRuns ?? []) {
+    items.push({
+      id: `skill-${run.id}`,
+      kind: 'skill',
+      title: run.skillId,
+      state: run.state,
+      detail: run.detail,
+      createdAt: run.createdAt,
+    });
+  }
+  for (const run of agentStatus.subagentRuns ?? []) {
+    items.push({
+      id: `subagent-${run.id}`,
+      kind: 'subagent',
+      title: run.subagentId,
+      state: run.state,
+      detail: run.summary,
+      createdAt: run.createdAt,
+    });
+  }
+  for (const call of agentStatus.mcpCalls ?? []) {
+    items.push({
+      id: `mcp-${call.id}`,
+      kind: 'mcp',
+      title: call.name || call.toolId,
+      state: call.state,
+      detail: call.error || call.output,
+      createdAt: call.createdAt,
+    });
+  }
+  for (const proposal of editProposals) {
+    items.push({
+      id: `proposal-${proposal.id}`,
+      kind: 'proposal',
+      title: proposal.path,
+      state: proposal.status,
+      detail: proposal.summary || proposal.reviewDetail,
+      createdAt: proposal.reviewedAt || proposal.createdAt,
+    });
+  }
+  for (const trace of agentStatus.traceEvents ?? []) {
+    items.push({
+      id: `trace-${trace.id}`,
+      kind: 'trace',
+      title: trace.event,
+      state: trace.state,
+      detail: trace.detail,
+      createdAt: trace.createdAt,
+    });
+  }
+  return items
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 12);
 }
 
 function truncateText(value: string, maxLength: number) {

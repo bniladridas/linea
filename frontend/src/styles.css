@@ -1655,11 +1655,78 @@ textarea {
   gap: 6px;
 }
 
+.agent-timeline {
+  display: grid;
+  max-height: 360px;
+  min-width: 0;
+  gap: 6px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.agent-timeline-item {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border: 1px solid #171717;
+  border-radius: 8px;
+  background: #101010;
+  padding: 8px;
+}
+
+.agent-timeline-main {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.agent-timeline-main span,
+.agent-timeline-main em,
+.agent-timeline-item p,
+.agent-timeline-children span {
+  min-width: 0;
+  overflow: hidden;
+  color: #8f8f8f;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-timeline-main strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #eeeeee;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-timeline-item p {
+  margin: 0;
+}
+
+.agent-timeline-children {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding-left: 80px;
+}
+
 @media (max-width: 760px) {
   .agent-card-list.two-column,
   .agent-loop-options,
-  .agent-command-form {
+  .agent-command-form,
+  .agent-timeline-main {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-timeline-children {
+    padding-left: 0;
   }
 }
 
@@ -2464,6 +2531,7 @@ textarea:focus {
 :root[data-theme="light"] .proposal-detail-top strong,
 :root[data-theme="light"] .agent-card strong,
 :root[data-theme="light"] .agent-loop-top strong,
+:root[data-theme="light"] .agent-timeline-main strong,
 :root[data-theme="light"] .detail-line strong {
   color: #252522;
 }
@@ -2503,6 +2571,7 @@ textarea:focus {
 :root[data-theme="light"] .details-list,
 :root[data-theme="light"] .agent-card,
 :root[data-theme="light"] .agent-loop-card,
+:root[data-theme="light"] .agent-timeline-item,
 :root[data-theme="light"] .proposal-diff,
 :root[data-theme="light"] .conversation-menu,
 :root[data-theme="light"] .conversation-rename {
@@ -2606,7 +2675,11 @@ textarea:focus {
 :root[data-theme="light"] .workspace-result small,
 :root[data-theme="light"] .workspace-file-meta span,
 :root[data-theme="light"] .workspace-file p,
-:root[data-theme="light"] .workspace-results p {
+:root[data-theme="light"] .workspace-results p,
+:root[data-theme="light"] .agent-timeline-main span,
+:root[data-theme="light"] .agent-timeline-main em,
+:root[data-theme="light"] .agent-timeline-item p,
+:root[data-theme="light"] .agent-timeline-children span {
   color: #767670;
 }
 
