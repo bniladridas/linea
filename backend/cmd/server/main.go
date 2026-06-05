@@ -25,6 +25,7 @@ import (
 	"linea/backend/internal/migrate"
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
+	"linea/backend/internal/tui"
 	"linea/backend/internal/web"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,6 +38,8 @@ func main() {
 	runMigrations := flag.Bool("migrate", false, "apply database migrations and exit")
 	runCheck := flag.Bool("check", false, "run non-interactive health checks and exit")
 	runAgentStatus := flag.Bool("agent-status", false, "print local agent status and exit")
+	runTUI := flag.Bool("tui", false, "run the terminal chat interface")
+	runTUIBeta := flag.Bool("tui-beta", false, "run the hand-rolled terminal chat interface")
 	checkServerURL := flag.String("check-server", "", "check a running Linea server URL and exit")
 	flag.Parse()
 	if *showVersion {
@@ -122,6 +125,20 @@ func main() {
 		os.Exit(1)
 	}
 	llmClient := newRoutingAssistant(cfg, settingsStore)
+	if *runTUIBeta {
+		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).RunBeta(ctx); err != nil {
+			slog.Error("hand-rolled tui", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *runTUI {
+		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).Run(ctx); err != nil {
+			slog.Error("tui", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	agentRuntime := newAgentRuntime(cfg)
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
