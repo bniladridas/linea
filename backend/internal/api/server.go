@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"linea/backend/internal/agent"
 	"linea/backend/internal/llm"
@@ -72,10 +73,12 @@ type AgentRuntime interface {
 	RunCommand(context.Context, agent.CommandCheckInput) (agent.CommandRun, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
+	SetWorkspaceRoot(string) (string, error)
 	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
 	ListEditProposals(context.Context) []agent.EditProposal
 	ProposeEdit(context.Context, agent.EditProposalInput) (agent.EditProposal, error)
 	ReviewEditProposal(context.Context, string, agent.EditProposalReviewInput) (agent.EditProposal, error)
+	ApplyEditProposal(context.Context, string) (agent.EditProposal, error)
 }
 
 type Settings struct {
@@ -195,13 +198,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent/command-runs", s.listAgentCommandRuns)
 	mux.HandleFunc("POST /api/agent/command-runs", s.createAgentCommandRun)
 	mux.HandleFunc("GET /api/agent/workspace/file", s.readAgentWorkspaceFile)
+	mux.HandleFunc("PATCH /api/agent/workspace", s.updateAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/workspace/diagnostics", s.listAgentWorkspaceDiagnostics)
 	mux.HandleFunc("GET /api/agent/edit-proposals", s.listAgentEditProposals)
 	mux.HandleFunc("POST /api/agent/edit-proposals", s.createAgentEditProposal)
 	mux.HandleFunc("PATCH /api/agent/edit-proposals/{id}", s.reviewAgentEditProposal)
+	mux.HandleFunc("POST /api/agent/edit-proposals/{id}/apply", s.applyAgentEditProposal)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
+	mux.HandleFunc("POST /api/chat/temp", s.createTemporaryMessage)
 	mux.HandleFunc("GET /api/conversations", s.listConversations)
 	mux.HandleFunc("POST /api/conversations", s.createConversation)
 	mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
@@ -511,6 +517,31 @@ func (s *Server) searchAgentWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, results)
 }
 
+func (s *Server) updateAgentWorkspace(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent workspace is not available.")
+		return
+	}
+	var input struct {
+		Root string `json:"root"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	root, err := s.agentRuntime.SetWorkspaceRoot(input.Root)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	state := "disabled"
+	if root != "" {
+		state = "updated"
+	}
+	s.recordAgentTrace(r.Context(), "workspace root", state, root)
+	writeJSON(w, http.StatusOK, map[string]string{"root": root})
+}
+
 func (s *Server) listAgentWorkspaceDiagnostics(w http.ResponseWriter, r *http.Request) {
 	if s.agentRuntime == nil {
 		writeError(w, http.StatusNotFound, "Agent workspace is not available.")
@@ -568,6 +599,20 @@ func (s *Server) reviewAgentEditProposal(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.recordAgentTrace(r.Context(), "review edit", proposal.Status, proposal.Path)
+	writeJSON(w, http.StatusOK, proposal)
+}
+
+func (s *Server) applyAgentEditProposal(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent edit proposals are not available.")
+		return
+	}
+	proposal, err := s.agentRuntime.ApplyEditProposal(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "apply edit", proposal.Status, proposal.Path)
 	writeJSON(w, http.StatusOK, proposal)
 }
 
@@ -629,7 +674,11 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title string `json:"title"`
+		Title    string `json:"title"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
@@ -638,11 +687,38 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Title) == "" {
 		req.Title = "Untitled"
 	}
+	type importedMessage struct {
+		role    string
+		content string
+	}
+	importedMessages := make([]importedMessage, 0, len(req.Messages))
+	for _, message := range req.Messages {
+		role := strings.TrimSpace(message.Role)
+		content := strings.TrimSpace(message.Content)
+		if role != "user" && role != "assistant" {
+			writeError(w, http.StatusBadRequest, "Imported messages must be user or assistant messages.")
+			return
+		}
+		if content == "" {
+			continue
+		}
+		importedMessages = append(importedMessages, importedMessage{role: role, content: content})
+	}
 	conversation, err := s.store.CreateConversation(r.Context(), req.Title)
 	if err != nil {
 		slog.Error("create conversation", "error", err)
 		writeError(w, http.StatusInternalServerError, "Could not create conversation.")
 		return
+	}
+	for _, message := range importedMessages {
+		if _, err := s.store.AddMessage(r.Context(), conversation.ID, message.role, message.content); err != nil {
+			slog.Error("import message", "error", err)
+			if deleteErr := s.store.DeleteConversation(context.WithoutCancel(r.Context()), conversation.ID); deleteErr != nil {
+				slog.Error("rollback imported conversation", "error", deleteErr)
+			}
+			writeError(w, http.StatusInternalServerError, "Could not import messages.")
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, conversation)
 }
@@ -746,6 +822,81 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 	s.streamAssistantResponse(w, r, conversationID, userMessage, messages, attachments, searchResults)
 }
 
+func (s *Server) createTemporaryMessage(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "Message must be multipart form data.")
+		return
+	}
+	rawContent := r.FormValue("content")
+	content := strings.TrimSpace(rawContent)
+	if content == "" {
+		writeError(w, http.StatusBadRequest, "Message content is required.")
+		return
+	}
+	attachments, err := readAttachments(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	messages, err := temporaryHistory(r.FormValue("history"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	now := time.Now().UTC()
+	userMessage := store.Message{
+		ID:        store.NewID(),
+		Role:      "user",
+		Content:   content,
+		CreatedAt: now,
+	}
+	messages = append(messages, userMessage)
+
+	if input, ok, parseErr := parseEditProposalChatCommand(rawContent); ok {
+		s.streamTemporaryEditProposalResponse(w, r, userMessage, input, parseErr)
+		return
+	}
+
+	searchResults, err := s.searchIfNeeded(r.Context(), content)
+	if err != nil {
+		slog.Warn("web search failed", "error", err)
+	}
+	s.streamTemporaryAssistantResponse(w, r, userMessage, messages, attachments, searchResults)
+}
+
+func temporaryHistory(value string) ([]store.Message, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	var input []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(value), &input); err != nil {
+		return nil, errors.New("Invalid temporary chat history.")
+	}
+	messages := make([]store.Message, 0, len(input))
+	baseTime := time.Now().UTC().Add(-time.Duration(len(input)) * time.Millisecond)
+	for index, message := range input {
+		role := strings.TrimSpace(message.Role)
+		content := strings.TrimSpace(message.Content)
+		if role != "user" && role != "assistant" {
+			return nil, errors.New("Temporary chat history must contain user or assistant messages.")
+		}
+		if content == "" {
+			continue
+		}
+		messages = append(messages, store.Message{
+			ID:        store.NewID(),
+			Role:      role,
+			Content:   content,
+			CreatedAt: baseTime.Add(time.Duration(index) * time.Millisecond),
+		})
+	}
+	return messages, nil
+}
+
 func (s *Server) streamEditProposalResponse(w http.ResponseWriter, r *http.Request, conversationID string, userMessage store.Message, input agent.EditProposalInput, parseErr error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -782,6 +933,46 @@ func (s *Server) streamEditProposalResponse(w http.ResponseWriter, r *http.Reque
 		writeEvent(w, "error", map[string]string{"error": "Could not save assistant response."})
 		flusher.Flush()
 		return
+	}
+	writeEvent(w, "chunk", map[string]string{"content": content})
+	writeEvent(w, "done", assistantMessage)
+	flusher.Flush()
+}
+
+func (s *Server) streamTemporaryEditProposalResponse(w http.ResponseWriter, r *http.Request, userMessage store.Message, input agent.EditProposalInput, parseErr error) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "Streaming is not supported.")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusCreated)
+
+	writeEvent(w, "user", userMessage)
+	flusher.Flush()
+
+	content := ""
+	if parseErr != nil {
+		content = parseErr.Error()
+	} else if s.agentRuntime == nil {
+		content = "Agent edit proposals are not available."
+	} else {
+		proposal, err := s.agentRuntime.ProposeEdit(r.Context(), input)
+		if err != nil {
+			content = err.Error()
+		} else {
+			s.recordAgentTrace(r.Context(), "propose edit", "pending", proposal.Path)
+			content = fmt.Sprintf("Created an edit proposal for `%s`.", proposal.Path)
+		}
+	}
+	assistantMessage := store.Message{
+		ID:        store.NewID(),
+		Role:      "assistant",
+		Content:   content,
+		CreatedAt: time.Now().UTC(),
 	}
 	writeEvent(w, "chunk", map[string]string{"content": content})
 	writeEvent(w, "done", assistantMessage)
@@ -854,6 +1045,75 @@ func (s *Server) streamAssistantResponse(w http.ResponseWriter, r *http.Request,
 		writeEvent(w, "error", map[string]string{"error": "Could not save assistant response."})
 		flusher.Flush()
 		return
+	}
+	writeEvent(w, "done", messageWithProvider{Message: assistantMessage, Provider: currentProvider})
+	flusher.Flush()
+}
+
+func (s *Server) streamTemporaryAssistantResponse(w http.ResponseWriter, r *http.Request, userMessage store.Message, messages []store.Message, attachments []llm.Attachment, searchResults []llm.SearchResult) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "Streaming is not supported.")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusCreated)
+
+	writeEvent(w, "user", userMessage)
+	for _, result := range searchResults {
+		writeEvent(w, "search", result)
+	}
+	flusher.Flush()
+
+	var reply strings.Builder
+	var currentProvider *llm.ProviderInfo
+	generateCtx := llm.WithProviderCallback(r.Context(), func(info llm.ProviderInfo) {
+		currentProvider = &info
+		writeEvent(w, "provider", info)
+		flusher.Flush()
+	})
+	err := s.llmClient.GenerateStream(generateCtx, messages, attachments, searchResults, func(chunk string) error {
+		reply.WriteString(chunk)
+		payload := map[string]any{"content": chunk}
+		if currentProvider != nil {
+			payload["provider"] = currentProvider
+		}
+		writeEvent(w, "chunk", payload)
+		flusher.Flush()
+		return nil
+	})
+	if errors.Is(err, llm.ErrMissingAPIKey) {
+		content := "Linea is not configured with GEMINI_API_KEY yet."
+		assistantMessage := store.Message{
+			ID:        store.NewID(),
+			Role:      "assistant",
+			Content:   content,
+			CreatedAt: time.Now().UTC(),
+		}
+		writeEvent(w, "chunk", map[string]string{"content": content})
+		writeEvent(w, "done", assistantMessage)
+		flusher.Flush()
+		return
+	}
+	if err != nil {
+		slog.Error("generate temporary assistant response", "error", err)
+		if llm.HasImageAttachments(attachments) {
+			writeEvent(w, "error", map[string]string{"error": "Image input uses Gemini, but Gemini could not respond right now."})
+			flusher.Flush()
+			return
+		}
+		writeEvent(w, "error", map[string]string{"error": "Could not generate a response."})
+		flusher.Flush()
+		return
+	}
+	assistantMessage := store.Message{
+		ID:        store.NewID(),
+		Role:      "assistant",
+		Content:   strings.TrimSpace(reply.String()),
+		CreatedAt: time.Now().UTC(),
 	}
 	writeEvent(w, "done", messageWithProvider{Message: assistantMessage, Provider: currentProvider})
 	flusher.Flush()

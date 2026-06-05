@@ -109,6 +109,7 @@ textarea {
 }
 
 .new-chat,
+.new-chat-menu button,
 .conversation-select,
 .conversation-menu-button,
 .conversation-menu button,
@@ -119,8 +120,14 @@ textarea {
   cursor: pointer;
 }
 
+.new-chat-group {
+  position: relative;
+  width: 100%;
+}
+
 .new-chat {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -134,6 +141,44 @@ textarea {
 
 .new-chat:hover {
   background: #181818;
+}
+
+.new-chat-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: 3px;
+  border-radius: 10px;
+  background: #121212;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 22%);
+  padding: 6px;
+}
+
+.new-chat-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  border-radius: 8px;
+  background: transparent;
+  color: #d2d2d2;
+  padding: 0 9px;
+  font-size: 13px;
+  font-weight: 560;
+  text-align: left;
+}
+
+.new-chat-menu button:hover,
+.new-chat-menu button:focus-visible {
+  background: #1a1a1a;
+  color: #eeeeee;
+}
+
+.new-chat-menu svg {
+  color: #9a9a9a;
 }
 
 .conversation-list {
@@ -266,6 +311,13 @@ textarea {
   border-radius: 10px;
   background: #111111;
   padding: 8px;
+}
+
+.settings-panel-inline {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .settings-panel-title {
@@ -664,6 +716,46 @@ textarea {
 .sources-toggle:hover {
   background: #181818;
   color: #e0e0e0;
+}
+
+.temporary-badge,
+.save-chat-button {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border-radius: 8px;
+}
+
+.temporary-badge {
+  min-height: 24px;
+  background: #171717;
+  color: #969696;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.save-chat-button {
+  gap: 5px;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: #8f8f8f;
+  cursor: pointer;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.save-chat-button:hover:not(:disabled),
+.save-chat-button:focus-visible:not(:disabled) {
+  background: #181818;
+  color: #e0e0e0;
+}
+
+.save-chat-button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .has-tooltip {
@@ -1322,6 +1414,151 @@ textarea {
   gap: 10px;
 }
 
+.workspace-review {
+  gap: 10px;
+}
+
+.workspace-root,
+.workspace-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.workspace-root input,
+.workspace-search input {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #171717;
+  border-radius: 8px;
+  outline: none;
+  background: #101010;
+  color: #eeeeee;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.workspace-root input:focus,
+.workspace-search input:focus {
+  border-color: #242424;
+}
+
+.workspace-root button,
+.workspace-search button {
+  min-height: 30px;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  background: #181818;
+  color: #d8d8d8;
+  cursor: pointer;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.workspace-root button:hover:not(:disabled),
+.workspace-root button:focus-visible:not(:disabled),
+.workspace-search button:hover:not(:disabled),
+.workspace-search button:focus-visible:not(:disabled) {
+  background: #242424;
+  color: #eeeeee;
+}
+
+.workspace-root button:disabled,
+.workspace-search button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.workspace-error {
+  margin: 0;
+  color: #d6a1a1;
+  font-size: 11px;
+}
+
+.workspace-layout {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(140px, 0.42fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.workspace-results {
+  display: grid;
+  max-height: 260px;
+  min-width: 0;
+  align-content: start;
+  gap: 6px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.workspace-result {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #a8a8a8;
+  cursor: pointer;
+  padding: 8px;
+  text-align: left;
+}
+
+.workspace-result:hover,
+.workspace-result:focus-visible,
+.workspace-result.active {
+  border-color: #1a1a1a;
+  background: #1a1a1a;
+  color: #eeeeee;
+}
+
+.workspace-result span,
+.workspace-result small,
+.workspace-file-meta strong,
+.workspace-file-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-result span,
+.workspace-file-meta strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-result small,
+.workspace-file-meta span,
+.workspace-file p,
+.workspace-results p {
+  margin: 0;
+  color: #8f8f8f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workspace-file {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 8px;
+}
+
+.workspace-file .code-shell {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.workspace-file-meta {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
 .proposal-layout {
   display: grid;
   min-width: 0;
@@ -1913,6 +2150,7 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .workspace-layout,
   .proposal-layout {
     grid-template-columns: 1fr;
   }
@@ -2025,6 +2263,8 @@ textarea:focus {
 :root[data-theme="light"] .icon-button.subtle,
 :root[data-theme="light"] .panel-toggle-icon,
 :root[data-theme="light"] .sources-toggle,
+:root[data-theme="light"] .save-chat-button,
+:root[data-theme="light"] .new-chat-menu svg,
 :root[data-theme="light"] .system-button,
 :root[data-theme="light"] .system-details-button,
 :root[data-theme="light"] .details-close,
@@ -2037,6 +2277,8 @@ textarea:focus {
 }
 
 :root[data-theme="light"] .new-chat,
+:root[data-theme="light"] .new-chat-menu,
+:root[data-theme="light"] .temporary-badge,
 :root[data-theme="light"] .attachments span,
 :root[data-theme="light"] .system-panel,
 :root[data-theme="light"] .theme-panel,
@@ -2092,6 +2334,41 @@ textarea:focus {
   color: #252522;
 }
 
+:root[data-theme="light"] .workspace-root input,
+:root[data-theme="light"] .workspace-root button,
+:root[data-theme="light"] .workspace-search input,
+:root[data-theme="light"] .workspace-search button {
+  border-color: #e8e8e3;
+  background: #ffffff;
+  color: #252522;
+}
+
+:root[data-theme="light"] .workspace-root input:focus,
+:root[data-theme="light"] .workspace-root button:hover:not(:disabled),
+:root[data-theme="light"] .workspace-root button:focus-visible:not(:disabled),
+:root[data-theme="light"] .workspace-search input:focus,
+:root[data-theme="light"] .workspace-search button:hover:not(:disabled),
+:root[data-theme="light"] .workspace-search button:focus-visible:not(:disabled),
+:root[data-theme="light"] .workspace-result:hover,
+:root[data-theme="light"] .workspace-result:focus-visible,
+:root[data-theme="light"] .workspace-result.active {
+  border-color: #e8e8e3;
+  background: #f4f4ef;
+  color: #252522;
+}
+
+:root[data-theme="light"] .workspace-result,
+:root[data-theme="light"] .workspace-result small,
+:root[data-theme="light"] .workspace-file-meta span,
+:root[data-theme="light"] .workspace-file p,
+:root[data-theme="light"] .workspace-results p {
+  color: #767670;
+}
+
+:root[data-theme="light"] .workspace-error {
+  color: #9d5d5d;
+}
+
 :root[data-theme="light"] .proposal-diff-line {
   border-color: #ecece7;
 }
@@ -2132,9 +2409,17 @@ textarea:focus {
   color: #30302c;
 }
 
+:root[data-theme="light"] .new-chat-menu button {
+  color: #30302c;
+}
+
 :root[data-theme="light"] .new-chat:hover,
+:root[data-theme="light"] .new-chat-menu button:hover,
+:root[data-theme="light"] .new-chat-menu button:focus-visible,
 :root[data-theme="light"] .sources-toggle:hover,
 :root[data-theme="light"] .sources-toggle:focus-visible,
+:root[data-theme="light"] .save-chat-button:hover:not(:disabled),
+:root[data-theme="light"] .save-chat-button:focus-visible:not(:disabled),
 :root[data-theme="light"] .system-button:hover,
 :root[data-theme="light"] .system-button:focus-visible,
 :root[data-theme="light"] .details-close:hover,

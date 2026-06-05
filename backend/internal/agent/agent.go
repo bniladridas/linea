@@ -29,6 +29,7 @@ type Runtime struct {
 
 type Status struct {
 	Mode             string            `json:"mode"`
+	WorkspaceRoot    string            `json:"workspaceRoot,omitempty"`
 	Rules            RuleSet           `json:"rules"`
 	Tools            []Tool            `json:"tools"`
 	Hooks            []Hook            `json:"hooks"`
@@ -220,6 +221,7 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 func (r *Runtime) Status(ctx context.Context) Status {
 	return Status{
 		Mode:             "local",
+		WorkspaceRoot:    r.WorkspaceRoot(),
 		Rules:            r.loadRules(ctx),
 		Tools:            r.tools(),
 		Hooks:            defaultHooks(),
