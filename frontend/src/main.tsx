@@ -100,6 +100,7 @@ type AgentStatus = {
     id: string;
     name: string;
     state: string;
+    command?: string;
   }>;
   subagents: Array<{
     id: string;
@@ -121,17 +122,22 @@ type AgentStatus = {
     id: string;
     name: string;
     state: string;
+    command?: string;
   }>;
   mcpTools?: Array<{
     id: string;
     name: string;
     serverId: string;
+    serverName?: string;
+    description?: string;
+    state?: string;
   }>;
   runSummary?: {
     state: string;
     traceEvents: number;
     hookRuns: number;
     skillRuns: number;
+    agentLoops?: number;
     commandApprovals: number;
     commandChecks: number;
     commandRuns: number;
@@ -143,6 +149,13 @@ type AgentStatus = {
     allowed: boolean;
     reason: string;
   }>;
+  commandApprovals?: Array<{
+    id: string;
+    command: string;
+    state: string;
+    detail?: string;
+    createdAt: string;
+  }>;
   commandRuns?: Array<{
     id: string;
     command: string;
@@ -150,6 +163,38 @@ type AgentStatus = {
     output: string;
     truncated: boolean;
     createdAt: string;
+  }>;
+  hookRuns?: Array<{
+    id: string;
+    hookId: string;
+    state: string;
+    detail?: string;
+    createdAt: string;
+  }>;
+  skillRuns?: Array<{
+    id: string;
+    skillId: string;
+    state: string;
+    detail?: string;
+    createdAt: string;
+  }>;
+  agentLoops?: Array<{
+    id: string;
+    goal: string;
+    state: string;
+    summary: string;
+    createdAt: string;
+    updatedAt: string;
+    steps: Array<{
+      id: string;
+      kind: string;
+      title: string;
+      state: string;
+      detail?: string;
+      toolId?: string;
+      command?: string;
+      createdId?: string;
+    }>;
   }>;
 };
 
@@ -544,6 +589,97 @@ function App() {
       await loadAgentStatus();
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : 'Could not apply proposal.');
+    }
+  }
+
+  async function refreshAgentDetails() {
+    await Promise.all([loadAgentStatus(), loadAgentRuns(), loadAgentEditProposals()]);
+  }
+
+  async function checkAgentCommand(command: string) {
+    try {
+      await request('/api/agent/command-checks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command }),
+      });
+      await refreshAgentDetails();
+    } catch (commandError) {
+      setError(commandError instanceof Error ? commandError.message : 'Could not check command.');
+    }
+  }
+
+  async function approveAgentCommand(command: string) {
+    try {
+      await request('/api/agent/command-approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, state: 'approved', detail: 'Approved in Linea.' }),
+      });
+      await refreshAgentDetails();
+    } catch (approvalError) {
+      setError(approvalError instanceof Error ? approvalError.message : 'Could not approve command.');
+    }
+  }
+
+  async function runAgentCommand(command: string, approvalId: string) {
+    try {
+      await request('/api/agent/command-runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, approvalId }),
+      });
+      await refreshAgentDetails();
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : 'Could not run command.');
+    }
+  }
+
+  async function runAgentHook(hookId: string, command: string, approvalId?: string) {
+    try {
+      await request(`/api/agent/hooks/${hookId}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, approvalId, detail: 'Run from Linea.' }),
+      });
+      await refreshAgentDetails();
+    } catch (hookError) {
+      setError(hookError instanceof Error ? hookError.message : 'Could not run hook.');
+    }
+  }
+
+  async function runAgentSkill(skillId: string, command: string, approvalId?: string) {
+    try {
+      await request(`/api/agent/skills/${skillId}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, approvalId, detail: 'Run from Linea.' }),
+      });
+      await refreshAgentDetails();
+    } catch (skillError) {
+      setError(skillError instanceof Error ? skillError.message : 'Could not run skill.');
+    }
+  }
+
+  async function saveAgentRunSnapshot() {
+    try {
+      await request('/api/agent/runs', { method: 'POST' });
+      await refreshAgentDetails();
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : 'Could not save agent run.');
+    }
+  }
+
+  async function startAgentLoop(input: { goal: string; command?: string; query?: string; filePath?: string }) {
+    try {
+      await request('/api/agent/loops', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      await refreshAgentDetails();
+    } catch (loopError) {
+      setError(loopError instanceof Error ? loopError.message : 'Could not start agent loop.');
     }
   }
 
@@ -1376,6 +1512,13 @@ function App() {
           settings={appSettings}
           onReviewProposal={(proposalId, status) => void reviewAgentEditProposal(proposalId, status)}
           onApplyProposal={(proposalId) => void applyAgentEditProposal(proposalId)}
+          onApproveCommand={(command) => void approveAgentCommand(command)}
+          onCheckCommand={(command) => void checkAgentCommand(command)}
+          onRunCommand={(command, approvalId) => void runAgentCommand(command, approvalId)}
+          onRunHook={(hookId, command, approvalId) => void runAgentHook(hookId, command, approvalId)}
+          onRunSkill={(skillId, command, approvalId) => void runAgentSkill(skillId, command, approvalId)}
+          onSaveRun={() => void saveAgentRunSnapshot()}
+          onStartLoop={(input) => void startAgentLoop(input)}
           onWorkspaceChange={(root) => void saveAgentWorkspaceRoot(root)}
           onSettingsChange={(next) => void saveAppSettings(next)}
           onClose={() => setIsSystemDetailsOpen(false)}
@@ -1811,8 +1954,15 @@ function SystemDetailsDialog({
   diagnostics,
   editProposals,
   onApplyProposal,
+  onApproveCommand,
+  onCheckCommand,
   onClose,
   onReviewProposal,
+  onRunCommand,
+  onRunHook,
+  onRunSkill,
+  onSaveRun,
+  onStartLoop,
   onSettingsChange,
   onWorkspaceChange,
   settings,
@@ -1823,14 +1973,28 @@ function SystemDetailsDialog({
   diagnostics: AgentDiagnostic[];
   editProposals: AgentEditProposal[];
   onApplyProposal: (proposalId: string) => void;
+  onApproveCommand: (command: string) => void;
+  onCheckCommand: (command: string) => void;
   onClose: () => void;
   onReviewProposal: (proposalId: string, status: 'approved' | 'rejected') => void;
+  onRunCommand: (command: string, approvalId: string) => void;
+  onRunHook: (hookId: string, command: string, approvalId?: string) => void;
+  onRunSkill: (skillId: string, command: string, approvalId?: string) => void;
+  onSaveRun: () => void;
+  onStartLoop: (input: { goal: string; command?: string; query?: string; filePath?: string }) => void;
   onSettingsChange: (settings: AppSettings) => void;
   onWorkspaceChange: (root: string) => void;
   settings: AppSettings | null;
   status: SystemStatus | null;
 }) {
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(editProposals[0]?.id ?? null);
+  const [commandInput, setCommandInput] = useState('');
+  const [loopGoalInput, setLoopGoalInput] = useState('');
+  const [loopQueryInput, setLoopQueryInput] = useState('');
+  const [loopFileInput, setLoopFileInput] = useState('');
+  const [loopCommandInput, setLoopCommandInput] = useState('');
+  const [hookCommandInput, setHookCommandInput] = useState('');
+  const [skillCommandInput, setSkillCommandInput] = useState('');
   const [workspaceRootInput, setWorkspaceRootInput] = useState(agentStatus?.workspaceRoot ?? '');
   const [workspaceQuery, setWorkspaceQuery] = useState('');
   const [workspaceResults, setWorkspaceResults] = useState<AgentWorkspaceSearchResult[]>([]);
@@ -1842,6 +2006,11 @@ function SystemDetailsDialog({
     .filter((tool) => ['read_file', 'search_files', 'diagnostics'].includes(tool.id))
     .some((tool) => tool.access !== 'off') ?? false;
   const blockedChecks = agentStatus?.commandChecks?.filter((check) => !check.allowed) ?? [];
+  const normalizedCommandInput = normalizeCommand(commandInput);
+  const commandApprovals = agentStatus?.commandApprovals ?? [];
+  const commandApproval = findApprovedCommandApproval(commandApprovals, normalizedCommandInput);
+  const normalizedHookCommandInput = normalizeCommand(hookCommandInput);
+  const hookCommandApproval = findApprovedCommandApproval(commandApprovals, normalizedHookCommandInput);
   const selectedProposal =
     editProposals.find((proposal) => proposal.id === selectedProposalId) ?? editProposals[0] ?? null;
 
@@ -1906,6 +2075,48 @@ function SystemDetailsDialog({
     }
   }
 
+  function submitCommand(action: 'check' | 'approve' | 'run') {
+    const command = normalizeCommand(commandInput);
+    if (!command) {
+      return;
+    }
+    if (action === 'check') {
+      onCheckCommand(command);
+    } else if (action === 'approve') {
+      onApproveCommand(command);
+    } else if (commandApproval) {
+      onRunCommand(command, commandApproval.id);
+    }
+  }
+
+  function submitAgentLoop(event: FormEvent) {
+    event.preventDefault();
+    const goal = loopGoalInput.trim();
+    if (!goal) {
+      return;
+    }
+    onStartLoop({
+      goal,
+      command: loopCommandInput.trim() || undefined,
+      query: loopQueryInput.trim() || undefined,
+      filePath: loopFileInput.trim() || undefined,
+    });
+  }
+
+  function runHook(hookId: string) {
+    if (normalizedHookCommandInput && !hookCommandApproval) {
+      return;
+    }
+    onRunHook(hookId, normalizedHookCommandInput, hookCommandApproval?.id);
+  }
+
+  function runSkill(skillId: string, command: string, approvalId?: string) {
+    if (command && !approvalId) {
+      return;
+    }
+    onRunSkill(skillId, command, approvalId);
+  }
+
   return (
     <div className="dialog-backdrop" onPointerDown={onClose}>
       <section
@@ -1958,6 +2169,220 @@ function SystemDetailsDialog({
             <SettingsPanel settings={settings} onChange={onSettingsChange} variant="details" />
           </section>
         )}
+
+        <section className="details-list agent-control">
+          <div className="details-list-header">
+            <h3>Agent loop</h3>
+            <span>{agentStatus?.runSummary?.agentLoops ?? 0}</span>
+          </div>
+          <form className="agent-loop-form" onSubmit={submitAgentLoop}>
+            <input
+              aria-label="Agent goal"
+              placeholder="Goal"
+              value={loopGoalInput}
+              onChange={(event) => setLoopGoalInput(event.target.value)}
+            />
+            <div className="agent-loop-options">
+              <input
+                aria-label="Search query"
+                placeholder="Search query"
+                value={loopQueryInput}
+                onChange={(event) => setLoopQueryInput(event.target.value)}
+              />
+              <input
+                aria-label="File path"
+                placeholder="File path"
+                value={loopFileInput}
+                onChange={(event) => setLoopFileInput(event.target.value)}
+              />
+              <input
+                aria-label="Command"
+                placeholder="Command"
+                value={loopCommandInput}
+                onChange={(event) => setLoopCommandInput(event.target.value)}
+              />
+              <button disabled={!loopGoalInput.trim()} type="submit">
+                Start
+              </button>
+            </div>
+          </form>
+          <div className="agent-card-list">
+            {(agentStatus?.agentLoops ?? []).slice(0, 3).map((loop) => (
+              <div className="agent-loop-card" key={loop.id}>
+                <div className="agent-loop-top">
+                  <strong>{loop.goal}</strong>
+                  <span>{loop.state}</span>
+                </div>
+                <p>{loop.summary}</p>
+                <div className="agent-loop-steps">
+                  {loop.steps.slice(0, 5).map((step) => (
+                    <span key={step.id}>
+                      {step.title}: {step.state}
+                      {step.detail ? ` · ${step.detail}` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {(agentStatus?.agentLoops ?? []).length === 0 && <p>No loops</p>}
+          </div>
+        </section>
+
+        <section className="details-list agent-control">
+          <div className="details-list-header">
+            <h3>Commands</h3>
+            <span>{agentStatus?.runSummary?.commandRuns ?? 0}</span>
+          </div>
+          <form
+            className="agent-command-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitCommand('check');
+            }}
+          >
+            <input
+              aria-label="Command"
+              placeholder="Allowed command"
+              value={commandInput}
+              onChange={(event) => setCommandInput(event.target.value)}
+            />
+            <button disabled={!commandInput.trim()} type="submit">
+              Check
+            </button>
+            <button disabled={!commandInput.trim()} type="button" onClick={() => submitCommand('approve')}>
+              Approve
+            </button>
+            <button disabled={!normalizedCommandInput || !commandApproval} type="button" onClick={() => submitCommand('run')}>
+              Run
+            </button>
+          </form>
+          <div className="agent-list compact">
+            {(agentStatus?.commandApprovals ?? []).slice(0, 3).map((approval) => (
+              <p key={approval.id}>
+                {approval.command} · {approval.state}
+              </p>
+            ))}
+            {(agentStatus?.commandApprovals ?? []).length === 0 && <p>No approvals</p>}
+          </div>
+        </section>
+
+        <section className="details-list agent-control">
+          <div className="details-list-header">
+            <h3>Hooks</h3>
+            <span>{agentStatus?.runSummary?.hookRuns ?? 0}</span>
+          </div>
+          <input
+            aria-label="Hook command"
+            className="agent-inline-input"
+            placeholder="Optional command"
+            value={hookCommandInput}
+            onChange={(event) => setHookCommandInput(event.target.value)}
+          />
+          <div className="agent-card-list">
+            {(agentStatus?.hooks ?? []).map((hook) => (
+              <div className="agent-card" key={hook.id}>
+                <div>
+                  <strong>{hook.event}</strong>
+                  <span>{hook.state}</span>
+                </div>
+                <button disabled={Boolean(normalizedHookCommandInput && !hookCommandApproval)} type="button" onClick={() => runHook(hook.id)}>
+                  Run
+                </button>
+              </div>
+            ))}
+            {(agentStatus?.hooks ?? []).length === 0 && <p>No hooks</p>}
+          </div>
+        </section>
+
+        <section className="details-list agent-control">
+          <div className="details-list-header">
+            <h3>Skills</h3>
+            <span>{agentStatus?.runSummary?.skillRuns ?? 0}</span>
+          </div>
+          <input
+            aria-label="Skill command"
+            className="agent-inline-input"
+            placeholder="Optional command"
+            value={skillCommandInput}
+            onChange={(event) => setSkillCommandInput(event.target.value)}
+          />
+          <div className="agent-card-list">
+            {(agentStatus?.skills ?? []).map((skill) => {
+              const skillCommand = normalizeCommand(skillCommandInput || skill.command || '');
+              const skillApproval = findApprovedCommandApproval(commandApprovals, skillCommand);
+              const requiresApproval = Boolean(skillCommand);
+              return (
+                <div className="agent-card" key={skill.id}>
+                  <div>
+                    <strong>{skill.name}</strong>
+                    <span>{skill.command || skill.state}</span>
+                  </div>
+                  <button
+                    disabled={(skill.state === 'planned' && !skillCommandInput.trim()) || (requiresApproval && !skillApproval)}
+                    type="button"
+                    onClick={() => runSkill(skill.id, skillCommand, skillApproval?.id)}
+                  >
+                    Run
+                  </button>
+                </div>
+              );
+            })}
+            {(agentStatus?.skills ?? []).length === 0 && <p>No skills</p>}
+          </div>
+        </section>
+
+        <section className="details-list agent-control">
+          <div className="details-list-header">
+            <h3>Agent map</h3>
+            <button type="button" onClick={onSaveRun}>
+              Save run
+            </button>
+          </div>
+          <div className="agent-card-list two-column">
+            {(agentStatus?.tools ?? []).map((tool) => (
+              <div className="agent-card read-only" key={tool.id}>
+                <div>
+                  <strong>{tool.name}</strong>
+                  <span>{tool.access} · {tool.approval}</span>
+                </div>
+              </div>
+            ))}
+            {(agentStatus?.subagents ?? []).map((subagent) => (
+              <div className="agent-card read-only" key={subagent.id}>
+                <div>
+                  <strong>{subagent.name}</strong>
+                  <span>{subagent.state} · {subagent.purpose}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="details-list agent-control">
+          <div className="details-list-header">
+            <h3>MCP</h3>
+            <span>{agentStatus?.mcpServers?.length ?? 0}</span>
+          </div>
+          <div className="agent-card-list two-column">
+            {(agentStatus?.mcpServers ?? []).map((server) => (
+              <div className="agent-card read-only" key={server.id}>
+                <div>
+                  <strong>{server.name}</strong>
+                  <span>{server.command || server.state}</span>
+                </div>
+              </div>
+            ))}
+            {(agentStatus?.mcpTools ?? []).map((tool) => (
+              <div className="agent-card read-only" key={tool.id}>
+                <div>
+                  <strong>{tool.name}</strong>
+                  <span>{tool.description || tool.serverName || tool.serverId}</span>
+                </div>
+              </div>
+            ))}
+            {(agentStatus?.mcpServers ?? []).length === 0 && (agentStatus?.mcpTools ?? []).length === 0 && <p>No MCP entries</p>}
+          </div>
+        </section>
 
         <section className="details-list workspace-review">
           <div className="details-list-header">
@@ -2846,6 +3271,20 @@ function formatConversationShare(conversation: Conversation, messages: Message[]
     .map((message) => `${message.role === 'user' ? 'User' : 'Linea'}: ${message.content}`)
     .join('\n\n');
   return `${conversation.title}\n\n${body}`.trim();
+}
+
+function normalizeCommand(value: string) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function findApprovedCommandApproval(
+  approvals: NonNullable<AgentStatus['commandApprovals']>,
+  command: string,
+) {
+  if (!command) {
+    return undefined;
+  }
+  return approvals.find((approval) => approval.state === 'approved' && normalizeCommand(approval.command) === command);
 }
 
 createRoot(document.getElementById('root')!).render(

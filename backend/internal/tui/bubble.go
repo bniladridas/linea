@@ -252,6 +252,13 @@ func (m bubbleModel) submit(value string) (tea.Model, tea.Cmd) {
 		m.status = "Attached " + attachment.Name + "."
 		return m, nil
 	}
+	if output, ok := m.app.handleAgentCommand(m.ctx, value); ok {
+		m.messages = append(m.messages, store.Message{ID: store.NewID(), Role: "assistant", Content: output})
+		m.status = "Ready."
+		m.syncViewport()
+		m.viewport.GotoBottom()
+		return m, nil
+	}
 	m.sending = true
 	m.status = "Linea is writing..."
 	m.syncViewport()
@@ -369,7 +376,7 @@ func (m bubbleModel) viewChat(styles bubbleStyles) string {
 	b.WriteString("\n")
 	b.WriteString(styles.composer.Width(m.composerWidth()).Render(lipgloss.NewStyle().Width(m.input.Width).Render(m.input.View())))
 	b.WriteString("\n")
-	b.WriteString(styles.status.Render(m.status + "  :new · :attach <path> · drop/paste path · :quit"))
+	b.WriteString(styles.status.Render(m.status + "  :new · :attach <path> · :agent · :diag · :search <q> · :loop <goal> · :quit"))
 	return styles.frame.Width(m.contentWidth()).Render(b.String())
 }
 

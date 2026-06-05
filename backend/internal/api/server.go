@@ -65,6 +65,8 @@ type AgentRuntime interface {
 	RunHook(context.Context, string, agent.HookExecutionInput) (agent.HookExecution, error)
 	ListSkillRuns(context.Context) []agent.SkillRun
 	RunSkill(context.Context, string, agent.SkillExecutionInput) (agent.SkillExecution, error)
+	ListAgentLoops(context.Context) []agent.AgentLoop
+	StartAgentLoop(context.Context, agent.AgentLoopInput) (agent.AgentLoop, error)
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
 	ListCommandChecks(context.Context) []agent.CommandCheck
@@ -191,6 +193,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/hooks/{id}/run", s.runAgentHook)
 	mux.HandleFunc("GET /api/agent/skill-runs", s.listAgentSkillRuns)
 	mux.HandleFunc("POST /api/agent/skills/{id}/run", s.runAgentSkill)
+	mux.HandleFunc("GET /api/agent/loops", s.listAgentLoops)
+	mux.HandleFunc("POST /api/agent/loops", s.startAgentLoop)
 	mux.HandleFunc("GET /api/agent/command-approvals", s.listAgentCommandApprovals)
 	mux.HandleFunc("POST /api/agent/command-approvals", s.createAgentCommandApproval)
 	mux.HandleFunc("GET /api/agent/command-checks", s.listAgentCommandChecks)
@@ -398,6 +402,33 @@ func (s *Server) runAgentSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "skill execution", execution.SkillRun.State, execution.SkillRun.SkillID)
 	writeJSON(w, http.StatusCreated, execution)
+}
+
+func (s *Server) listAgentLoops(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.AgentLoop{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListAgentLoops(r.Context()))
+}
+
+func (s *Server) startAgentLoop(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent loops are not available.")
+		return
+	}
+	var input agent.AgentLoopInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	loop, err := s.agentRuntime.StartAgentLoop(r.Context(), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "agent loop", loop.State, loop.Goal)
+	writeJSON(w, http.StatusCreated, loop)
 }
 
 func (s *Server) listAgentCommandApprovals(w http.ResponseWriter, r *http.Request) {

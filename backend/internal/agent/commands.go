@@ -91,6 +91,9 @@ func (r *Runtime) ListCommandRuns(context.Context) []CommandRun {
 }
 
 func (r *Runtime) RunCommand(ctx context.Context, input CommandCheckInput) (CommandRun, error) {
+	if strings.TrimSpace(input.ApprovalID) == "" {
+		return CommandRun{}, errors.New("Command approval is required.")
+	}
 	check, err := r.CheckCommand(ctx, input)
 	if err != nil {
 		return CommandRun{}, err

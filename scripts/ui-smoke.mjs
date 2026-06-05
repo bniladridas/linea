@@ -340,6 +340,39 @@ async function runProbe() {
       returnByValue: true,
     });
     await sleep(500);
+    await send('Runtime.evaluate', {
+      expression: `(() => {
+        const setValue = (input, value) => {
+          if (!input) return false;
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          setter.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        };
+        const loopForm = document.querySelector('.agent-loop-form');
+        const loopGoal = loopForm?.querySelector('input[aria-label="Agent goal"]');
+        const loopQuery = loopForm?.querySelector('input[aria-label="Search query"]');
+        setValue(loopGoal, 'search Linea');
+        setValue(loopQuery, 'Linea');
+        loopForm?.requestSubmit();
+
+        const commandForm = document.querySelector('.agent-command-form');
+        const commandInput = commandForm?.querySelector('input[aria-label="Command"]');
+        setValue(commandInput, 'printf ok');
+        commandForm?.requestSubmit();
+
+        const hookSection = Array.from(document.querySelectorAll('.details-list')).find((section) => section.querySelector('h3')?.textContent === 'Hooks');
+        hookSection?.querySelector('.agent-card button')?.click();
+
+        const skillSection = Array.from(document.querySelectorAll('.details-list')).find((section) => section.querySelector('h3')?.textContent === 'Skills');
+        const skillButton = skillSection?.querySelector('.agent-card button:not(:disabled)');
+        skillButton?.click();
+
+        return Boolean(loopForm && commandForm && hookSection && skillSection);
+      })()`,
+      returnByValue: true,
+    });
+    await sleep(1000);
     agentReviewObserved = await send('Runtime.evaluate', {
       expression: `(() => {
         const dialog = document.querySelector('.details-dialog');
@@ -352,6 +385,11 @@ async function runProbe() {
             Boolean(dialog.querySelector('.workspace-file .code-shell')) &&
             bodyText.includes('Edit proposals') &&
             bodyText.includes('Agent review smoke') &&
+            bodyText.includes('Agent loop') &&
+            Boolean(dialog.querySelector('.agent-loop-card')) &&
+            bodyText.includes('Commands') &&
+            bodyText.includes('Hooks') &&
+            bodyText.includes('Skills') &&
             Boolean(dialog.querySelector('.proposal-diff')) &&
             Boolean(dialog.querySelector('.proposal-actions button')),
           text: bodyText.slice(0, 600),

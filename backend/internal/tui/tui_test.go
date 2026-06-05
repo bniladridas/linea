@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"linea/backend/internal/agent"
 	"linea/backend/internal/llm"
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
@@ -300,6 +301,84 @@ func TestRunRendersMarkdownAndFencedCode(t *testing.T) {
 	}
 }
 
+func TestRunHandlesAgentCommands(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("agent notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(dir), agent.WithCommandAllowlist([]string{"printf ok"}))
+	var out strings.Builder
+	input := strings.Join([]string{
+		":agent",
+		":search agent",
+		":read notes.md",
+		":loop search agent",
+		":check printf ok",
+		":approve printf ok",
+		":run printf ok",
+		":quit",
+		"",
+	}, "\n")
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(input), &out).WithAgentRuntime(runtime)
+
+	if err := app.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	output := out.String()
+	for _, want := range []string{
+		"Agent ready",
+		"notes.md:1 agent notes",
+		"notes.md ·",
+		"search agent",
+		"printf ok · allowed",
+		"Approved printf ok.",
+		"printf ok · exit 0",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q: %q", want, output)
+		}
+	}
+}
+
+func TestRunSkillUsesDefaultCommandApproval(t *testing.T) {
+	workspace := t.TempDir()
+	skillsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(skillsDir, "review-change.md"), []byte("# Review change\n\nCommand: printf ok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := agent.NewRuntime(
+		"",
+		agent.WithSkillsDir(skillsDir),
+		agent.WithWorkspaceRoot(workspace),
+		agent.WithCommandAllowlist([]string{"printf ok"}),
+	)
+	var out strings.Builder
+	input := strings.Join([]string{
+		":approve printf ok",
+		":skill review_change",
+		":quit",
+		"",
+	}, "\n")
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(input), &out).WithAgentRuntime(runtime)
+
+	if err := app.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	output := out.String()
+	for _, want := range []string{
+		"Approved printf ok.",
+		"Skill review_change: completed",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q: %q", want, output)
+		}
+	}
+	runs := runtime.ListCommandRuns(context.Background())
+	if len(runs) != 1 || runs[0].Command != "printf ok" || runs[0].ExitCode != 0 {
+		t.Fatalf("command runs = %#v", runs)
+	}
+}
+
 func TestBubbleModelSendsMessage(t *testing.T) {
 	assistant := &fakeAssistant{response: "hello"}
 	app := New(store.NewMemoryStore(), assistant, strings.NewReader(""), &strings.Builder{})
@@ -322,6 +401,32 @@ func TestBubbleModelSendsMessage(t *testing.T) {
 	view := model.View()
 	if !strings.Contains(view, "Linea") || !strings.Contains(view, "hello") {
 		t.Fatalf("view = %q", view)
+	}
+}
+
+func TestBubbleModelHandlesAgentCommand(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("agent notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(dir))
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+	model, err := newBubbleModel(context.Background(), app)
+	if err != nil {
+		t.Fatalf("newBubbleModel() error = %v", err)
+	}
+	model.input.SetValue(":search agent")
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil {
+		t.Fatal("agent command should not start async model send")
+	}
+	if len(model.messages) != 1 || !strings.Contains(model.messages[0].Content, "notes.md:1 agent notes") {
+		t.Fatalf("messages = %#v", model.messages)
+	}
+	if !strings.Contains(model.View(), "notes.md") {
+		t.Fatalf("view = %q", model.View())
 	}
 }
 

@@ -866,11 +866,15 @@ func TestAgentHookRunEndpointRejectsUnknownHook(t *testing.T) {
 func TestAgentHookRunEndpointExecutesHook(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), agent.CommandApprovalInput{Command: "printf ok", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
 	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/agent/hooks/after_check/run", strings.NewReader(`{"command":"printf ok"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/hooks/after_check/run", strings.NewReader(fmt.Sprintf(`{"command":"printf ok","approvalId":%q}`, approval.ID)))
 	res := httptest.NewRecorder()
 	server.ServeHTTP(res, req)
 
@@ -898,11 +902,15 @@ func TestAgentSkillRunEndpointExecutesSkill(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(skillsDir, "review-change.md"), "# Review change\n\nCommand: printf ok\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithSkillsDir(skillsDir), agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), agent.CommandApprovalInput{Command: "printf ok", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
 	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/agent/skills/review_change/run", strings.NewReader(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/skills/review_change/run", strings.NewReader(fmt.Sprintf(`{"approvalId":%q}`, approval.ID)))
 	res := httptest.NewRecorder()
 	server.ServeHTTP(res, req)
 
@@ -936,6 +944,51 @@ func TestAgentSkillRunEndpointExecutesSkill(t *testing.T) {
 	}
 	traces := runtime.ListTraces(context.Background())
 	if len(traces) != 1 || traces[0].Event != "skill execution" || traces[0].Detail != "review_change" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestAgentLoopEndpointsCreateAndListLoops(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent loop notes\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root), agent.WithCommandAllowlist([]string{"make test"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"goal":"search agent and run tests","query":"agent","command":"make test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/loops", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var created agent.AgentLoop
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.ID == "" || created.State != "waiting_approval" || len(created.Steps) == 0 {
+		t.Fatalf("loop = %#v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/loops", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var loops []agent.AgentLoop
+	if err := json.NewDecoder(res.Body).Decode(&loops); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(loops) != 1 || loops[0].ID != created.ID {
+		t.Fatalf("loops = %#v", loops)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "agent loop" {
 		t.Fatalf("traces = %#v", traces)
 	}
 }
@@ -1052,11 +1105,15 @@ func TestAgentCommandCheckEndpointBlocksUnlistedCommand(t *testing.T) {
 func TestAgentCommandRunEndpointsCreateAndListRuns(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	approval, err := runtime.AddCommandApproval(context.Background(), agent.CommandApprovalInput{Command: "printf ok", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
 	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
-	body := strings.NewReader(`{"command":"printf ok"}`)
+	body := strings.NewReader(fmt.Sprintf(`{"command":"printf ok","approvalId":%q}`, approval.ID))
 	req := httptest.NewRequest(http.MethodPost, "/api/agent/command-runs", body)
 	res := httptest.NewRecorder()
 	server.ServeHTTP(res, req)
@@ -1089,6 +1146,22 @@ func TestAgentCommandRunEndpointsCreateAndListRuns(t *testing.T) {
 	traces := runtime.ListTraces(context.Background())
 	if len(traces) != 1 || traces[0].Event != "command run" || traces[0].State != "completed" {
 		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestAgentCommandRunEndpointRejectsMissingApproval(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/command-runs", strings.NewReader(`{"command":"printf ok"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
 	}
 }
 

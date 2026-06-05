@@ -125,21 +125,21 @@ func main() {
 		os.Exit(1)
 	}
 	llmClient := newRoutingAssistant(cfg, settingsStore)
+	agentRuntime := newAgentRuntime(cfg)
 	if *runTUIBeta {
-		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).RunBeta(ctx); err != nil {
+		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).WithAgentRuntime(agentRuntime).RunBeta(ctx); err != nil {
 			slog.Error("hand-rolled tui", "error", err)
 			os.Exit(1)
 		}
 		return
 	}
 	if *runTUI {
-		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).Run(ctx); err != nil {
+		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).WithAgentRuntime(agentRuntime).Run(ctx); err != nil {
 			slog.Error("tui", "error", err)
 			os.Exit(1)
 		}
 		return
 	}
-	agentRuntime := newAgentRuntime(cfg)
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
 		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
