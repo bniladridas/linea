@@ -41,6 +41,12 @@ func WithWorkspaceRoot(root string) func(*Runtime) {
 	}
 }
 
+func WithEditPlanner(planner EditPlanner) func(*Runtime) {
+	return func(r *Runtime) {
+		r.editPlanner = planner
+	}
+}
+
 func (r *Runtime) WorkspaceEnabled() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

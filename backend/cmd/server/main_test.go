@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"linea/backend/internal/agent"
@@ -280,6 +281,21 @@ func TestProviderStatusesFollowSettingsOrder(t *testing.T) {
 	}
 	if statuses[1].Message != "off" {
 		t.Fatalf("disabled configured message = %q", statuses[1].Message)
+	}
+}
+
+func TestStripPlannerJSONKeepsInnerMarkdownFence(t *testing.T) {
+	input := "```json\n{\"path\":\"README.md\",\"content\":\"before\\n```go\\nfmt.Println(1)\\n```\\nafter\\n\",\"summary\":\"docs\"}\n```"
+	got := stripPlannerJSON(input)
+	if !strings.Contains(got, "\\n```go\\n") {
+		t.Fatalf("stripped JSON lost inner fence: %q", got)
+	}
+	var plan agent.EditPlan
+	if err := json.Unmarshal([]byte(got), &plan); err != nil {
+		t.Fatalf("Unmarshal() error = %v; json = %q", err, got)
+	}
+	if plan.Content != "before\n```go\nfmt.Println(1)\n```\nafter\n" {
+		t.Fatalf("content = %q", plan.Content)
 	}
 }
 

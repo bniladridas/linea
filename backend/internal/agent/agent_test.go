@@ -166,6 +166,9 @@ func TestRuntimeStartsBoundedAgentLoop(t *testing.T) {
 	if loop.ID == "" || loop.State != "waiting_approval" || len(loop.Steps) < 4 {
 		t.Fatalf("loop = %#v", loop)
 	}
+	if loop.Mode != "guided" || loop.MaxIterations != 0 {
+		t.Fatalf("loop mode = %q, max = %d", loop.Mode, loop.MaxIterations)
+	}
 	if loop.Steps[len(loop.Steps)-1].Kind != "command_approval" || loop.Steps[len(loop.Steps)-1].CreatedID == "" {
 		t.Fatalf("last step = %#v", loop.Steps[len(loop.Steps)-1])
 	}
@@ -176,6 +179,245 @@ func TestRuntimeStartsBoundedAgentLoop(t *testing.T) {
 	status := runtime.Status(context.Background())
 	if status.RunSummary.AgentLoops != 1 || len(status.AgentLoops) != 1 {
 		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRuntimeStartsAutoAgentLoop(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "run approved command",
+		Mode:          "auto",
+		MaxIterations: 50,
+		Command:       "printf ok",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.Mode != "auto" || loop.MaxIterations != maxAutoLoopIterationsLimit {
+		t.Fatalf("loop mode = %q, max = %d", loop.Mode, loop.MaxIterations)
+	}
+	if loop.State != "waiting_approval" || loop.Summary != "Auto loop waiting for explicit approval." {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if loop.Steps[len(loop.Steps)-1].Detail != "Approve to let the auto loop continue." {
+		t.Fatalf("approval step = %#v", loop.Steps[len(loop.Steps)-1])
+	}
+}
+
+func TestRuntimeAutoAgentLoopPlansEditFromDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "broken.go",
+			Content: "package main\nfunc fixed() {}\n",
+			Summary: "Fix parse error",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "fix diagnostics",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "plan_edit", "completed") || !loopHasStep(loop, "edit_review", "waiting_approval") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "broken.go" || proposals[0].Content != "package main\nfunc fixed() {}\n" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if proposals[0].Status != "pending" {
+		t.Fatalf("proposal status = %q", proposals[0].Status)
+	}
+	if len(planner.requests) != 1 || len(planner.requests[0].Diagnostics) != 1 || len(planner.requests[0].Files) != 1 {
+		t.Fatalf("planner requests = %#v", planner.requests)
+	}
+}
+
+func TestRuntimeAutoAgentLoopRejectsPlannerPathOutsideDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+	writeTestFile(t, filepath.Join(root, "other.go"), "package main\nfunc other() {}\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "other.go",
+			Content: "package main\nfunc changed() {}\n",
+			Summary: "Wrong file",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "fix diagnostics",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || !loopHasStep(loop, "plan_edit", "blocked") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if proposals := runtime.ListEditProposals(context.Background()); len(proposals) != 0 {
+		t.Fatalf("proposals = %#v, want none", proposals)
+	}
+}
+
+func TestRuntimeAutoAgentLoopHonorsContinueMaxIterations(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "old\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"false"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "fix notes",
+		Mode:          "auto",
+		MaxIterations: 1,
+		Command:       "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "false", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	limited, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if limited.State != "attention" || limited.MaxIterations != 1 || !loopHasStep(limited, "command_run", "blocked") {
+		t.Fatalf("limited = %#v", limited)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{
+		MaxIterations:   2,
+		ProposalPath:    "notes.md",
+		ProposalContent: "new\n",
+	})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.MaxIterations != 2 {
+		t.Fatalf("continued max iterations = %d, want 2", continued.MaxIterations)
+	}
+	if continued.State != "waiting_input" || !loopHasStep(continued, "edit_proposal", "completed") || !loopHasStep(continued, "auto_limit", "waiting_input") {
+		t.Fatalf("continued = %#v", continued)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "notes.md" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+}
+
+func TestRuntimeAutoAgentLoopAdvancesLimitForExplicitContinueInput(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "old\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"false"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "fix notes",
+		Mode:          "auto",
+		MaxIterations: 1,
+		Command:       "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "false", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+	limited, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if limited.State != "attention" {
+		t.Fatalf("loop = %#v", loop)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{
+		ProposalPath:    "notes.md",
+		ProposalContent: "new\n",
+	})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.MaxIterations != 2 {
+		t.Fatalf("continued max iterations = %d, want 2", continued.MaxIterations)
+	}
+	if continued.State != "waiting_input" || !loopHasStep(continued, "edit_proposal", "completed") || !loopHasStep(continued, "auto_limit", "waiting_input") {
+		t.Fatalf("continued = %#v", continued)
+	}
+}
+
+func TestRuntimeAutoAgentLoopKeepsLimitForEmptyContinue(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "old\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"false"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "fix notes",
+		Mode:          "auto",
+		MaxIterations: 1,
+		Command:       "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "false", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+	if _, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{}); err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.MaxIterations != 1 || continued.State != "waiting_input" || !loopHasStep(continued, "auto_limit", "waiting_input") {
+		t.Fatalf("continued = %#v", continued)
+	}
+}
+
+func TestRuntimeAutoAgentLoopStopsBeforeCommandAfterProposalReachesLimit(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "old\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"false"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "fix notes",
+		Mode:          "auto",
+		MaxIterations: 1,
+		Command:       "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "false", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+	if _, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{}); err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{
+		MaxIterations:   2,
+		ProposalPath:    "notes.md",
+		ProposalContent: "new\n",
+		Command:         "false",
+	})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.State != "waiting_input" || !loopHasStep(continued, "auto_limit", "waiting_input") {
+		t.Fatalf("continued = %#v", continued)
+	}
+	if loopHasStep(continued, "command_approval", "waiting_approval") {
+		t.Fatalf("continued queued command approval after limit: %#v", continued.Steps)
 	}
 }
 
@@ -1238,6 +1480,17 @@ func writeTestFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write test file: %v", err)
 	}
+}
+
+type fakeEditPlanner struct {
+	plan     EditPlan
+	err      error
+	requests []EditPlanRequest
+}
+
+func (f *fakeEditPlanner) PlanEdit(_ context.Context, request EditPlanRequest) (EditPlan, error) {
+	f.requests = append(f.requests, request)
+	return f.plan, f.err
 }
 
 func loopHasStep(loop AgentLoop, kind string, state string) bool {

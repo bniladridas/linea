@@ -1402,6 +1402,8 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 		goal = strings.TrimSpace(firstLine[len("run agent "):])
 	case strings.HasPrefix(lowerFirstLine, "start agent "):
 		goal = strings.TrimSpace(firstLine[len("start agent "):])
+	case strings.HasPrefix(lowerFirstLine, "agent auto "):
+		goal = strings.TrimSpace(firstLine[len("agent auto "):])
 	case strings.HasPrefix(lowerFirstLine, "agent "):
 		goal = strings.TrimSpace(firstLine[len("agent "):])
 	default:
@@ -1411,6 +1413,9 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 		return agent.AgentLoopInput{}, true, errors.New("Use `agent <goal>` to start an agent loop.")
 	}
 	input := agent.AgentLoopInput{Goal: goal}
+	if strings.HasPrefix(lowerFirstLine, "agent auto ") {
+		input.Mode = "auto"
+	}
 	lines := strings.Split(body, "\n")
 	for index := 0; index < len(lines); index++ {
 		line := lines[index]
@@ -1420,6 +1425,8 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 		}
 		value = strings.TrimSpace(value)
 		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "mode":
+			input.Mode = value
 		case "query":
 			input.Query = value
 		case "file", "path":
@@ -1436,7 +1443,7 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 }
 
 func loopSummaryText(loop agent.AgentLoop) string {
-	lines := []string{fmt.Sprintf("State: %s.", loop.State)}
+	lines := []string{fmt.Sprintf("Mode: %s.", loop.Mode), fmt.Sprintf("State: %s.", loop.State)}
 	for _, step := range loop.Steps {
 		line := fmt.Sprintf("- %s: %s", step.Title, step.State)
 		if strings.TrimSpace(step.Detail) != "" {

@@ -203,6 +203,8 @@ type AgentStatus = {
   agentLoops?: Array<{
     id: string;
     goal: string;
+    mode?: 'guided' | 'auto';
+    maxIterations?: number;
     state: string;
     summary: string;
     createdAt: string;
@@ -294,6 +296,8 @@ type AgentActivity = {
 
 type AgentLoopRequest = {
   goal: string;
+  mode?: 'guided' | 'auto';
+  maxIterations?: number;
   command?: string;
   query?: string;
   filePath?: string;
@@ -690,7 +694,20 @@ function App() {
   }
 
   async function refreshAgentDetails() {
-    await Promise.all([loadAgentStatus(), loadAgentRuns(), loadAgentEditProposals()]);
+    const [status] = await Promise.all([
+      request<AgentStatus>('/api/agent')
+        .then((data) => {
+          setAgentStatus(data);
+          return data;
+        })
+        .catch(() => {
+          setAgentStatus(null);
+          return null;
+        }),
+      loadAgentRuns(),
+      loadAgentEditProposals(),
+    ]);
+    return status;
   }
 
   async function checkAgentCommand(command: string) {
@@ -726,16 +743,19 @@ function App() {
       params: command,
     });
     try {
-      const approval = await request<{ state: string; detail?: string }>('/api/agent/command-approvals', {
+      const approval = await request<{ id: string; command: string; state: string; detail?: string }>('/api/agent/command-approvals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command, state: 'approved', detail: 'Approved in Linea.' }),
       });
-      await refreshAgentDetails();
+      const nextStatus = await refreshAgentDetails();
       updateAgentActivity(activityId, {
         state: approval.state === 'approved' ? 'approved' : 'completed',
         result: approval.detail ?? 'Approval saved.',
       });
+      if (approval.state === 'approved' && nextStatus) {
+        continueApprovedAutoLoops(nextStatus, approval.command);
+      }
     } catch (approvalError) {
       const message = approvalError instanceof Error ? approvalError.message : 'Could not approve command.';
       updateAgentActivity(activityId, { state: 'failed', result: message });
@@ -892,7 +912,7 @@ function App() {
       });
       await refreshAgentDetails();
       updateAgentActivity(activityId, {
-        state: loop.state === 'failed' ? 'failed' : loop.state === 'waiting' ? 'blocked' : 'completed',
+        state: loopActivityState(loop.state),
         result: loop.summary ?? loop.state,
       });
     } catch (loopError) {
@@ -917,13 +937,31 @@ function App() {
       });
       await refreshAgentDetails();
       updateAgentActivity(activityId, {
-        state: loop.state === 'failed' ? 'failed' : loop.state === 'waiting' ? 'blocked' : 'completed',
+        state: loopActivityState(loop.state),
         result: loop.summary ?? loop.state,
       });
     } catch (loopError) {
       const message = loopError instanceof Error ? loopError.message : 'Could not continue agent loop.';
       updateAgentActivity(activityId, { state: 'failed', result: message });
       setError(message);
+    }
+  }
+
+  function continueApprovedAutoLoops(status: AgentStatus, command: string) {
+    const normalized = normalizeCommand(command);
+    const loop = (status.agentLoops ?? []).find(
+      (item) =>
+        item.mode === 'auto' &&
+        item.state === 'waiting_approval' &&
+        item.steps.some(
+          (step) =>
+            step.kind === 'command_approval' &&
+            step.state === 'waiting_approval' &&
+            normalizeCommand(step.command ?? '') === normalized,
+        ),
+    );
+    if (loop) {
+      void continueAgentLoop(loop.id);
     }
   }
 
@@ -2318,6 +2356,7 @@ function SystemDetailsDialog({
   const [loopQueryInput, setLoopQueryInput] = useState('');
   const [loopFileInput, setLoopFileInput] = useState('');
   const [loopCommandInput, setLoopCommandInput] = useState('');
+  const [loopModeInput, setLoopModeInput] = useState<'guided' | 'auto'>('guided');
   const [hookCommandInput, setHookCommandInput] = useState('');
   const [skillCommandInput, setSkillCommandInput] = useState('');
   const [mcpToolId, setMCPToolId] = useState(agentStatus?.mcpTools?.[0]?.id ?? '');
@@ -2506,6 +2545,8 @@ function SystemDetailsDialog({
     }
     onStartLoop({
       goal,
+      mode: loopModeInput,
+      maxIterations: loopModeInput === 'auto' ? 5 : undefined,
       command: loopCommandInput.trim() || undefined,
       query: loopQueryInput.trim() || undefined,
       filePath: loopFileInput.trim() || undefined,
@@ -2643,6 +2684,22 @@ function SystemDetailsDialog({
             <span>{agentStatus?.runSummary?.agentLoops ?? 0}</span>
           </div>
           <form className="agent-loop-form" onSubmit={submitAgentLoop}>
+            <div className="agent-loop-mode" aria-label="Loop mode" role="group">
+              <button
+                className={loopModeInput === 'guided' ? 'active' : ''}
+                type="button"
+                onClick={() => setLoopModeInput('guided')}
+              >
+                Guided
+              </button>
+              <button
+                className={loopModeInput === 'auto' ? 'active' : ''}
+                type="button"
+                onClick={() => setLoopModeInput('auto')}
+              >
+                Auto
+              </button>
+            </div>
             <input
               aria-label="Agent goal"
               placeholder="Goal"
@@ -2678,7 +2735,9 @@ function SystemDetailsDialog({
               <div className="agent-loop-card" key={loop.id}>
                 <div className="agent-loop-top">
                   <strong>{loop.goal}</strong>
-                  <span>{loop.state}</span>
+                  <span>
+                    {loop.mode ?? 'guided'} · {loop.state}
+                  </span>
                 </div>
                 <p>{loop.summary}</p>
                 <div className="agent-loop-steps">
@@ -3607,6 +3666,16 @@ function summarizeAgentResult(prefix: string, value?: string, truncated = false)
   }
   const capped = summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
   return truncated && !capped.endsWith('...') ? `${capped}...` : capped;
+}
+
+function loopActivityState(state: string): AgentActivityState {
+  if (state === 'failed') {
+    return 'failed';
+  }
+  if (state === 'waiting' || state === 'waiting_approval' || state === 'waiting_input' || state === 'attention') {
+    return 'blocked';
+  }
+  return 'completed';
 }
 
 function summarizeJSON(value: unknown) {
