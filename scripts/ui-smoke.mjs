@@ -383,6 +383,7 @@ async function runProbe() {
             bodyText.includes('Workspace') &&
             Boolean(dialog.querySelector('.workspace-result')) &&
             Boolean(dialog.querySelector('.workspace-file .code-shell')) &&
+            Array.from(dialog.querySelectorAll('button')).some((button) => button.textContent.trim() === 'References') &&
             bodyText.includes('Edit proposals') &&
             bodyText.includes('Agent review smoke') &&
             bodyText.includes('Agent loop') &&
