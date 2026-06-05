@@ -1004,6 +1004,14 @@ textarea {
   min-width: max-content;
 }
 
+.code-line.focused {
+  background: #1b1b1b;
+}
+
+.code-line.focused .code-line-number {
+  color: #b2b2ad;
+}
+
 .code-line-number {
   position: sticky;
   left: 0;
@@ -2905,6 +2913,14 @@ textarea:focus {
   border-right-color: #eeeeea;
   background: #ffffff;
   color: #9a9a93;
+}
+
+:root[data-theme="light"] .code-line.focused {
+  background: #f1f1ed;
+}
+
+:root[data-theme="light"] .code-line.focused .code-line-number {
+  color: #6f6f68;
 }
 
 :root[data-theme="light"] .code-token.tag {
