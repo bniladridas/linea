@@ -19,6 +19,7 @@ type Runtime struct {
 	skillRuns        []SkillRun
 	subagentRuns     []SubagentRun
 	agentLoops       []AgentLoop
+	mcpCalls         []MCPCall
 	editProposals    []EditProposal
 	commandApprovals []CommandApproval
 	commandChecks    []CommandCheck
@@ -39,6 +40,7 @@ type Status struct {
 	Subagents        []Subagent        `json:"subagents"`
 	MCPServers       []MCPServer       `json:"mcpServers"`
 	MCPTools         []MCPTool         `json:"mcpTools"`
+	MCPCalls         []MCPCall         `json:"mcpCalls"`
 	Boundaries       []string          `json:"boundaries"`
 	Next             []string          `json:"next"`
 	TraceEvents      []Trace           `json:"traceEvents"`
@@ -150,6 +152,12 @@ type AgentLoopInput struct {
 	FilePath string `json:"filePath,omitempty"`
 }
 
+type AgentLoopContinueInput struct {
+	Command  string `json:"command,omitempty"`
+	Query    string `json:"query,omitempty"`
+	FilePath string `json:"filePath,omitempty"`
+}
+
 type Subagent struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
@@ -194,6 +202,23 @@ type MCPTool struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	State       string `json:"state"`
+}
+
+type MCPCall struct {
+	ID        string    `json:"id"`
+	ToolID    string    `json:"toolId"`
+	ServerID  string    `json:"serverId"`
+	Name      string    `json:"name"`
+	State     string    `json:"state"`
+	Output    string    `json:"output,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	Truncated bool      `json:"truncated"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type MCPCallInput struct {
+	ToolID    string         `json:"toolId"`
+	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
 type CommandCheck struct {
@@ -254,6 +279,7 @@ type RunSummary struct {
 	SkillRuns        int       `json:"skillRuns"`
 	SubagentRuns     int       `json:"subagentRuns"`
 	AgentLoops       int       `json:"agentLoops"`
+	MCPCalls         int       `json:"mcpCalls"`
 	CommandApprovals int       `json:"commandApprovals"`
 	CommandChecks    int       `json:"commandChecks"`
 	CommandRuns      int       `json:"commandRuns"`
@@ -285,6 +311,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Subagents:        defaultSubagents(),
 		MCPServers:       r.mcpServers(ctx),
 		MCPTools:         r.mcpTools(ctx),
+		MCPCalls:         r.statusMCPCalls(),
 		Boundaries:       defaultBoundaries(),
 		Next:             defaultNext(),
 		TraceEvents:      r.statusTraces(),
@@ -372,6 +399,14 @@ func (r *Runtime) RunSummary(context.Context) RunSummary {
 			state = "attention"
 		}
 	}
+	for _, call := range r.mcpCalls {
+		if call.CreatedAt.After(updatedAt) {
+			updatedAt = call.CreatedAt
+		}
+		if call.State == "failed" || call.State == "blocked" {
+			state = "attention"
+		}
+	}
 	for _, approval := range r.commandApprovals {
 		if approval.CreatedAt.After(updatedAt) {
 			updatedAt = approval.CreatedAt
@@ -390,6 +425,7 @@ func (r *Runtime) RunSummary(context.Context) RunSummary {
 		SkillRuns:        len(r.skillRuns),
 		SubagentRuns:     len(r.subagentRuns),
 		AgentLoops:       len(r.agentLoops),
+		MCPCalls:         len(r.mcpCalls),
 		CommandApprovals: len(r.commandApprovals),
 		CommandChecks:    len(r.commandChecks),
 		CommandRuns:      len(r.commandRuns),
@@ -607,6 +643,23 @@ func (r *Runtime) statusSubagentRuns() []SubagentRun {
 		return runs[:5]
 	}
 	return runs
+}
+
+func (r *Runtime) ListMCPCalls(context.Context) []MCPCall {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.mcpCalls) == 0 {
+		return []MCPCall{}
+	}
+	return append([]MCPCall(nil), r.mcpCalls...)
+}
+
+func (r *Runtime) statusMCPCalls() []MCPCall {
+	calls := r.ListMCPCalls(context.Background())
+	if len(calls) > 5 {
+		return calls[:5]
+	}
+	return calls
 }
 
 func (r *Runtime) statusAgentLoops() []AgentLoop {

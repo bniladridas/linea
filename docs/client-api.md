@@ -197,6 +197,22 @@ Starts a bounded local agent loop. Read-only workspace steps may run immediately
 }
 ```
 
+`POST /api/agent/loops/{id}/continue`
+
+Continues a waiting loop after the needed input or approval exists.
+
+```json
+{
+  "query": "diagnostic",
+  "filePath": "README.md",
+  "command": "make test"
+}
+```
+
+`POST /api/agent/loops/{id}/cancel`
+
+Cancels a waiting loop.
+
 `GET /api/agent/subagents`
 
 Returns bounded subagent roles.
@@ -260,6 +276,21 @@ Returns MCP tool metadata declared in `LINEA_MCP_CONFIG`. It does not start serv
     "state": "ready"
   }
 ]
+```
+
+`GET /api/agent/mcp-calls`
+
+Returns recent MCP tool calls.
+
+`POST /api/agent/mcp-calls`
+
+Calls a configured stdio MCP tool.
+
+```json
+{
+  "toolId": "docs/search_docs",
+  "arguments": {"query": "Linea"}
+}
 ```
 
 `POST /api/agent/traces`
@@ -703,7 +734,7 @@ Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
 
-Terminal clients can use the same agent surface with explicit commands such as `:help`, `:agent`, `:diag`, `:symbols [query]`, `:mcp`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`.
+Terminal clients can use the same agent surface with explicit commands such as `:help`, `:agent`, `:diag`, `:symbols [query]`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

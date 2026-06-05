@@ -178,6 +178,21 @@ func (r *Runtime) commandApproval(id string) (CommandApproval, bool) {
 	return CommandApproval{}, false
 }
 
+func (r *Runtime) approvedCommandApprovalID(command string) string {
+	command = strings.Join(strings.Fields(command), " ")
+	if command == "" {
+		return ""
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, approval := range r.commandApprovals {
+		if approval.Command == command && approval.State == "approved" {
+			return approval.ID
+		}
+	}
+	return ""
+}
+
 func (r *Runtime) checkCommandApproval(command string, approvalID string) error {
 	approvalID = strings.TrimSpace(approvalID)
 	if approvalID == "" {

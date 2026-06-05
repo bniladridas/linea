@@ -113,6 +113,9 @@ async function runChecks() {
   const mcpTools = await requestJSON('/api/agent/mcp-tools');
   assert(Array.isArray(mcpTools), 'mcp tool list is not an array');
 
+  const mcpCalls = await requestJSON('/api/agent/mcp-calls');
+  assert(Array.isArray(mcpCalls), 'mcp call list is not an array');
+
   const trace = await requestJSON('/api/agent/traces', {
     method: 'POST',
     headers: jsonHeaders(),
@@ -193,6 +196,31 @@ async function runChecks() {
   const commandRuns = await requestJSON('/api/agent/command-runs');
   assert(Array.isArray(commandRuns), 'agent command run list is not an array');
 
+  const loop = await requestJSON('/api/agent/loops', {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ goal: 'run command' }),
+  });
+  assert(loop.id && loop.state, 'agent loop was not created');
+
+  const continuedLoop = await requestOptionalJSON(`/api/agent/loops/${encodeURIComponent(loop.id)}/continue`, [200, 400], {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ command: 'printf smoke' }),
+  });
+  assert(continuedLoop.ok, 'agent loop continue returned an unexpected status');
+
+  const cancelLoop = await requestJSON('/api/agent/loops', {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ goal: 'edit file' }),
+  });
+  const canceledLoop = await requestJSON(`/api/agent/loops/${encodeURIComponent(cancelLoop.id)}/cancel`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+  });
+  assert(canceledLoop.state === 'canceled', 'agent loop cancel failed');
+
   await checkWorkspaceEndpoints();
 
   const proposals = await requestJSON('/api/agent/edit-proposals');
@@ -209,6 +237,7 @@ async function runChecks() {
   }
   assert(finalSummary.commandApprovals > 0, 'agent summary did not count command approvals');
   assert(finalSummary.commandChecks > 0, 'agent summary did not count command checks');
+  assert(finalSummary.agentLoops > 0, 'agent summary did not count loops');
 }
 
 async function checkWorkspaceEndpoints() {

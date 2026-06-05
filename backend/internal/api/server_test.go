@@ -1022,6 +1022,74 @@ func TestAgentLoopEndpointsCreateAndListLoops(t *testing.T) {
 	}
 }
 
+func TestAgentLoopContinueAndCancelEndpoints(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/loops", strings.NewReader(`{"goal":"run command","command":"printf ok"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var loop agent.AgentLoop
+	if err := json.NewDecoder(res.Body).Decode(&loop); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if loop.State != "waiting_approval" {
+		t.Fatalf("loop = %#v", loop)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/agent/command-approvals", strings.NewReader(`{"command":"printf ok","state":"approved"}`))
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("approval status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/agent/loops/"+loop.ID+"/continue", strings.NewReader(`{}`))
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("continue status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var continued agent.AgentLoop
+	if err := json.NewDecoder(res.Body).Decode(&continued); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if continued.State != "completed" || !apiLoopHasStep(continued, "command_run", "completed") {
+		t.Fatalf("continued = %#v", continued)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/agent/loops", strings.NewReader(`{"goal":"edit file"}`))
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var editLoop agent.AgentLoop
+	if err := json.NewDecoder(res.Body).Decode(&editLoop); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/agent/loops/"+editLoop.ID+"/cancel", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("cancel status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var canceled agent.AgentLoop
+	if err := json.NewDecoder(res.Body).Decode(&canceled); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if canceled.State != "canceled" || canceled.Summary != "Canceled." {
+		t.Fatalf("canceled = %#v", canceled)
+	}
+}
+
 func TestAgentCommandCheckEndpointsCreateAndListChecks(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
@@ -1731,4 +1799,13 @@ func (f fakeSearcher) Search(context.Context, string) ([]search.Result, error) {
 		return nil, f.err
 	}
 	return f.results, nil
+}
+
+func apiLoopHasStep(loop agent.AgentLoop, kind string, state string) bool {
+	for _, step := range loop.Steps {
+		if step.Kind == kind && step.State == state {
+			return true
+		}
+	}
+	return false
 }

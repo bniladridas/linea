@@ -1,13 +1,58 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestMain(m *testing.M) {
+	if os.Getenv("LINEA_FAKE_MCP_SERVER") == "1" {
+		runFakeMCPServer()
+		return
+	}
+	os.Exit(m.Run())
+}
+
+func runFakeMCPServer() {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		message, err := readMCPMessage(reader)
+		if err != nil {
+			return
+		}
+		id := intID(message["id"])
+		method, _ := message["method"].(string)
+		switch method {
+		case "initialize":
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities":    map[string]any{},
+				},
+			})
+		case "tools/call":
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"content": []map[string]any{{"type": "text", "text": "pong"}},
+				},
+			})
+			if os.Getenv("LINEA_FAKE_MCP_STAYS_ALIVE") == "1" {
+				time.Sleep(30 * time.Second)
+			}
+			return
+		}
+	}
+}
 
 func TestStatusLoadsRulesFile(t *testing.T) {
 	rulesPath := filepath.Join(t.TempDir(), "AGENTS.md")
@@ -315,6 +360,63 @@ func TestStatusLoadsMCPServersFromConfig(t *testing.T) {
 	}
 }
 
+func TestRuntimeCallsMCPTool(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "tools": [{"name":"ping","description":"Ping"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	call, err := runtime.CallMCPTool(context.Background(), MCPCallInput{
+		ToolID:    "docs/ping",
+		Arguments: map[string]any{"text": "hello"},
+	})
+	if err != nil {
+		t.Fatalf("CallMCPTool() error = %v", err)
+	}
+	if call.ID == "" || call.ToolID != "docs/ping" || call.State != "completed" || !strings.Contains(call.Output, "pong") {
+		t.Fatalf("call = %#v", call)
+	}
+	calls := runtime.ListMCPCalls(context.Background())
+	if len(calls) != 1 || calls[0].ID != call.ID {
+		t.Fatalf("calls = %#v", calls)
+	}
+	status := runtime.Status(context.Background())
+	if status.RunSummary.MCPCalls != 1 || len(status.MCPCalls) != 1 {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRuntimeCallsPersistentMCPTool(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1","LINEA_FAKE_MCP_STAYS_ALIVE":"1"},
+      "tools": [{"name":"ping","description":"Ping"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	call, err := runtime.CallMCPTool(ctx, MCPCallInput{ToolID: "docs/ping"})
+	if err != nil {
+		t.Fatalf("CallMCPTool() error = %v", err)
+	}
+	if call.State != "completed" || !strings.Contains(call.Output, "pong") {
+		t.Fatalf("call = %#v", call)
+	}
+}
+
 func TestStatusReportsUnavailableMCPConfig(t *testing.T) {
 	runtime := NewRuntime("", WithMCPConfigPath(filepath.Join(t.TempDir(), "missing.json")))
 
@@ -322,6 +424,116 @@ func TestStatusReportsUnavailableMCPConfig(t *testing.T) {
 
 	if len(status.MCPServers) != 1 || status.MCPServers[0].State != "unavailable" {
 		t.Fatalf("mcp servers = %#v", status.MCPServers)
+	}
+}
+
+func TestRuntimeContinuesAgentLoopAfterCommandApproval(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run approved command",
+		Command: "printf ok",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" {
+		t.Fatalf("loop state = %q", loop.State)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.State != "completed" {
+		t.Fatalf("continued state = %q", continued.State)
+	}
+	if !loopHasStep(continued, "command_run", "completed") {
+		t.Fatalf("continued steps = %#v", continued.Steps)
+	}
+	runs := runtime.ListCommandRuns(context.Background())
+	if len(runs) != 1 || runs[0].Output != "ok" {
+		t.Fatalf("runs = %#v", runs)
+	}
+}
+
+func TestRuntimeContinuesAgentLoopAfterNewLoopIsPrepended(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"printf ok"}))
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run approved command",
+		Command: "printf ok",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	other, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{Goal: "check diagnostics"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "printf ok", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.ID != loop.ID || continued.State != "completed" {
+		t.Fatalf("continued = %#v", continued)
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 2 || loops[0].ID != other.ID || loops[0].State != other.State || loops[1].ID != loop.ID || loops[1].State != "completed" {
+		t.Fatalf("loops = %#v", loops)
+	}
+}
+
+func TestRuntimeMarksNonZeroLoopCommandExitBlocked(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithCommandAllowlist([]string{"false"}))
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run failing command",
+		Command: "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "false", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.State != "attention" || !loopHasStep(continued, "command_run", "blocked") {
+		t.Fatalf("continued = %#v", continued)
+	}
+	runs := runtime.ListCommandRuns(context.Background())
+	if len(runs) != 1 || runs[0].ExitCode == 0 {
+		t.Fatalf("runs = %#v", runs)
+	}
+}
+
+func TestRuntimeCancelsAgentLoop(t *testing.T) {
+	runtime := NewRuntime("")
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{Goal: "check diagnostics"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_input" {
+		t.Fatalf("loop state = %q", loop.State)
+	}
+
+	canceled, err := runtime.CancelAgentLoop(context.Background(), loop.ID)
+	if err != nil {
+		t.Fatalf("CancelAgentLoop() error = %v", err)
+	}
+	if canceled.State != "canceled" || canceled.Summary != "Canceled." {
+		t.Fatalf("canceled = %#v", canceled)
+	}
+	if !loopHasStep(canceled, "cancel", "completed") {
+		t.Fatalf("canceled steps = %#v", canceled.Steps)
 	}
 }
 
@@ -900,4 +1112,13 @@ func writeTestFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write test file: %v", err)
 	}
+}
+
+func loopHasStep(loop AgentLoop, kind string, state string) bool {
+	for _, step := range loop.Steps {
+		if step.Kind == kind && step.State == state {
+			return true
+		}
+	}
+	return false
 }
