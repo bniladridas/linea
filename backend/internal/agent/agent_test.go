@@ -204,6 +204,31 @@ func TestRuntimeAgentLoopInspectsSymbolsAndMCP(t *testing.T) {
 	}
 }
 
+func TestRuntimeAgentLoopCreatesEditProposal(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "old\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:            "change notes",
+		ProposalPath:    "notes.md",
+		ProposalContent: "new\n",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || !loopHasStep(loop, "edit_proposal", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "notes.md" || proposals[0].Status != "pending" || proposals[0].Content != "new\n" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if !loopHasCreatedID(loop, "edit_proposal", proposals[0].ID) {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+}
+
 func TestRuntimeAgentLoopStopsForWorkspaceInput(t *testing.T) {
 	runtime := NewRuntime("")
 
@@ -1200,6 +1225,15 @@ func writeTestFile(t *testing.T, path string, content string) {
 func loopHasStep(loop AgentLoop, kind string, state string) bool {
 	for _, step := range loop.Steps {
 		if step.Kind == kind && step.State == state {
+			return true
+		}
+	}
+	return false
+}
+
+func loopHasCreatedID(loop AgentLoop, kind string, createdID string) bool {
+	for _, step := range loop.Steps {
+		if step.Kind == kind && step.CreatedID == createdID {
 			return true
 		}
 	}
