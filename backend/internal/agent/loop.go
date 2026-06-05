@@ -67,10 +67,12 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 	}
 	loop.State = "running"
 	continued := false
-	for _, step := range loop.Steps {
+	for index, step := range loop.Steps {
 		if step.Kind != "command_approval" || step.State != "waiting_approval" || strings.TrimSpace(step.Command) == "" {
 			continue
 		}
+		loop.Steps[index].State = "completed"
+		loop.Steps[index].Detail = "Approval consumed."
 		approvalID := step.CreatedID
 		if err := r.checkCommandApproval(step.Command, approvalID); err != nil {
 			approvalID = r.approvedCommandApprovalID(step.Command)
@@ -84,6 +86,9 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 			detail = runErr.Error()
 		}
 		loop = appendLoopStep(loop, "command_run", "Run command", "run_command", runErr, detail, step.Command)
+		if runErr != nil {
+			loop = appendRetryStep(loop, "Command failed. Provide another proposal or command to continue.")
+		}
 		if runErr == nil {
 			loop = appendLoopStep(loop, "review_result", "Review result", "run_command", nil, "Command completed successfully.", step.Command)
 			if r.WorkspaceEnabled() && shouldReadDiagnostics(strings.ToLower(loop.Goal)) {
@@ -99,6 +104,7 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 						ToolID: "diagnostics",
 					})
 					loop.State = "attention"
+					loop = appendRetryStep(loop, "Diagnostics remain. Provide another proposal or command to continue.")
 				}
 			}
 		}
@@ -306,6 +312,18 @@ func appendLoopStep(loop AgentLoop, kind string, title string, toolID string, er
 	if state == "waiting_input" && loop.State != "attention" {
 		loop.State = "waiting_input"
 	}
+	return loop
+}
+
+func appendRetryStep(loop AgentLoop, detail string) AgentLoop {
+	loop.Steps = append(loop.Steps, AgentLoopStep{
+		ID:     newTraceID(),
+		Kind:   "retry",
+		Title:  "Retry",
+		State:  "waiting_input",
+		Detail: detail,
+	})
+	loop.State = "attention"
 	return loop
 }
 

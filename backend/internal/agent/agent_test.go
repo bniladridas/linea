@@ -518,11 +518,29 @@ func TestRuntimeAgentLoopReadsDiagnosticsAfterApprovedCheck(t *testing.T) {
 	if diagnosticSteps < 2 {
 		t.Fatalf("continued steps = %#v", continued.Steps)
 	}
-	if continued.Steps[len(continued.Steps)-2].Detail != "1 diagnostic(s) after command" {
-		t.Fatalf("diagnostics step = %#v", continued.Steps[len(continued.Steps)-2])
+	if continued.Steps[len(continued.Steps)-3].Detail != "1 diagnostic(s) after command" {
+		t.Fatalf("diagnostics step = %#v", continued.Steps[len(continued.Steps)-3])
 	}
-	if continued.Steps[len(continued.Steps)-1].Kind != "diagnostics_review" || continued.Steps[len(continued.Steps)-1].State != "attention" {
-		t.Fatalf("last step = %#v", continued.Steps[len(continued.Steps)-1])
+	if continued.Steps[len(continued.Steps)-2].Kind != "diagnostics_review" || continued.Steps[len(continued.Steps)-2].State != "attention" {
+		t.Fatalf("diagnostics review step = %#v", continued.Steps[len(continued.Steps)-2])
+	}
+	if continued.Steps[len(continued.Steps)-1].Kind != "retry" || continued.Steps[len(continued.Steps)-1].State != "waiting_input" {
+		t.Fatalf("retry step = %#v", continued.Steps[len(continued.Steps)-1])
+	}
+
+	retried, err := runtime.ContinueAgentLoop(context.Background(), continued.ID, AgentLoopContinueInput{
+		ProposalPath:    "broken.go",
+		ProposalContent: "package main\nfunc fixed() {}\n",
+	})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() retry error = %v", err)
+	}
+	if retried.State != "waiting_input" || !loopHasStep(retried, "edit_proposal", "completed") {
+		t.Fatalf("retried = %#v", retried)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "broken.go" {
+		t.Fatalf("proposals = %#v", proposals)
 	}
 }
 
@@ -573,7 +591,7 @@ func TestRuntimeMarksNonZeroLoopCommandExitBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ContinueAgentLoop() error = %v", err)
 	}
-	if continued.State != "attention" || !loopHasStep(continued, "command_run", "blocked") {
+	if continued.State != "attention" || !loopHasStep(continued, "command_run", "blocked") || !loopHasStep(continued, "retry", "waiting_input") {
 		t.Fatalf("continued = %#v", continued)
 	}
 	runs := runtime.ListCommandRuns(context.Background())
