@@ -858,6 +858,61 @@ textarea {
   align-self: flex-start;
 }
 
+.agent-activity {
+  display: grid;
+  align-self: flex-start;
+  max-width: min(620px, 82%);
+  gap: 5px;
+  border: 1px solid #171717;
+  border-radius: 10px;
+  background: #101010;
+  padding: 9px 10px;
+}
+
+.agent-activity-main {
+  display: grid;
+  align-items: center;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.agent-activity span,
+.agent-activity em,
+.agent-activity p {
+  min-width: 0;
+  overflow: hidden;
+  color: #8f8f8f;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-activity strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #eeeeee;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-activity p {
+  margin: 0;
+}
+
+.agent-activity.failed em,
+.agent-activity.blocked em {
+  color: #c58f8f;
+}
+
+.agent-activity.approved em,
+.agent-activity.completed em {
+  color: #a9b7a5;
+}
+
 .message p,
 .message-content p,
 .message-content li {
@@ -2385,6 +2440,18 @@ textarea:focus {
     max-width: 100%;
   }
 
+  .agent-activity {
+    max-width: 100%;
+  }
+
+  .agent-activity-main {
+    grid-template-columns: 54px minmax(0, 1fr);
+  }
+
+  .agent-activity-main em {
+    grid-column: 2;
+  }
+
   .message.user {
     max-width: min(100%, 92vw);
   }
@@ -2531,6 +2598,7 @@ textarea:focus {
 :root[data-theme="light"] .proposal-detail-top strong,
 :root[data-theme="light"] .agent-card strong,
 :root[data-theme="light"] .agent-loop-top strong,
+:root[data-theme="light"] .agent-activity strong,
 :root[data-theme="light"] .agent-timeline-main strong,
 :root[data-theme="light"] .detail-line strong {
   color: #252522;
@@ -2571,6 +2639,7 @@ textarea:focus {
 :root[data-theme="light"] .details-list,
 :root[data-theme="light"] .agent-card,
 :root[data-theme="light"] .agent-loop-card,
+:root[data-theme="light"] .agent-activity,
 :root[data-theme="light"] .agent-timeline-item,
 :root[data-theme="light"] .proposal-diff,
 :root[data-theme="light"] .conversation-menu,

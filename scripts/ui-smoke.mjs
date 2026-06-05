@@ -408,6 +408,24 @@ async function runProbe() {
       returnByValue: true,
     });
     await sleep(150);
+    const agentActivityObserved = await send('Runtime.evaluate', {
+      expression: `(() => {
+        const activity = document.querySelector('.agent-activity');
+        const text = activity?.innerText ?? '';
+        return {
+          ok: Boolean(activity) && text.includes('loop'),
+          text: text.slice(0, 200),
+          body: document.body.innerText.slice(0, 800),
+        };
+      })()`,
+      returnByValue: true,
+    });
+    if (!agentActivityObserved.result?.result?.value?.ok) {
+      throw new Error(
+        `agent chat activity missing: ${agentActivityObserved.result?.result?.value?.text ?? ''} ` +
+          `${agentActivityObserved.result?.result?.value?.body ?? ''}`,
+      );
+    }
   }
 
   await send('Runtime.evaluate', {
