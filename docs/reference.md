@@ -115,6 +115,7 @@ Vite runs at `http://localhost:5173`.
 | UI agent review | `make ui-check-agent` with `LINEA_WORKSPACE_DIR` enabled. Set `LINEA_AGENT_REVIEW_FILE` when needed. |
 | Models | `make model-check` |
 | macOS package | `make macos-package` |
+| macOS app UI | `make macos-ui-check` |
 
 # Client Docs
 

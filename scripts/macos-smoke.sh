@@ -5,12 +5,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="${LINEA_MACOS_APP:-$ROOT_DIR/dist/macos/Linea.app}"
 DMG_PATH="${LINEA_MACOS_DMG:-$ROOT_DIR/dist/macos/Linea.dmg}"
 SERVER="$APP_DIR/Contents/Resources/linea"
+LAUNCHER="$APP_DIR/Contents/MacOS/Linea"
 PORT="${LINEA_MACOS_SMOKE_PORT:-18081}"
 API_ADDR="127.0.0.1:$PORT"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/linea-macos-smoke.XXXXXX")"
 ENV_FILE="$TMP_DIR/no-env"
 SETTINGS_FILE="$TMP_DIR/settings.json"
 LOG_FILE="$TMP_DIR/linea.log"
+RUN_UI_SMOKE="${LINEA_MACOS_UI_SMOKE:-0}"
 PID=""
 
 cleanup() {
@@ -18,17 +20,26 @@ cleanup() {
     kill "$PID" >/dev/null 2>&1 || true
     wait "$PID" >/dev/null 2>&1 || true
   fi
+  while IFS= read -r port_pid; do
+    [[ -n "$port_pid" ]] || continue
+    kill "$port_pid" >/dev/null 2>&1 || true
+  done < <(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
+
+if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "port $PORT is already in use" >&2
+  exit 1
+fi
 
 if [[ ! -x "$SERVER" ]]; then
   echo "missing bundled server: $SERVER" >&2
   exit 1
 fi
 
-if [[ ! -f "$APP_DIR/Contents/MacOS/Linea" ]]; then
-  echo "missing app launcher: $APP_DIR/Contents/MacOS/Linea" >&2
+if [[ ! -f "$LAUNCHER" ]]; then
+  echo "missing app launcher: $LAUNCHER" >&2
   exit 1
 fi
 
@@ -37,7 +48,15 @@ if [[ ! -f "$APP_DIR/Contents/Info.plist" ]]; then
   exit 1
 fi
 
-LINEA_ENV_FILE="$ENV_FILE" LINEA_SETTINGS_FILE="$SETTINGS_FILE" API_ADDR="$API_ADDR" "$SERVER" >"$LOG_FILE" 2>&1 &
+if [[ "$RUN_UI_SMOKE" == "1" ]]; then
+  LINEA_ENV_FILE="$ENV_FILE" \
+    LINEA_SETTINGS_FILE="$SETTINGS_FILE" \
+    LINEA_WORKSPACE_DIR="$ROOT_DIR" \
+    API_ADDR="$API_ADDR" \
+    "$LAUNCHER" >"$LOG_FILE" 2>&1 &
+else
+  LINEA_ENV_FILE="$ENV_FILE" LINEA_SETTINGS_FILE="$SETTINGS_FILE" API_ADDR="$API_ADDR" "$SERVER" >"$LOG_FILE" 2>&1 &
+fi
 PID="$!"
 
 for _ in $(seq 1 80); do
@@ -73,6 +92,12 @@ esac
 if ! "$SERVER" -version >/dev/null; then
   echo "bundled server version command failed" >&2
   exit 1
+fi
+
+if [[ "$RUN_UI_SMOKE" == "1" ]]; then
+  LINEA_UI_URL="http://$API_ADDR/" \
+    LINEA_AGENT_REVIEW_FILE="README.md" \
+    node "$ROOT_DIR/scripts/ui-smoke.mjs" --agent-review
 fi
 
 if [[ -f "$DMG_PATH" ]]; then
