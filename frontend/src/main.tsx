@@ -239,6 +239,13 @@ type AgentWorkspaceSymbol = {
   line: number;
 };
 
+type AgentWorkspaceReference = {
+  name: string;
+  path: string;
+  line: number;
+  text: string;
+};
+
 type AgentWorkspaceSearchResult = {
   path: string;
   line: number;
@@ -2087,14 +2094,16 @@ function SystemDetailsDialog({
   const [mcpError, setMCPError] = useState<string | null>(null);
   const [workspaceRootInput, setWorkspaceRootInput] = useState(agentStatus?.workspaceRoot ?? '');
   const [workspaceQuery, setWorkspaceQuery] = useState('');
+  const [workspaceMode, setWorkspaceMode] = useState<'search' | 'symbols' | 'references'>('search');
   const [workspaceResults, setWorkspaceResults] = useState<AgentWorkspaceSearchResult[]>([]);
   const [workspaceSymbols, setWorkspaceSymbols] = useState<AgentWorkspaceSymbol[]>([]);
+  const [workspaceReferences, setWorkspaceReferences] = useState<AgentWorkspaceReference[]>([]);
   const [workspaceFile, setWorkspaceFile] = useState<AgentWorkspaceFile | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const enabledAgentTools = agentStatus?.tools.filter((tool) => tool.access !== 'off').length ?? 0;
   const workspaceOn = agentStatus?.tools
-    .filter((tool) => ['read_file', 'search_files', 'diagnostics'].includes(tool.id))
+    .filter((tool) => ['read_file', 'search_files', 'diagnostics', 'symbols', 'references'].includes(tool.id))
     .some((tool) => tool.access !== 'off') ?? false;
   const blockedChecks = agentStatus?.commandChecks?.filter((check) => !check.allowed) ?? [];
   const normalizedCommandInput = normalizeCommand(commandInput);
@@ -2105,6 +2114,13 @@ function SystemDetailsDialog({
   const selectedProposal =
     editProposals.find((proposal) => proposal.id === selectedProposalId) ?? editProposals[0] ?? null;
   const mcpTools = agentStatus?.mcpTools ?? [];
+  const workspaceEmptyText = !workspaceOn
+    ? 'Workspace tools are off'
+    : workspaceMode === 'symbols'
+      ? 'No symbols'
+      : workspaceMode === 'references'
+        ? 'No references'
+        : 'No search results';
 
   useEffect(() => {
     if (!selectedProposalId && editProposals.length > 0) {
@@ -2146,19 +2162,27 @@ function SystemDetailsDialog({
     setWorkspaceFile(null);
     if (query.length < 2) {
       setWorkspaceError('Use at least 2 characters.');
+      setWorkspaceMode('search');
       setWorkspaceResults([]);
+      setWorkspaceSymbols([]);
+      setWorkspaceReferences([]);
       return;
     }
     try {
       setIsWorkspaceLoading(true);
       setWorkspaceError(null);
+      setWorkspaceMode('search');
+      setWorkspaceResults([]);
       setWorkspaceSymbols([]);
+      setWorkspaceReferences([]);
       const results = await request<AgentWorkspaceSearchResult[]>(
         `/api/agent/workspace/search?q=${encodeURIComponent(query)}`,
       );
       setWorkspaceResults(Array.isArray(results) ? results : []);
     } catch (err) {
       setWorkspaceResults([]);
+      setWorkspaceSymbols([]);
+      setWorkspaceReferences([]);
       setWorkspaceError(err instanceof Error ? err.message : 'Could not search workspace.');
     } finally {
       setIsWorkspaceLoading(false);
@@ -2182,7 +2206,10 @@ function SystemDetailsDialog({
     try {
       setIsWorkspaceLoading(true);
       setWorkspaceError(null);
+      setWorkspaceMode('symbols');
       setWorkspaceResults([]);
+      setWorkspaceSymbols([]);
+      setWorkspaceReferences([]);
       setWorkspaceFile(null);
       const symbols = await request<AgentWorkspaceSymbol[]>(
         `/api/agent/workspace/symbols?q=${encodeURIComponent(workspaceQuery.trim())}`,
@@ -2191,7 +2218,31 @@ function SystemDetailsDialog({
     } catch (err) {
       setWorkspaceResults([]);
       setWorkspaceSymbols([]);
+      setWorkspaceReferences([]);
       setWorkspaceError(err instanceof Error ? err.message : 'Could not read symbols.');
+    } finally {
+      setIsWorkspaceLoading(false);
+    }
+  }
+
+  async function searchWorkspaceReferences() {
+    try {
+      setIsWorkspaceLoading(true);
+      setWorkspaceError(null);
+      setWorkspaceMode('references');
+      setWorkspaceResults([]);
+      setWorkspaceSymbols([]);
+      setWorkspaceReferences([]);
+      setWorkspaceFile(null);
+      const references = await request<AgentWorkspaceReference[]>(
+        `/api/agent/workspace/references?q=${encodeURIComponent(workspaceQuery.trim())}`,
+      );
+      setWorkspaceReferences(Array.isArray(references) ? references : []);
+    } catch (err) {
+      setWorkspaceResults([]);
+      setWorkspaceSymbols([]);
+      setWorkspaceReferences([]);
+      setWorkspaceError(err instanceof Error ? err.message : 'Could not read references.');
     } finally {
       setIsWorkspaceLoading(false);
     }
@@ -2628,11 +2679,18 @@ function SystemDetailsDialog({
             >
               Symbols
             </button>
+            <button
+              disabled={!workspaceOn || isWorkspaceLoading || !workspaceQuery.trim()}
+              type="button"
+              onClick={() => void searchWorkspaceReferences()}
+            >
+              References
+            </button>
           </form>
           {workspaceError && <p className="workspace-error">{workspaceError}</p>}
           <div className="workspace-layout">
             <div className="workspace-results" role="list">
-              {workspaceSymbols.length > 0 ? (
+              {workspaceMode === 'symbols' && workspaceSymbols.length > 0 ? (
                 workspaceSymbols.map((symbol) => (
                   <button
                     className={workspaceFile?.path === symbol.path ? 'workspace-result active' : 'workspace-result'}
@@ -2646,7 +2704,21 @@ function SystemDetailsDialog({
                     </small>
                   </button>
                 ))
-              ) : workspaceResults.length > 0 ? (
+              ) : workspaceMode === 'references' && workspaceReferences.length > 0 ? (
+                workspaceReferences.map((reference, index) => (
+                  <button
+                    className={workspaceFile?.path === reference.path ? 'workspace-result active' : 'workspace-result'}
+                    key={`${reference.path}-${reference.line}-${reference.name}-${index}`}
+                    type="button"
+                    onClick={() => void readWorkspaceFile(reference.path)}
+                  >
+                    <span>{reference.path}</span>
+                    <small>
+                      {reference.line}: {reference.text}
+                    </small>
+                  </button>
+                ))
+              ) : workspaceMode === 'search' && workspaceResults.length > 0 ? (
                 workspaceResults.map((result, index) => (
                   <button
                     className={workspaceFile?.path === result.path ? 'workspace-result active' : 'workspace-result'}
@@ -2661,7 +2733,7 @@ function SystemDetailsDialog({
                   </button>
                 ))
               ) : (
-                <p>{workspaceOn ? 'No search results' : 'Workspace tools are off'}</p>
+                <p>{workspaceEmptyText}</p>
               )}
             </div>
             <div className="workspace-file">
