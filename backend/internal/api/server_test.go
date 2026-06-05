@@ -423,6 +423,37 @@ func TestCreateMessageCanStartAgentLoopFromChat(t *testing.T) {
 	}
 }
 
+func TestCreateMessageCanStartAgentLoopEditProposalFromChat(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "old\n")
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, "agent change notes\nproposal: notes.md\n```md\nnew\n```")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "Started agent loop `change notes`.") || !strings.Contains(body, "Create edit proposal") {
+		t.Fatalf("stream body missing agent loop confirmation:\n%s", body)
+	}
+	if strings.Contains(body, "should not stream") {
+		t.Fatalf("agent loop command called assistant:\n%s", body)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "notes.md" || proposals[0].Status != "pending" || proposals[0].Content != "new\n" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+}
+
 func TestTemporaryMessageCanStartAgentLoopFromChat(t *testing.T) {
 	root := t.TempDir()
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent loop notes\n")

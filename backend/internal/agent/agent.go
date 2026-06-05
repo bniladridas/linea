@@ -146,16 +146,20 @@ type AgentLoopStep struct {
 }
 
 type AgentLoopInput struct {
-	Goal     string `json:"goal"`
-	Command  string `json:"command,omitempty"`
-	Query    string `json:"query,omitempty"`
-	FilePath string `json:"filePath,omitempty"`
+	Goal            string `json:"goal"`
+	Command         string `json:"command,omitempty"`
+	Query           string `json:"query,omitempty"`
+	FilePath        string `json:"filePath,omitempty"`
+	ProposalPath    string `json:"proposalPath,omitempty"`
+	ProposalContent string `json:"proposalContent,omitempty"`
 }
 
 type AgentLoopContinueInput struct {
-	Command  string `json:"command,omitempty"`
-	Query    string `json:"query,omitempty"`
-	FilePath string `json:"filePath,omitempty"`
+	Command         string `json:"command,omitempty"`
+	Query           string `json:"query,omitempty"`
+	FilePath        string `json:"filePath,omitempty"`
+	ProposalPath    string `json:"proposalPath,omitempty"`
+	ProposalContent string `json:"proposalContent,omitempty"`
 }
 
 type Subagent struct {

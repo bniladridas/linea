@@ -292,6 +292,15 @@ type AgentActivity = {
   createdAt: string;
 };
 
+type AgentLoopRequest = {
+  goal: string;
+  command?: string;
+  query?: string;
+  filePath?: string;
+  proposalPath?: string;
+  proposalContent?: string;
+};
+
 type ProviderStatus = {
   name: string;
   model?: string;
@@ -868,7 +877,7 @@ function App() {
     }
   }
 
-  async function startAgentLoop(input: { goal: string; command?: string; query?: string; filePath?: string }) {
+  async function startAgentLoop(input: AgentLoopRequest) {
     const activityId = recordAgentActivity({
       kind: 'loop',
       label: 'Start loop',
@@ -893,7 +902,7 @@ function App() {
     }
   }
 
-  async function continueAgentLoop(loopId: string, input: { command?: string; query?: string; filePath?: string } = {}) {
+  async function continueAgentLoop(loopId: string, input: Omit<AgentLoopRequest, 'goal'> = {}) {
     const activityId = recordAgentActivity({
       kind: 'loop',
       label: 'Continue loop',
@@ -2295,8 +2304,8 @@ function SystemDetailsDialog({
   onRunSubagent: (subagentId: string, query: string) => void;
   onCallMCPTool: (toolId: string, args: Record<string, unknown>) => void;
   onSaveRun: () => void;
-  onStartLoop: (input: { goal: string; command?: string; query?: string; filePath?: string }) => void;
-  onContinueLoop: (loopId: string, input: { command?: string; query?: string; filePath?: string }) => void;
+  onStartLoop: (input: AgentLoopRequest) => void;
+  onContinueLoop: (loopId: string, input: Omit<AgentLoopRequest, 'goal'>) => void;
   onCancelLoop: (loopId: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
   onWorkspaceChange: (root: string) => void;

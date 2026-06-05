@@ -1411,7 +1411,9 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 		return agent.AgentLoopInput{}, true, errors.New("Use `agent <goal>` to start an agent loop.")
 	}
 	input := agent.AgentLoopInput{Goal: goal}
-	for _, line := range strings.Split(body, "\n") {
+	lines := strings.Split(body, "\n")
+	for index := 0; index < len(lines); index++ {
+		line := lines[index]
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -1422,6 +1424,10 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 			input.Query = value
 		case "file", "path":
 			input.FilePath = value
+		case "proposal":
+			input.ProposalPath = value
+			input.ProposalContent = editProposalBody(strings.Join(lines[index+1:], "\n"))
+			return input, true, nil
 		case "command":
 			input.Command = value
 		}

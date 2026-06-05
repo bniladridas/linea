@@ -107,10 +107,12 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 	}
 	if !continued {
 		loop = r.runLoopSteps(ctx, loop, AgentLoopInput{
-			Goal:     loop.Goal,
-			Command:  input.Command,
-			Query:    input.Query,
-			FilePath: input.FilePath,
+			Goal:            loop.Goal,
+			Command:         input.Command,
+			Query:           input.Query,
+			FilePath:        input.FilePath,
+			ProposalPath:    input.ProposalPath,
+			ProposalContent: input.ProposalContent,
 		})
 	}
 	if loop.State == "running" {
@@ -205,6 +207,36 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		tools := r.ListMCPTools(ctx)
 		loop = appendLoopStep(loop, "mcp", "Inspect MCP", "mcp", nil, fmt.Sprintf("%d server(s), %d tool(s)", len(servers), len(tools)), "")
 	}
+	proposalPath := strings.TrimSpace(input.ProposalPath)
+	if proposalPath != "" {
+		proposal, err := r.ProposeEdit(ctx, EditProposalInput{
+			Path:    proposalPath,
+			Content: input.ProposalContent,
+			Summary: "Agent loop proposal",
+		})
+		detail := proposalPath
+		createdID := ""
+		if err == nil {
+			detail = proposal.Path
+			createdID = proposal.ID
+		}
+		loop = appendLoopStep(loop, "edit_proposal", "Create edit proposal", "edit_file", err, detail, "")
+		if createdID != "" {
+			loop.Steps[len(loop.Steps)-1].CreatedID = createdID
+		}
+	} else if mentionsEdit(goalLower) {
+		loop.Steps = append(loop.Steps, AgentLoopStep{
+			ID:     newTraceID(),
+			Kind:   "edit_boundary",
+			Title:  "Edit boundary",
+			State:  "waiting_approval",
+			Detail: "Provide proposal path and content before creating an edit proposal.",
+			ToolID: "edit_file",
+		})
+		if loop.State != "waiting_input" {
+			loop.State = "waiting_approval"
+		}
+	}
 	command := strings.Join(strings.Fields(input.Command), " ")
 	if command != "" {
 		check, err := r.CheckCommand(ctx, CommandCheckInput{Command: command})
@@ -246,19 +278,6 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 			ToolID: "run_command",
 		})
 		loop.State = "waiting_input"
-	}
-	if mentionsEdit(goalLower) {
-		loop.Steps = append(loop.Steps, AgentLoopStep{
-			ID:     newTraceID(),
-			Kind:   "edit_boundary",
-			Title:  "Edit boundary",
-			State:  "waiting_approval",
-			Detail: "Create or apply edit proposals explicitly.",
-			ToolID: "edit_file",
-		})
-		if loop.State != "waiting_input" {
-			loop.State = "waiting_approval"
-		}
 	}
 	return loop
 }
