@@ -385,6 +385,77 @@ func TestCreateMessageAcceptsAlternateEditProposalPhrase(t *testing.T) {
 	}
 }
 
+func TestCreateMessageCanStartAgentLoopFromChat(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent loop notes\n")
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, "agent search notes\nquery: notes")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "Started agent loop `search notes`.") || !strings.Contains(body, "Search workspace") {
+		t.Fatalf("stream body missing agent loop confirmation:\n%s", body)
+	}
+	if strings.Contains(body, "should not stream") {
+		t.Fatalf("agent loop command called assistant:\n%s", body)
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || loops[0].Goal != "search notes" || loops[0].State != "completed" {
+		t.Fatalf("loops = %#v", loops)
+	}
+	messages, err := appStore.ListMessages(context.Background(), conversation.ID)
+	if err != nil {
+		t.Fatalf("ListMessages() error = %v", err)
+	}
+	if len(messages) != 2 || messages[1].Role != "assistant" || !strings.Contains(messages[1].Content, "Started agent loop `search notes`.") {
+		t.Fatalf("messages = %#v", messages)
+	}
+}
+
+func TestTemporaryMessageCanStartAgentLoopFromChat(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent loop notes\n")
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(store.NewMemoryStore(), fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("content", "run agent search notes\nquery: notes"); err != nil {
+		t.Fatalf("WriteField() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/chat/temp", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "Started agent loop `search notes`.") {
+		t.Fatalf("stream body missing agent loop confirmation:\n%s", res.Body.String())
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || loops[0].Goal != "search notes" {
+		t.Fatalf("loops = %#v", loops)
+	}
+}
+
 func TestCreateMessagePreservesRawUnfencedEditProposalBody(t *testing.T) {
 	root := t.TempDir()
 	writeAPITestFile(t, filepath.Join(root, "README.md"), "# Linea")
