@@ -1,4 +1,4 @@
-.PHONY: build test check install-check release-check macos-package macos-check model-check agent-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full
+.PHONY: build test check install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full
 
 BREW_LINEA_BIN = $$(brew --prefix bniladridas/linea/linea)/bin/linea
 
@@ -43,6 +43,9 @@ macos-package:
 
 macos-check: macos-package
 	./scripts/macos-smoke.sh
+
+macos-ui-check: macos-package
+	LINEA_MACOS_UI_SMOKE=1 ./scripts/macos-smoke.sh
 
 model-check:
 	node scripts/model-smoke.mjs --configured
