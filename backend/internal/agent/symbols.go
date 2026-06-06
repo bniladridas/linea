@@ -28,6 +28,10 @@ func (r *Runtime) ListSymbols(ctx context.Context, query string) ([]WorkspaceSym
 		return nil, err
 	}
 	query = strings.ToLower(strings.TrimSpace(query))
+	if symbols, ok := r.listSymbolsWithLSP(ctx, root, query); ok {
+		sortSymbols(symbols)
+		return symbols, nil
+	}
 	fileSet := token.NewFileSet()
 	symbols := []WorkspaceSymbol{}
 	filesSeen := 0
@@ -85,15 +89,7 @@ func (r *Runtime) ListSymbols(ctx context.Context, query string) ([]WorkspaceSym
 	if errors.Is(err, filepath.SkipAll) {
 		err = nil
 	}
-	sort.Slice(symbols, func(i, j int) bool {
-		if symbols[i].Path == symbols[j].Path {
-			if symbols[i].Line == symbols[j].Line {
-				return symbols[i].Name < symbols[j].Name
-			}
-			return symbols[i].Line < symbols[j].Line
-		}
-		return symbols[i].Path < symbols[j].Path
-	})
+	sortSymbols(symbols)
 	return symbols, err
 }
 
@@ -167,13 +163,29 @@ func (r *Runtime) ListReferences(ctx context.Context, query string) ([]Workspace
 	if errors.Is(err, filepath.SkipAll) {
 		err = nil
 	}
+	sortReferences(references)
+	return references, err
+}
+
+func sortSymbols(symbols []WorkspaceSymbol) {
+	sort.Slice(symbols, func(i, j int) bool {
+		if symbols[i].Path == symbols[j].Path {
+			if symbols[i].Line == symbols[j].Line {
+				return symbols[i].Name < symbols[j].Name
+			}
+			return symbols[i].Line < symbols[j].Line
+		}
+		return symbols[i].Path < symbols[j].Path
+	})
+}
+
+func sortReferences(references []WorkspaceReference) {
 	sort.Slice(references, func(i, j int) bool {
 		if references[i].Path == references[j].Path {
 			return references[i].Line < references[j].Line
 		}
 		return references[i].Path < references[j].Path
 	})
-	return references, err
 }
 
 func symbolsFromNode(fileSet *token.FileSet, path string, node ast.Node) []WorkspaceSymbol {
@@ -197,6 +209,43 @@ func symbolsFromNode(fileSet *token.FileSet, path string, node ast.Node) []Works
 	default:
 		return nil
 	}
+}
+
+func goFiles(ctx context.Context, root string, limit int) ([]string, error) {
+	files := []string{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if entry.IsDir() {
+			if shouldSkipDir(entry.Name()) && path != root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if shouldSkipFile(entry.Name()) || entry.Type()&fs.ModeSymlink != 0 || filepath.Ext(entry.Name()) != ".go" {
+			return nil
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		files = append(files, filepath.ToSlash(relative))
+		if limit > 0 && len(files) >= limit {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if errors.Is(err, filepath.SkipAll) {
+		err = nil
+	}
+	sort.Strings(files)
+	return files, err
 }
 
 func isGoIdentifier(value string) bool {

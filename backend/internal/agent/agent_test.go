@@ -1050,6 +1050,30 @@ func TestRuntimeListsWorkspaceSymbols(t *testing.T) {
 	}
 }
 
+func TestRuntimeUsesConfiguredLSPForDiagnosticsAndSymbols(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc Run() {}\nfunc main() { Run() }\n")
+	lsp := fakeLSPCommand(t, root)
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithLSPCommand(lsp))
+
+	diagnostics, err := runtime.ListDiagnostics(context.Background())
+	if err != nil {
+		t.Fatalf("ListDiagnostics() error = %v", err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Path != "main.go" || diagnostics[0].Message != "lsp diagnostic" {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+
+	symbols, err := runtime.ListSymbols(context.Background(), "run")
+	if err != nil {
+		t.Fatalf("ListSymbols() error = %v", err)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "Run" || symbols[0].Kind != "func" || symbols[0].Path != "main.go" {
+		t.Fatalf("symbols = %#v", symbols)
+	}
+
+}
+
 func TestRuntimeListsWorkspaceReferences(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\n// Run in a comment should not count.\nfunc Run() {}\nfunc main() { Run() }\nvar _ = \"Run\"\n")
@@ -1071,6 +1095,24 @@ func TestRuntimeListsWorkspaceReferences(t *testing.T) {
 	}
 	if _, err := runtime.ListReferences(context.Background(), "Run()"); err == nil {
 		t.Fatal("ListReferences() error = nil, want invalid identifier error")
+	}
+}
+
+func TestRuntimeReferencesStayNameBasedWithLSPConfigured(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "a.go"), "package main\n\nfunc Run() {}\nfunc main() { Run() }\n")
+	writeTestFile(t, filepath.Join(root, "b.go"), "package main\n\nfunc Run() {}\nfunc other() { Run() }\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithLSPCommand(fakeLSPCommand(t, root)))
+
+	references, err := runtime.ListReferences(context.Background(), "Run")
+	if err != nil {
+		t.Fatalf("ListReferences() error = %v", err)
+	}
+	if len(references) != 4 {
+		t.Fatalf("references = %#v", references)
+	}
+	if references[0].Path != "a.go" || references[2].Path != "b.go" {
+		t.Fatalf("references = %#v", references)
 	}
 }
 
@@ -1627,6 +1669,32 @@ func writeTestFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write test file: %v", err)
 	}
+}
+
+func fakeLSPCommand(t *testing.T, root string) string {
+	t.Helper()
+	path := filepath.Join(root, "fake-gopls")
+	script := `#!/bin/sh
+case "$1" in
+  check)
+    echo "main.go:2:1: lsp diagnostic"
+    ;;
+  workspace_symbol)
+    echo "main.go:3:6: func Run"
+    ;;
+  references)
+    echo "main.go:3:6-9"
+    echo "main.go:4:15-18"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake lsp: %v", err)
+	}
+	return path
 }
 
 type fakeEditPlanner struct {

@@ -56,6 +56,7 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_RULES_FILE` | Agent rules file. |
 | `LINEA_SKILLS_DIR` | Reads markdown skills from this directory. Empty means planned skills only. |
 | `LINEA_WORKSPACE_DIR` | Enables read-only agent workspace tools. Empty means off. |
+| `LINEA_LSP_COMMAND` | Uses an LSP command such as `gopls` for Go diagnostics and symbols. Empty means local parser fallback. |
 | `LINEA_MCP_CONFIG` | Reads local MCP server and tool names from a JSON config. Empty means none. |
 | `LINEA_COMMAND_ALLOWLIST` | Comma-separated exact commands allowed for agent checks. Empty means none. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |

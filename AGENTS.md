@@ -125,6 +125,7 @@ Initial scope:
 * Review-only edit proposals
 * Bounded agent loops
 * Workspace search, file read, diagnostics, and symbols
+* Optional LSP-backed diagnostics and symbols
 * TUI agent commands
 * Local MCP status and configured tool calls
 * Bounded subagent runs
@@ -134,7 +135,7 @@ Initial scope:
 
 Later scope:
 
-* LSP integration
+* Deeper LSP integration
 * Android app
 * Optional sync
 * Broader MCP flows
@@ -223,7 +224,7 @@ MCP:
 
 LSP:
 
-* Use LSP for diagnostics, symbols, references, and code navigation.
+* Use LSP for diagnostics, symbols, references, and code navigation when it preserves the existing user-facing contract.
 * Do not make core behavior depend on one editor.
 
 Subagents:
