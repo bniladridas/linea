@@ -154,6 +154,30 @@ func (a *App) runHandRolled(ctx context.Context) error {
 			a.render(conversation, messages, attachments, "Started new chat.")
 			continue
 		}
+		if title, ok := strings.CutPrefix(strings.TrimSpace(input), ":rename "); ok {
+			nextConversation, nextMessages, status := a.renameConversation(ctx, conversation, messages, title)
+			conversation, messages = nextConversation, nextMessages
+			a.render(conversation, messages, attachments, status)
+			continue
+		}
+		if strings.TrimSpace(input) == ":delete" {
+			a.render(conversation, messages, attachments, "Use :delete confirm to delete this chat.")
+			continue
+		}
+		if strings.TrimSpace(input) == ":delete confirm" {
+			nextConversation, nextMessages, status := a.deleteConversation(ctx, conversation, messages)
+			conversation, messages, attachments = nextConversation, nextMessages, nil
+			a.render(conversation, messages, attachments, status)
+			continue
+		}
+		if strings.TrimSpace(input) == ":share" {
+			shareText, status := a.shareConversation(conversation, messages)
+			a.render(conversation, messages, attachments, status)
+			if shareText != "" {
+				a.renderMessage(store.Message{Role: "assistant", Content: shareText})
+			}
+			continue
+		}
 		if path, ok := strings.CutPrefix(strings.TrimSpace(input), ":attach "); ok {
 			attachment, err := a.readAttachment(path)
 			if err != nil {
@@ -225,6 +249,54 @@ func (a *App) runHandRolled(ctx context.Context) error {
 	}
 }
 
+func (a *App) renameConversation(ctx context.Context, conversation store.Conversation, messages []store.Message, title string) (store.Conversation, []store.Message, string) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return conversation, messages, "Choose a title."
+	}
+	if conversation.ID == "" {
+		return conversation, messages, "Send a message before renaming."
+	}
+	updated, err := a.store.UpdateConversationTitle(ctx, conversation.ID, title)
+	if err != nil {
+		return conversation, messages, err.Error()
+	}
+	return updated, messages, "Renamed."
+}
+
+func (a *App) deleteConversation(ctx context.Context, conversation store.Conversation, messages []store.Message) (store.Conversation, []store.Message, string) {
+	if conversation.ID == "" {
+		return conversation, messages, "No saved chat to delete."
+	}
+	if err := a.store.DeleteConversation(ctx, conversation.ID); err != nil {
+		return conversation, messages, err.Error()
+	}
+	return store.Conversation{}, nil, "Deleted chat."
+}
+
+func (a *App) shareConversation(conversation store.Conversation, messages []store.Message) (string, string) {
+	if conversation.ID == "" || len(messages) == 0 {
+		return "", "No saved chat to share."
+	}
+	return formatConversationShareText(conversation, messages), "Share text shown."
+}
+
+func formatConversationShareText(conversation store.Conversation, messages []store.Message) string {
+	title := strings.TrimSpace(conversation.Title)
+	if title == "" {
+		title = "Untitled"
+	}
+	lines := make([]string, 0, len(messages))
+	for _, message := range messages {
+		label := "Linea"
+		if message.Role == "user" {
+			label = "User"
+		}
+		lines = append(lines, label+": "+message.Content)
+	}
+	return strings.TrimSpace(title + "\n\n" + strings.Join(lines, "\n\n"))
+}
+
 func (a *App) pickConversation(ctx context.Context) (store.Conversation, []store.Message, error) {
 	conversations, err := a.store.ListConversations(ctx)
 	if err != nil {
@@ -289,8 +361,11 @@ func (a *App) render(conversation store.Conversation, messages []store.Message, 
 		}
 	}
 	fmt.Fprintln(a.out)
-	fmt.Fprintf(a.out, "%s %s\n", a.theme.muted("Status:"), status)
-	fmt.Fprintln(a.out, a.theme.muted(":help for commands"))
+	status = strings.TrimSpace(status)
+	if status == "" || status == "Ready." {
+		status = "Ready"
+	}
+	fmt.Fprintln(a.out, a.theme.muted(status+" · :help"))
 }
 
 func (a *App) renderHeader(title string) {

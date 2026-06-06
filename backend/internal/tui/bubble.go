@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -26,6 +27,8 @@ const (
 	modeChat
 )
 
+const maxPickerItems = 8
+
 type sentMsg struct {
 	conversation store.Conversation
 	user         store.Message
@@ -40,6 +43,7 @@ type bubbleModel struct {
 	mode         screenMode
 	conversation store.Conversation
 	messages     []store.Message
+	shareText    string
 	attachments  []llm.Attachment
 	recent       []store.Conversation
 	input        textinput.Model
@@ -104,7 +108,7 @@ func newBubbleModel(ctx context.Context, app *App) (bubbleModel, error) {
 		mode = modePick
 		input.Prompt = "Open › "
 		input.Placeholder = "Number or Enter for new"
-		status = "Choose a recent chat, or press Enter for new."
+		status = "Choose recent or press Enter."
 	}
 	model := bubbleModel{
 		app:      app,
@@ -189,7 +193,7 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m bubbleModel) pressEscape() (tea.Model, tea.Cmd) {
 	if m.mode == modeChat {
 		if m.sending {
-			m.status = "Wait for the current response to finish."
+			m.status = "Wait for current response."
 			m.escPending = false
 			return m, nil
 		}
@@ -200,14 +204,14 @@ func (m bubbleModel) pressEscape() (tea.Model, tea.Cmd) {
 		m.input.Prompt = "Open › "
 		m.input.Placeholder = "Number or Enter for new"
 		m.input.SetValue("")
-		m.status = "Back. Press Esc again to quit."
+		m.status = "Back. Esc again quits."
 		m.escPending = true
 		return m, nil
 	}
 	if m.escPending {
 		return m, tea.Quit
 	}
-	m.status = "Press Esc again to quit."
+	m.status = "Esc again quits."
 	m.escPending = true
 	return m, nil
 }
@@ -223,12 +227,31 @@ func (m bubbleModel) pick(value string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	index, err := strconv.Atoi(value)
-	if err != nil || index < 1 || index > len(m.recent) || index > 5 {
-		m = m.startNewChat()
-		m.syncViewport()
+	items := m.filteredRecent("")
+	if err == nil && index >= 1 && index <= len(items) && index <= maxPickerItems {
+		return m.openConversation(items[index-1])
+	}
+	if err == nil && len(m.filteredRecent(value)) == 0 {
+		m.status = "No chat at that number."
 		return m, nil
 	}
-	m.conversation = m.recent[index-1]
+	matches := m.filteredRecent(value)
+	switch len(matches) {
+	case 0:
+		m.status = "No matching chat. Enter starts new."
+		return m, nil
+	case 1:
+		return m.openConversation(matches[0])
+	default:
+		m.input.SetValue(value)
+		m.status = fmt.Sprintf("%d matches. Refine search.", len(matches))
+		return m, nil
+	}
+}
+
+func (m bubbleModel) openConversation(conversation store.Conversation) (tea.Model, tea.Cmd) {
+	m.conversation = conversation
+	m.shareText = ""
 	messages, err := m.app.store.ListMessages(m.ctx, m.conversation.ID)
 	if err != nil {
 		m.status = err.Error()
@@ -245,10 +268,25 @@ func (m bubbleModel) pick(value string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m bubbleModel) filteredRecent(query string) []store.Conversation {
+	query = strings.TrimSpace(strings.ToLower(query))
+	if query == "" {
+		return append([]store.Conversation(nil), m.recent...)
+	}
+	filtered := []store.Conversation{}
+	for _, conversation := range m.recent {
+		if strings.Contains(strings.ToLower(conversation.Title), query) {
+			filtered = append(filtered, conversation)
+		}
+	}
+	return filtered
+}
+
 func (m bubbleModel) startNewChat() bubbleModel {
 	m.mode = modeChat
 	m.conversation = store.Conversation{}
 	m.messages = nil
+	m.shareText = ""
 	m.attachments = nil
 	m.escPending = false
 	m.input.Prompt = "Message › "
@@ -263,7 +301,7 @@ func (m bubbleModel) submit(value string) (tea.Model, tea.Cmd) {
 		case ":quit", ":q", "exit":
 			return m, tea.Quit
 		default:
-			m.status = "Wait for the current response to finish."
+			m.status = "Wait for current response."
 			return m, nil
 		}
 	}
@@ -275,10 +313,24 @@ func (m bubbleModel) submit(value string) (tea.Model, tea.Cmd) {
 	case ":new":
 		m.conversation = store.Conversation{}
 		m.messages = nil
+		m.shareText = ""
 		m.attachments = nil
 		m.status = "Started new chat."
 		m.syncViewport()
 		return m, nil
+	}
+	if nextTitle, ok := strings.CutPrefix(value, ":rename "); ok {
+		return m.renameCurrentChat(nextTitle)
+	}
+	if value == ":delete" {
+		m.status = "Use :delete confirm to delete this chat."
+		return m, nil
+	}
+	if value == ":delete confirm" {
+		return m.deleteCurrentChat()
+	}
+	if value == ":share" {
+		return m.shareCurrentChat()
 	}
 	if path, ok := strings.CutPrefix(value, ":attach "); ok {
 		return m.queueAttachment(path)
@@ -293,17 +345,71 @@ func (m bubbleModel) submit(value string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if output, ok := m.app.handleAgentCommand(m.ctx, value); ok {
+		m.shareText = ""
 		m.messages = append(m.messages, store.Message{ID: store.NewID(), Role: "assistant", Content: output})
 		m.status = "Ready."
 		m.syncViewport()
 		m.viewport.GotoBottom()
 		return m, nil
 	}
+	m.shareText = ""
 	m.sending = true
-	m.status = "Linea is writing..."
+	m.status = "Writing"
 	m.syncViewport()
 	m.viewport.GotoBottom()
 	return m, m.send(value)
+}
+
+func (m bubbleModel) renameCurrentChat(title string) (tea.Model, tea.Cmd) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		m.status = "Choose a title."
+		return m, nil
+	}
+	if m.conversation.ID == "" {
+		m.status = "Send a message before renaming."
+		return m, nil
+	}
+	conversation, err := m.app.store.UpdateConversationTitle(m.ctx, m.conversation.ID, title)
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	m.conversation = conversation
+	m.status = "Renamed."
+	m.syncViewport()
+	return m, nil
+}
+
+func (m bubbleModel) deleteCurrentChat() (tea.Model, tea.Cmd) {
+	if m.conversation.ID == "" {
+		m.status = "No saved chat to delete."
+		return m, nil
+	}
+	if err := m.app.store.DeleteConversation(m.ctx, m.conversation.ID); err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	if recent, err := m.app.store.ListConversations(m.ctx); err == nil {
+		m.recent = recent
+	}
+	m = m.startNewChat()
+	m.status = "Deleted chat."
+	m.syncViewport()
+	return m, nil
+}
+
+func (m bubbleModel) shareCurrentChat() (tea.Model, tea.Cmd) {
+	if m.conversation.ID == "" || len(m.messages) == 0 {
+		m.status = "No saved chat to share."
+		return m, nil
+	}
+	content := formatConversationShareText(m.conversation, m.messages)
+	m.shareText = content
+	m.status = "Share text shown."
+	m.syncViewport()
+	m.viewport.GotoBottom()
+	return m, nil
 }
 
 func (m bubbleModel) queueAttachment(path string) (tea.Model, tea.Cmd) {
@@ -372,22 +478,30 @@ func (m bubbleModel) viewPicker(styles bubbleStyles) string {
 	var b strings.Builder
 	b.WriteString(styles.title.Render("Linea"))
 	b.WriteString("\n")
-	b.WriteString(styles.muted.Render("Recent chats"))
+	b.WriteString(styles.muted.Render("Recent"))
 	b.WriteString("\n\n")
-	limit := len(m.recent)
-	if limit > 5 {
-		limit = 5
+	items := m.filteredRecent(m.pickerQuery())
+	limit := len(items)
+	if limit > maxPickerItems {
+		limit = maxPickerItems
+	}
+	if len(m.recent) == 0 {
+		b.WriteString(styles.muted.Render("No recent chats."))
+		b.WriteString("\n")
+	} else if limit == 0 {
+		b.WriteString(styles.muted.Render("No matches."))
+		b.WriteString("\n")
 	}
 	for i := 0; i < limit; i++ {
-		item := fmt.Sprintf("%d. %s", i+1, m.recent[i].Title)
-		date := m.recent[i].UpdatedAt.Local().Format("2 Jan 15:04")
+		item := fmt.Sprintf("%d. %s", i+1, items[i].Title)
+		date := items[i].UpdatedAt.Local().Format("2 Jan 15:04")
 		b.WriteString(styles.bubble.Render(item + styles.muted.Render(" · "+date)))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(styles.composer.Width(m.composerWidth()).Render(lipgloss.NewStyle().Width(m.input.Width).Render(m.input.View())))
 	b.WriteString("\n")
-	b.WriteString(styles.status.Render(m.status))
+	b.WriteString(styles.status.Render(m.pickerStatus()))
 	return styles.frame.Width(m.contentWidth()).Render(b.String())
 }
 
@@ -415,20 +529,72 @@ func (m bubbleModel) viewChat(styles bubbleStyles) string {
 	return styles.frame.Width(m.contentWidth()).Render(b.String())
 }
 
-func (m bubbleModel) footerStatus() string {
-	if strings.TrimSpace(m.status) == "" {
-		return ":help for commands"
+func (m bubbleModel) pickerStatus() string {
+	status := strings.TrimSpace(m.status)
+	if status == "" {
+		status = "Choose recent or press Enter."
 	}
-	return m.status + "  ·  :help for commands"
+	return status + "  ·  :quit"
+}
+
+func (m bubbleModel) pickerQuery() string {
+	value := strings.TrimSpace(m.input.Value())
+	if value == "" || strings.HasPrefix(value, ":") {
+		return ""
+	}
+	if _, err := strconv.Atoi(value); err == nil {
+		return ""
+	}
+	return value
+}
+
+func (m bubbleModel) footerStatus() string {
+	status := strings.TrimSpace(m.status)
+	if status == "" || status == "Ready." {
+		status = "Ready"
+	}
+	if m.sending || status == "Writing" {
+		return strings.Join(compactParts("Writing", m.scrollHint(), "Esc waits", ":help"), "  ·  ")
+	}
+	return strings.Join(compactParts(status, m.scrollHint(), ":help"), "  ·  ")
+}
+
+func (m bubbleModel) scrollHint() string {
+	if m.viewport.AtTop() && m.viewport.AtBottom() {
+		return ""
+	}
+	switch {
+	case m.viewport.AtTop():
+		return "top"
+	case m.viewport.AtBottom():
+		return "bottom"
+	default:
+		return "scroll"
+	}
+}
+
+func compactParts(parts ...string) []string {
+	next := []string{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			next = append(next, part)
+		}
+	}
+	return next
 }
 
 func (m bubbleModel) transcript(styles bubbleStyles) string {
-	if len(m.messages) == 0 {
+	if len(m.messages) == 0 && m.shareText == "" {
 		return styles.muted.Render("No messages yet.")
 	}
 	var b strings.Builder
 	for _, message := range m.messages {
 		b.WriteString(m.renderBubbleMessage(styles, message))
+		b.WriteString("\n")
+	}
+	if m.shareText != "" {
+		b.WriteString(m.renderBubbleMessage(styles, store.Message{Role: "assistant", Content: m.shareText}))
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -467,7 +633,7 @@ func (m bubbleModel) styles() bubbleStyles {
 		muted:      style().Foreground(lipgloss.Color("244")),
 		accent:     style().Foreground(lipgloss.Color("109")),
 		user:       style().Foreground(lipgloss.Color("180")),
-		bubble:     style().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1),
+		bubble:     style().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("237")).Padding(0, 1),
 		code:       style().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1).Foreground(lipgloss.Color("250")),
 		codeInline: style().Foreground(lipgloss.Color("223")),
 		syntaxTag:  style().Foreground(lipgloss.Color("109")),
@@ -476,7 +642,7 @@ func (m bubbleModel) styles() bubbleStyles {
 		syntaxKey:  style().Foreground(lipgloss.Color("147")),
 		syntaxCom:  style().Foreground(lipgloss.Color("244")),
 		status:     style().Foreground(lipgloss.Color("244")),
-		composer:   style().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1),
+		composer:   style().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("239")).Padding(0, 1),
 		attachment: style().Foreground(lipgloss.Color("250")),
 	}
 }
@@ -539,6 +705,18 @@ func renderMarkdownForBubble(content string, styles bubbleStyles) string {
 			b.WriteString(styles.accent.Render("• "))
 			b.WriteString(renderInlineForBubble(strings.TrimSpace(trimmed[2:]), styles))
 			b.WriteString("\n")
+		case isOrderedMarkdownLine(trimmed):
+			number, text := splitOrderedMarkdownLine(trimmed)
+			b.WriteString(styles.accent.Render(number + ". "))
+			b.WriteString(renderInlineForBubble(text, styles))
+			b.WriteString("\n")
+		case strings.HasPrefix(trimmed, ">"):
+			b.WriteString(styles.muted.Render("│ "))
+			b.WriteString(renderInlineForBubble(strings.TrimSpace(strings.TrimPrefix(trimmed, ">")), styles))
+			b.WriteString("\n")
+		case trimmed == "---" || trimmed == "***":
+			b.WriteString(styles.muted.Render(strings.Repeat("─", 24)))
+			b.WriteString("\n")
 		default:
 			b.WriteString(renderInlineForBubble(line, styles))
 			b.WriteString("\n")
@@ -558,6 +736,19 @@ func renderInlineForBubble(line string, styles bubbleStyles) string {
 		return styles.title.Inline(true).Render(value)
 	})
 	return line
+}
+
+func isOrderedMarkdownLine(line string) bool {
+	index := 0
+	for index < len(line) && unicode.IsDigit(rune(line[index])) {
+		index++
+	}
+	return index > 0 && index+1 < len(line) && line[index] == '.' && unicode.IsSpace(rune(line[index+1]))
+}
+
+func splitOrderedMarkdownLine(line string) (string, string) {
+	number, rest, _ := strings.Cut(line, ".")
+	return number, strings.TrimSpace(rest)
 }
 
 func replaceDelimited(line string, delimiter string, render func(string) string) string {

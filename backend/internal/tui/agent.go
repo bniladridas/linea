@@ -258,6 +258,9 @@ func agentHelp() string {
 	return strings.Join([]string{
 		"Commands:",
 		":agent status",
+		":rename <title>",
+		":share",
+		":delete confirm",
 		":diag",
 		":symbols [query]",
 		":refs <identifier>",

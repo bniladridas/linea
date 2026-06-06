@@ -751,7 +751,7 @@ Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
 
-Terminal clients can use the same agent surface with explicit commands such as `:help`, `:agent`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`.
+Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

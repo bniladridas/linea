@@ -112,7 +112,8 @@ Vite runs at `http://localhost:5173`.
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
 | Server | `linea -check-server http://localhost:8080` |
-| Terminal chat | `linea -tui` (`:new`, `:attach <path>`, `:help`, `:agent`, `:diag`, `:symbols <q>`, `:refs <id>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent <id>`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:quit`) |
+| Terminal chat | `linea -tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent`, `:diag`, `:symbols <q>`, `:refs <id>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent <id>`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:quit`) |
+| Terminal picker | Number or title search |
 | Hand-rolled TUI | `linea -tui-beta` |
 | Agent status | `linea -agent-status` |
 | Agent API | `make agent-check` |
