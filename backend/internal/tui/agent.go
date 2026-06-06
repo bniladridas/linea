@@ -110,7 +110,7 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 	case strings.HasPrefix(input, ":loop "):
 		value := strings.TrimSpace(strings.TrimPrefix(input, ":loop "))
 		if strings.HasPrefix(value, "continue ") {
-			loop, err := a.agent.ContinueAgentLoop(ctx, strings.TrimSpace(strings.TrimPrefix(value, "continue ")), agent.AgentLoopContinueInput{})
+			loop, err := a.continueAgentLoop(ctx, strings.TrimSpace(strings.TrimPrefix(value, "continue ")))
 			if err != nil {
 				return "", err
 			}
@@ -123,7 +123,7 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 			}
 			return formatAgentLoop(loop), nil
 		}
-		loop, err := a.agent.StartAgentLoop(ctx, agent.AgentLoopInput{Goal: value})
+		loop, err := a.startAgentLoop(ctx, value)
 		if err != nil {
 			return "", err
 		}
@@ -186,10 +186,72 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		if err != nil {
 			return "", err
 		}
+		if output, ok := a.continueAppliedAutoLoop(ctx, proposal.ID); ok {
+			return fmt.Sprintf("Applied %s.\n\n%s", proposal.Path, output), nil
+		}
 		return fmt.Sprintf("Applied %s.", proposal.Path), nil
 	default:
 		return "", errors.New("Unknown agent command.")
 	}
+}
+
+func (a *App) startAgentLoop(ctx context.Context, value string) (agent.AgentLoop, error) {
+	mode := ""
+	goal := strings.TrimSpace(value)
+	if rest, ok := strings.CutPrefix(goal, "auto "); ok {
+		mode = "auto"
+		goal = strings.TrimSpace(rest)
+	} else if rest, ok := strings.CutPrefix(goal, "guided "); ok {
+		mode = "guided"
+		goal = strings.TrimSpace(rest)
+	}
+	return a.agent.StartAgentLoop(ctx, agent.AgentLoopInput{Goal: goal, Mode: mode})
+}
+
+func (a *App) continueAgentLoop(ctx context.Context, id string) (agent.AgentLoop, error) {
+	input := agent.AgentLoopContinueInput{}
+	for _, loop := range a.agent.ListAgentLoops(ctx) {
+		if loop.ID != id || loop.Mode != "auto" || !agentLoopAtLimit(loop) {
+			continue
+		}
+		input.MaxIterations = loop.MaxIterations + 1
+		break
+	}
+	return a.agent.ContinueAgentLoop(ctx, id, input)
+}
+
+func (a *App) continueAppliedAutoLoop(ctx context.Context, proposalID string) (string, bool) {
+	for _, loop := range a.agent.ListAgentLoops(ctx) {
+		if loop.Mode != "auto" || loop.State != "waiting_approval" {
+			continue
+		}
+		for _, step := range loop.Steps {
+			if step.Kind == "edit_review" && step.State == "waiting_approval" && step.CreatedID == proposalID {
+				continued, err := a.agent.ContinueAgentLoop(ctx, loop.ID, agent.AgentLoopContinueInput{})
+				if err != nil {
+					return err.Error(), true
+				}
+				return formatAgentLoop(continued), true
+			}
+		}
+	}
+	return "", false
+}
+
+func agentLoopAtLimit(loop agent.AgentLoop) bool {
+	if loop.MaxIterations <= 0 {
+		return false
+	}
+	for index := len(loop.Steps) - 1; index >= 0; index-- {
+		step := loop.Steps[index]
+		if step.Kind == "auto_limit" && step.State == "waiting_input" {
+			return true
+		}
+		if step.Kind == "command_run" || step.Kind == "edit_proposal" || step.State == "waiting_approval" {
+			return false
+		}
+	}
+	return false
 }
 
 func agentHelp() string {
@@ -202,6 +264,7 @@ func agentHelp() string {
 		":search <query>",
 		":read <path>",
 		":loop <goal>",
+		":loop auto <goal>",
 		":loop continue <id>",
 		":loop cancel <id>",
 		":mcp",
@@ -380,13 +443,35 @@ func formatSearchResults(items []agent.SearchResult) string {
 func formatAgentLoop(loop agent.AgentLoop) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s · %s\n%s", loop.Goal, loop.State, loop.Summary)
+	if next := agentLoopNextAction(loop); next != "" {
+		fmt.Fprintf(&b, "\nNext · %s", next)
+	}
 	for _, step := range loop.Steps {
 		fmt.Fprintf(&b, "\n- %s: %s", step.Title, step.State)
+		if step.Command != "" {
+			fmt.Fprintf(&b, " · %s", step.Command)
+		}
 		if step.Detail != "" {
 			fmt.Fprintf(&b, " · %s", step.Detail)
 		}
 	}
 	return b.String()
+}
+
+func agentLoopNextAction(loop agent.AgentLoop) string {
+	for index := len(loop.Steps) - 1; index >= 0; index-- {
+		step := loop.Steps[index]
+		if step.Kind == "edit_review" && step.State == "waiting_approval" {
+			return "review or apply proposal"
+		}
+		if step.Kind == "command_approval" && step.State == "waiting_approval" && step.Command != "" {
+			return "approve command"
+		}
+		if loop.State == "waiting_input" && step.Kind == "auto_limit" && step.State == "waiting_input" {
+			return "continue explicitly"
+		}
+	}
+	return ""
 }
 
 func formatCommandRun(run agent.CommandRun) string {
