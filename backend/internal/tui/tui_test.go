@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"linea/backend/internal/agent"
@@ -18,14 +19,16 @@ import (
 
 type fakeAssistant struct {
 	response    string
+	messages    []store.Message
 	attachments []llm.Attachment
 	search      []llm.SearchResult
 	calls       int
 	err         error
 }
 
-func (a *fakeAssistant) GenerateStream(_ context.Context, _ []store.Message, attachments []llm.Attachment, searchResults []llm.SearchResult, onChunk func(string) error) error {
+func (a *fakeAssistant) GenerateStream(_ context.Context, messages []store.Message, attachments []llm.Attachment, searchResults []llm.SearchResult, onChunk func(string) error) error {
 	a.calls++
+	a.messages = append([]store.Message(nil), messages...)
 	a.attachments = append([]llm.Attachment(nil), attachments...)
 	a.search = append([]llm.SearchResult(nil), searchResults...)
 	if a.err != nil {
@@ -149,6 +152,67 @@ func TestRunNewStartsSeparateConversation(t *testing.T) {
 	}
 	if len(conversations) != 2 {
 		t.Fatalf("conversations = %d, want 2", len(conversations))
+	}
+}
+
+func TestRunCanRenameShareAndDeleteCurrentConversation(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	var out strings.Builder
+	input := strings.Join([]string{
+		"hello",
+		":rename Better title",
+		":share",
+		":delete",
+		":delete confirm",
+		":quit",
+		"",
+	}, "\n")
+	app := New(appStore, &fakeAssistant{response: "ok"}, strings.NewReader(input), &out)
+
+	if err := app.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	output := out.String()
+	for _, want := range []string{"Renamed.", "Better title", "User: hello", "Linea: ok", "Use :delete confirm", "Deleted chat."} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q: %q", want, output)
+		}
+	}
+	conversations, err := appStore.ListConversations(context.Background())
+	if err != nil {
+		t.Fatalf("ListConversations() error = %v", err)
+	}
+	if len(conversations) != 0 {
+		t.Fatalf("conversations = %#v", conversations)
+	}
+}
+
+func TestRunShareDoesNotEnterModelContext(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	assistant := &fakeAssistant{response: "ok"}
+	var out strings.Builder
+	input := strings.Join([]string{
+		"hello",
+		":share",
+		"again",
+		":quit",
+		"",
+	}, "\n")
+	app := New(appStore, assistant, strings.NewReader(input), &out)
+
+	if err := app.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if assistant.calls != 2 {
+		t.Fatalf("calls = %d, want 2", assistant.calls)
+	}
+	for _, message := range assistant.messages {
+		if strings.Contains(message.Content, "User: hello") {
+			t.Fatalf("share text entered model context: %#v", assistant.messages)
+		}
+	}
+	if !strings.Contains(out.String(), "User: hello") {
+		t.Fatalf("share text not rendered: %q", out.String())
 	}
 }
 
@@ -605,6 +669,69 @@ func TestBubbleModelHandlesAgentCommand(t *testing.T) {
 	}
 }
 
+func TestBubbleModelHandlesConversationControls(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	assistant := &fakeAssistant{response: "hello"}
+	app := New(appStore, assistant, strings.NewReader(""), &strings.Builder{})
+	model, err := newBubbleModel(context.Background(), app)
+	if err != nil {
+		t.Fatalf("newBubbleModel() error = %v", err)
+	}
+	model.input.SetValue("hi")
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd == nil {
+		t.Fatal("expected send command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(bubbleModel)
+
+	model.input.SetValue(":rename Better title")
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil || model.conversation.Title != "Better title" || model.status != "Renamed." {
+		t.Fatalf("conversation=%#v status=%q cmd=%v", model.conversation, model.status, cmd)
+	}
+	model.input.SetValue(":share")
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil || len(model.messages) != 2 || !strings.Contains(model.shareText, "User: hi") {
+		t.Fatalf("messages=%#v share=%q status=%q cmd=%v", model.messages, model.shareText, model.status, cmd)
+	}
+	model.input.SetValue("again")
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd == nil || model.shareText != "" {
+		t.Fatalf("share=%q cmd=%v", model.shareText, cmd)
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(bubbleModel)
+	for _, message := range assistant.messages {
+		if strings.Contains(message.Content, "User: hi") {
+			t.Fatalf("share text entered model context: %#v", assistant.messages)
+		}
+	}
+	model.input.SetValue(":delete")
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil || !strings.Contains(model.status, ":delete confirm") {
+		t.Fatalf("status=%q cmd=%v", model.status, cmd)
+	}
+	model.input.SetValue(":delete confirm")
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil || model.conversation.ID != "" || len(model.messages) != 0 || model.status != "Deleted chat." {
+		t.Fatalf("conversation=%#v messages=%#v status=%q cmd=%v", model.conversation, model.messages, model.status, cmd)
+	}
+	conversations, err := appStore.ListConversations(context.Background())
+	if err != nil {
+		t.Fatalf("ListConversations() error = %v", err)
+	}
+	if len(conversations) != 0 {
+		t.Fatalf("conversations = %#v", conversations)
+	}
+}
+
 func TestBubbleModelIgnoresMessageSubmitWhileSending(t *testing.T) {
 	assistant := &fakeAssistant{response: "hello"}
 	app := New(store.NewMemoryStore(), assistant, strings.NewReader(""), &strings.Builder{})
@@ -623,7 +750,7 @@ func TestBubbleModelIgnoresMessageSubmitWhileSending(t *testing.T) {
 	if assistant.calls != 0 {
 		t.Fatalf("assistant calls = %d, want 0", assistant.calls)
 	}
-	if model.status != "Wait for the current response to finish." {
+	if model.status != "Wait for current response." {
 		t.Fatalf("status = %q", model.status)
 	}
 }
@@ -716,7 +843,7 @@ func TestBubbleEscapeBacksOutBeforeQuit(t *testing.T) {
 	if model.mode != modePick {
 		t.Fatalf("mode = %v, want picker", model.mode)
 	}
-	if !strings.Contains(model.status, "Press Esc again") {
+	if !strings.Contains(model.status, "Esc again") {
 		t.Fatalf("status = %q", model.status)
 	}
 
@@ -751,7 +878,7 @@ func TestBubbleEscapeWaitsForInFlightSend(t *testing.T) {
 	if model.mode != modeChat {
 		t.Fatalf("mode = %v, want chat", model.mode)
 	}
-	if model.status != "Wait for the current response to finish." {
+	if model.status != "Wait for current response." {
 		t.Fatalf("status = %q", model.status)
 	}
 
@@ -796,7 +923,7 @@ func TestBubblePickerNewClearsCurrentChat(t *testing.T) {
 	}
 }
 
-func TestBubblePickerInvalidInputRefreshesBlankChat(t *testing.T) {
+func TestBubblePickerFiltersRecentChats(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	conversation, err := appStore.CreateConversation(context.Background(), "Existing")
 	if err != nil {
@@ -818,18 +945,62 @@ func TestBubblePickerInvalidInputRefreshesBlankChat(t *testing.T) {
 	}
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updated.(bubbleModel)
-	model.input.SetValue("foo")
+	model.input.SetValue("missing")
 
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil {
-		t.Fatal("expected no command while starting blank chat")
+		t.Fatal("expected no command while filtering picker")
 	}
-	if model.conversation.ID != "" || len(model.messages) != 0 {
-		t.Fatalf("new chat kept stale state: conversation=%#v messages=%#v", model.conversation, model.messages)
+	if model.mode != modePick || !strings.Contains(model.status, "No matching chat") {
+		t.Fatalf("mode=%v status=%q", model.mode, model.status)
 	}
-	if strings.Contains(model.viewport.View(), "old transcript") {
-		t.Fatalf("viewport kept stale transcript: %q", model.viewport.View())
+	model.input.SetValue("existing")
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil {
+		t.Fatal("expected no command while opening filtered chat")
+	}
+	if model.mode != modeChat || model.conversation.ID != conversation.ID || len(model.messages) != 1 {
+		t.Fatalf("conversation=%#v messages=%#v", model.conversation, model.messages)
+	}
+}
+
+func TestBubblePickerDoesNotFilterNumberInput(t *testing.T) {
+	model := bubbleModel{}
+	model.input.SetValue("1")
+	if got := model.pickerQuery(); got != "" {
+		t.Fatalf("query = %q", got)
+	}
+	model.input.SetValue("existing")
+	if got := model.pickerQuery(); got != "existing" {
+		t.Fatalf("query = %q", got)
+	}
+}
+
+func TestBubblePickerSearchesNumericTitles(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.AddMessage(context.Background(), conversation.ID, "user", "numeric title"); err != nil {
+		t.Fatal(err)
+	}
+	app := New(appStore, &fakeAssistant{response: "ok"}, strings.NewReader(""), &strings.Builder{})
+	model, err := newBubbleModel(context.Background(), app)
+	if err != nil {
+		t.Fatalf("newBubbleModel() error = %v", err)
+	}
+	model.input.SetValue("2026")
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil {
+		t.Fatal("expected no command while opening numeric title")
+	}
+	if model.mode != modeChat || model.conversation.ID != conversation.ID || len(model.messages) != 1 {
+		t.Fatalf("conversation=%#v messages=%#v status=%q", model.conversation, model.messages, model.status)
 	}
 }
 
@@ -852,7 +1023,7 @@ func TestBubbleEscapeRequiresConfirmInPicker(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("expected first Escape from picker to avoid quitting")
 	}
-	if !strings.Contains(model.status, "Press Esc again") {
+	if !strings.Contains(model.status, "Esc again") {
 		t.Fatalf("status = %q", model.status)
 	}
 
@@ -880,15 +1051,44 @@ func TestBubbleModelResizesViewportAndComposer(t *testing.T) {
 
 func TestBubbleMarkdownRendersInlineMarkers(t *testing.T) {
 	styles := (bubbleModel{}).styles()
-	output := renderMarkdownForBubble("- **HTML:** use `<h1>`", styles)
+	output := renderMarkdownForBubble(strings.Join([]string{
+		"- **HTML:** use `<h1>`",
+		"1. Run checks",
+		"> quoted",
+	}, "\n"), styles)
 	if strings.Contains(output, "**HTML:**") || strings.Contains(output, "`<h1>`") {
 		t.Fatalf("inline markdown was not rendered: %q", output)
 	}
-	if !strings.Contains(output, "HTML:") || !strings.Contains(output, "<h1>") {
+	if !strings.Contains(output, "HTML:") || !strings.Contains(output, "<h1>") || !strings.Contains(output, "1.") || !strings.Contains(output, "quoted") {
 		t.Fatalf("output = %q", output)
 	}
 	if !strings.Contains(output, "\x1b[") {
 		t.Fatalf("output did not include syntax color: %q", output)
+	}
+}
+
+func TestBubbleFooterUsesCompactStatus(t *testing.T) {
+	model := bubbleModel{status: "Ready."}
+	if got := model.footerStatus(); got != "Ready  ·  :help" {
+		t.Fatalf("footer = %q", got)
+	}
+	model.sending = true
+	model.status = "Writing"
+	if got := model.footerStatus(); got != "Writing  ·  Esc waits  ·  :help" {
+		t.Fatalf("footer = %q", got)
+	}
+	if strings.Contains(model.footerStatus(), "Linea is writing") || strings.Contains(model.footerStatus(), "for commands") {
+		t.Fatalf("footer is too loud: %q", model.footerStatus())
+	}
+	model = bubbleModel{status: "Ready."}
+	model.viewport = viewport.New(20, 2)
+	model.viewport.SetContent(strings.Join([]string{"one", "two", "three", "four"}, "\n"))
+	if got := model.footerStatus(); got != "Ready  ·  top  ·  :help" {
+		t.Fatalf("footer = %q", got)
+	}
+	model.viewport.GotoBottom()
+	if got := model.footerStatus(); got != "Ready  ·  bottom  ·  :help" {
+		t.Fatalf("footer = %q", got)
 	}
 }
 
@@ -943,7 +1143,7 @@ func TestSmokeCoversPickerNewSearchAndAttachments(t *testing.T) {
 		"Queued attachments",
 		"Attached note.txt.",
 		"Search unavailable: offline",
-		":help for commands",
+		"Ready · :help",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q: %q", want, output)
