@@ -207,6 +207,14 @@ func (r *Runtime) SearchFiles(ctx context.Context, query string) ([]SearchResult
 }
 
 func (r *Runtime) workspacePath(name string) (string, string, error) {
+	return r.workspacePathForName(name, false)
+}
+
+func (r *Runtime) workspacePathAllowMissing(name string) (string, string, error) {
+	return r.workspacePathForName(name, true)
+}
+
+func (r *Runtime) workspacePathForName(name string, allowMissing bool) (string, string, error) {
 	root, err := r.workspaceRootPath()
 	if err != nil {
 		return "", "", err
@@ -220,9 +228,39 @@ func (r *Runtime) workspacePath(name string) (string, string, error) {
 		return "", "", ErrPathOutsideRoot
 	}
 	fullPath := filepath.Join(root, cleanName)
-	fullPath, err = filepath.EvalSymlinks(fullPath)
-	if err != nil {
+	resolvedPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil && (!allowMissing || !os.IsNotExist(err)) {
 		return "", "", err
+	}
+	if err != nil {
+		existingPath := fullPath
+		missingParts := []string{}
+		for {
+			info, statErr := os.Stat(existingPath)
+			if statErr == nil {
+				if !info.IsDir() {
+					return "", "", errors.New("path parent is not a directory")
+				}
+				break
+			}
+			if !os.IsNotExist(statErr) {
+				return "", "", statErr
+			}
+			missingParts = append([]string{filepath.Base(existingPath)}, missingParts...)
+			nextPath := filepath.Dir(existingPath)
+			if nextPath == existingPath {
+				return "", "", statErr
+			}
+			existingPath = nextPath
+		}
+		resolvedExisting, parentErr := filepath.EvalSymlinks(existingPath)
+		if parentErr != nil {
+			return "", "", parentErr
+		}
+		parts := append([]string{resolvedExisting}, missingParts...)
+		fullPath = filepath.Join(parts...)
+	} else {
+		fullPath = resolvedPath
 	}
 	relative, err := filepath.Rel(root, fullPath)
 	if err != nil || strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {

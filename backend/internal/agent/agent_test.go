@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -240,11 +241,11 @@ func TestRuntimeStartsAutoAgentLoop(t *testing.T) {
 	if loop.Mode != "auto" || loop.MaxIterations != maxAutoLoopIterationsLimit {
 		t.Fatalf("loop mode = %q, max = %d", loop.Mode, loop.MaxIterations)
 	}
-	if loop.State != "waiting_approval" || loop.Summary != "Auto loop waiting for explicit approval." {
+	if loop.State != "completed" || !loopHasStep(loop, "command_run", "completed") {
 		t.Fatalf("loop = %#v", loop)
 	}
-	if loop.Steps[len(loop.Steps)-1].Detail != "Approve to let the auto loop continue." {
-		t.Fatalf("approval step = %#v", loop.Steps[len(loop.Steps)-1])
+	if loop.Steps[len(loop.Steps)-1].Detail != "Command completed successfully." {
+		t.Fatalf("last step = %#v", loop.Steps[len(loop.Steps)-1])
 	}
 }
 
@@ -321,22 +322,18 @@ func TestRuntimeAutoAgentLoopInfersAllowedCheckCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
 	}
-	if loop.State != "waiting_approval" || !loopHasStep(loop, "command_infer", "completed") {
+	if loop.State != "completed" || !loopHasStep(loop, "command_infer", "completed") || !loopHasStep(loop, "command_run", "completed") {
 		t.Fatalf("loop = %#v", loop)
 	}
-	last := loop.Steps[len(loop.Steps)-1]
-	if last.Kind != "command_approval" || last.Command != "make test" || last.CreatedID == "" {
-		t.Fatalf("last step = %#v", last)
-	}
 	approvals := runtime.ListCommandApprovals(context.Background())
-	if len(approvals) != 1 || approvals[0].Command != "make test" || approvals[0].State != "pending" {
+	if len(approvals) != 1 || approvals[0].Command != "make test" || approvals[0].State != "approved" {
 		t.Fatalf("approvals = %#v", approvals)
 	}
 }
 
 func TestRuntimeAutoAgentLoopInfersAllowedPackageBuildCommand(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"build":"vite build","test":"vitest"}}`)
+	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"build":"printf ok","test":"vitest"}}`)
 	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"npm run build"}))
 
 	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
@@ -346,12 +343,8 @@ func TestRuntimeAutoAgentLoopInfersAllowedPackageBuildCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
 	}
-	if loop.State != "waiting_approval" || !loopHasStep(loop, "command_infer", "completed") {
+	if loop.State != "completed" || !loopHasStep(loop, "command_infer", "completed") || !loopHasStep(loop, "command_run", "completed") {
 		t.Fatalf("loop = %#v", loop)
-	}
-	last := loop.Steps[len(loop.Steps)-1]
-	if last.Kind != "command_approval" || last.Command != "npm run build" || last.CreatedID == "" {
-		t.Fatalf("last step = %#v", last)
 	}
 }
 
@@ -369,6 +362,150 @@ func TestRuntimeAutoAgentLoopDoesNotInferUnallowedPackageCommand(t *testing.T) {
 	}
 	if loopHasStep(loop, "command_infer", "completed") {
 		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoAgentLoopWaitsForEditBeforeBuild(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "create a small React portfolio, propose the needed file changes first, run the build check after approval, and report how to preview it",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "edit_boundary", "waiting_approval") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if loopHasStep(loop, "command_approval", "waiting_approval") || loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop should wait for edit input before command work: %#v", loop)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if len(continued.Steps) != len(loop.Steps) || continued.State != "waiting_approval" {
+		t.Fatalf("continued = %#v", continued)
+	}
+}
+
+func TestRuntimeAutoAgentLoopPlansCreateProposal(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	writeTestFile(t, filepath.Join(root, "portfolio.html"), "existing portfolio\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "portfolio.html",
+			Content: "<!doctype html>\n<div id=\"root\"></div>\n",
+			Summary: "Create portfolio",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "create a small React portfolio, propose the needed file changes first, run the build check after approval, and report how to preview it",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "plan_edit", "completed") || !loopHasStep(loop, "edit_review", "waiting_approval") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if loopHasStep(loop, "command_approval", "waiting_approval") || loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop should wait for proposal review before command work: %#v", loop)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "portfolio.html" || proposals[0].Status != "pending" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if len(planner.requests) != 1 || len(planner.requests[0].Files) != 1 || planner.requests[0].Files[0].Path != "portfolio.html" {
+		t.Fatalf("planner requests = %#v", planner.requests)
+	}
+	if planner.requests[0].Files[0].Content != "existing portfolio\n" {
+		t.Fatalf("planner file content = %q", planner.requests[0].Files[0].Content)
+	}
+}
+
+func TestRuntimeAutoAgentLoopStopsAfterCreatingProposalAtLimit(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "portfolio.html",
+			Content: "<!doctype html>\n<div id=\"root\"></div>\n",
+			Summary: "Create portfolio",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "create a small React portfolio and run tests",
+		Mode:          "auto",
+		MaxIterations: 1,
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "edit_review", "waiting_approval") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if loopHasStep(loop, "command_run", "completed") || loopHasStep(loop, "command_infer", "completed") {
+		t.Fatalf("loop ran command work after edit limit: %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeAutoAgentLoopUsesCreateFallbackWhenPlannerFails(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{err: errors.New("bad planner json")}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "create a React portfolio",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "edit_review", "waiting_approval") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "portfolio.html" || proposals[0].Status != "pending" || !strings.Contains(proposals[0].Content, "Product engineer portfolio") {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+}
+
+func TestRuntimeAutoAgentLoopDoesNotFallbackOverExistingCreateTarget(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "portfolio.html"), "existing portfolio\n")
+	planner := &fakeEditPlanner{err: errors.New("bad planner json")}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "create a React portfolio",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || !loopHasStep(loop, "plan_edit", "blocked") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 0 {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "portfolio.html"))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(data) != "existing portfolio\n" {
+		t.Fatalf("file content = %q", data)
 	}
 }
 
@@ -396,23 +533,24 @@ func TestRuntimeAutoAgentLoopContinuesFromAppliedProposalToInferredCheck(t *test
 	if len(proposals) != 1 {
 		t.Fatalf("proposals = %#v", proposals)
 	}
+	if proposals[0].Status != "pending" {
+		t.Fatalf("proposal status = %q", proposals[0].Status)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "edit_review", "waiting_approval") {
+		t.Fatalf("loop = %#v", loop)
+	}
 	if _, err := runtime.ReviewEditProposal(context.Background(), proposals[0].ID, EditProposalReviewInput{Status: "approved"}); err != nil {
 		t.Fatalf("ReviewEditProposal() error = %v", err)
 	}
 	if _, err := runtime.ApplyEditProposal(context.Background(), proposals[0].ID); err != nil {
 		t.Fatalf("ApplyEditProposal() error = %v", err)
 	}
-
 	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
 	if err != nil {
 		t.Fatalf("ContinueAgentLoop() error = %v", err)
 	}
-	if continued.State != "waiting_approval" || !loopHasStep(continued, "edit_review", "completed") || !loopHasStep(continued, "command_infer", "completed") {
+	if continued.State != "completed" || !loopHasStep(continued, "edit_review", "completed") || !loopHasStep(continued, "command_run", "completed") {
 		t.Fatalf("continued = %#v", continued)
-	}
-	last := continued.Steps[len(continued.Steps)-1]
-	if last.Kind != "command_approval" || last.Command != "make test" || last.CreatedID == "" {
-		t.Fatalf("last step = %#v", last)
 	}
 }
 
@@ -448,10 +586,10 @@ func TestRuntimeAutoAgentLoopProposesEditAfterFailedCheckDiagnostics(t *testing.
 		t.Fatalf("continued = %#v", continued)
 	}
 	proposals := runtime.ListEditProposals(context.Background())
-	if len(proposals) != 1 || proposals[0].Path != "broken.go" {
+	if len(proposals) != 1 || proposals[0].Path != "broken.go" || proposals[0].Status != "pending" {
 		t.Fatalf("proposals = %#v", proposals)
 	}
-	if len(planner.requests) != 1 || planner.requests[0].Command != "false" || len(planner.requests[0].Diagnostics) != 1 {
+	if len(planner.requests) != 1 || len(planner.requests[0].Diagnostics) != 1 {
 		t.Fatalf("planner requests = %#v", planner.requests)
 	}
 }
@@ -506,7 +644,7 @@ func TestRuntimeAutoAgentLoopHonorsContinueMaxIterations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ContinueAgentLoop() error = %v", err)
 	}
-	if limited.State != "attention" || limited.MaxIterations != 1 || !loopHasStep(limited, "command_run", "blocked") {
+	if limited.State != "waiting_input" || limited.MaxIterations != 1 || !loopHasStep(limited, "command_run", "blocked") {
 		t.Fatalf("limited = %#v", limited)
 	}
 
@@ -521,7 +659,7 @@ func TestRuntimeAutoAgentLoopHonorsContinueMaxIterations(t *testing.T) {
 	if continued.MaxIterations != 2 {
 		t.Fatalf("continued max iterations = %d, want 2", continued.MaxIterations)
 	}
-	if continued.State != "waiting_input" || !loopHasStep(continued, "edit_proposal", "completed") || !loopHasStep(continued, "auto_limit", "waiting_input") {
+	if continued.State != "waiting_approval" || !loopHasStep(continued, "edit_proposal", "completed") || !loopHasStep(continued, "edit_review", "waiting_approval") {
 		t.Fatalf("continued = %#v", continued)
 	}
 	proposals := runtime.ListEditProposals(context.Background())
@@ -551,7 +689,7 @@ func TestRuntimeAutoAgentLoopAdvancesLimitForExplicitContinueInput(t *testing.T)
 	if err != nil {
 		t.Fatalf("ContinueAgentLoop() error = %v", err)
 	}
-	if limited.State != "attention" {
+	if limited.State != "waiting_input" {
 		t.Fatalf("loop = %#v", loop)
 	}
 
@@ -565,7 +703,7 @@ func TestRuntimeAutoAgentLoopAdvancesLimitForExplicitContinueInput(t *testing.T)
 	if continued.MaxIterations != 2 {
 		t.Fatalf("continued max iterations = %d, want 2", continued.MaxIterations)
 	}
-	if continued.State != "waiting_input" || !loopHasStep(continued, "edit_proposal", "completed") || !loopHasStep(continued, "auto_limit", "waiting_input") {
+	if continued.State != "waiting_approval" || !loopHasStep(continued, "edit_proposal", "completed") || !loopHasStep(continued, "edit_review", "waiting_approval") {
 		t.Fatalf("continued = %#v", continued)
 	}
 }
@@ -630,7 +768,7 @@ func TestRuntimeAutoAgentLoopStopsBeforeCommandAfterProposalReachesLimit(t *test
 	if err != nil {
 		t.Fatalf("ContinueAgentLoop() error = %v", err)
 	}
-	if continued.State != "waiting_input" || !loopHasStep(continued, "auto_limit", "waiting_input") {
+	if continued.State != "waiting_approval" || !loopHasStep(continued, "edit_proposal", "completed") || !loopHasStep(continued, "edit_review", "waiting_approval") {
 		t.Fatalf("continued = %#v", continued)
 	}
 	if loopHasStep(continued, "command_approval", "waiting_approval") {
@@ -676,7 +814,7 @@ func TestRuntimeAgentLoopCreatesEditProposal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
 	}
-	if loop.State != "completed" || !loopHasStep(loop, "edit_proposal", "completed") {
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "edit_proposal", "completed") || !loopHasStep(loop, "edit_review", "waiting_approval") {
 		t.Fatalf("loop = %#v", loop)
 	}
 	proposals := runtime.ListEditProposals(context.Background())
@@ -685,6 +823,51 @@ func TestRuntimeAgentLoopCreatesEditProposal(t *testing.T) {
 	}
 	if !loopHasCreatedID(loop, "edit_proposal", proposals[0].ID) {
 		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeAgentLoopRejectedProposalDoesNotSatisfyEditBoundary(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	writeTestFile(t, filepath.Join(root, "notes.md"), "old\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:            "change notes and run tests",
+		ProposalPath:    "notes.md",
+		ProposalContent: "new\n",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposals[0].ID, EditProposalReviewInput{Status: "rejected"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	rejected, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop(reject) error = %v", err)
+	}
+	if !loopHasStep(rejected, "edit_review", "rejected") || loopHasStep(rejected, "command_run", "completed") {
+		t.Fatalf("rejected = %#v", rejected)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{Command: "make test"})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop(command) error = %v", err)
+	}
+	if loopHasStep(continued, "command_run", "completed") || loopHasStep(continued, "command_approval", "waiting_approval") {
+		t.Fatalf("continued past rejected edit = %#v", continued)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "notes.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "old\n" {
+		t.Fatalf("file content = %q, want old", string(content))
 	}
 }
 
@@ -1100,7 +1283,7 @@ func TestRuntimeAgentLoopReadsDiagnosticsAfterApprovedCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ContinueAgentLoop() retry error = %v", err)
 	}
-	if retried.State != "waiting_input" || !loopHasStep(retried, "edit_proposal", "completed") {
+	if retried.State != "waiting_approval" || !loopHasStep(retried, "edit_proposal", "completed") || !loopHasStep(retried, "edit_review", "waiting_approval") {
 		t.Fatalf("retried = %#v", retried)
 	}
 	proposals := runtime.ListEditProposals(context.Background())
@@ -1677,6 +1860,89 @@ func TestProposeEditStoresPendingDiff(t *testing.T) {
 	}
 }
 
+func TestProposeEditCanCreateNewFile(t *testing.T) {
+	root := t.TempDir()
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "portfolio.html",
+		Content: "<!doctype html>\n",
+		Summary: "Create portfolio",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if proposal.Status != "pending" || proposal.Path != "portfolio.html" {
+		t.Fatalf("proposal = %#v", proposal)
+	}
+	if _, err := os.Stat(filepath.Join(root, "portfolio.html")); !os.IsNotExist(err) {
+		t.Fatalf("new file exists before apply, err = %v", err)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposal.ID); err != nil {
+		t.Fatalf("ApplyEditProposal() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "portfolio.html"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "<!doctype html>\n" {
+		t.Fatalf("content = %q", string(content))
+	}
+}
+
+func TestProposeEditCanCreateNewFileInMissingDirectory(t *testing.T) {
+	root := t.TempDir()
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "src/components/Card.jsx",
+		Content: "export default function Card() { return null; }\n",
+		Summary: "Create card",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if proposal.Status != "pending" || proposal.Path != "src/components/Card.jsx" {
+		t.Fatalf("proposal = %#v", proposal)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposal.ID); err != nil {
+		t.Fatalf("ApplyEditProposal() error = %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "src", "components", "Card.jsx"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "export default function Card() { return null; }\n" {
+		t.Fatalf("content = %q", string(content))
+	}
+}
+
+func TestApplyNewFileProposalRejectsStaleFile(t *testing.T) {
+	root := t.TempDir()
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "portfolio.html",
+		Content: "<!doctype html>\n",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	writeTestFile(t, filepath.Join(root, "portfolio.html"), "changed\n")
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposal.ID); err == nil {
+		t.Fatal("ApplyEditProposal() error = nil, want stale proposal error")
+	}
+}
+
 func TestProposeEditPreservesTrailingNewlineDiff(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "one")
@@ -1833,6 +2099,61 @@ func TestApplyEditProposalRejectsStaleFile(t *testing.T) {
 	}
 }
 
+func TestApplyEditProposalRejectsDeletedEmptyBase(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "notes.md")
+	writeTestFile(t, filePath, "")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "two\n",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	if err := os.Remove(filePath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposal.ID); err == nil {
+		t.Fatal("ApplyEditProposal() error = nil, want stale error")
+	}
+	if _, err := os.Stat(filePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("file stat err = %v, want not exist", err)
+	}
+}
+
+func TestApplyEditProposalRejectsCreateAfterEmptyFileAppears(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "notes.md")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+	proposal, err := runtime.ProposeEdit(context.Background(), EditProposalInput{
+		Path:    "notes.md",
+		Content: "two\n",
+	})
+	if err != nil {
+		t.Fatalf("ProposeEdit() error = %v", err)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	writeTestFile(t, filePath, "")
+
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposal.ID); err == nil {
+		t.Fatal("ApplyEditProposal() error = nil, want stale error")
+	}
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "" {
+		t.Fatalf("file content = %q, want empty", string(content))
+	}
+}
+
 func TestSetWorkspaceRootClearsProposals(t *testing.T) {
 	firstRoot := t.TempDir()
 	secondRoot := t.TempDir()
@@ -1872,6 +2193,907 @@ func TestProposeEditRejectsOutsideRoot(t *testing.T) {
 	})
 	if !errors.Is(err, ErrPathOutsideRoot) {
 		t.Fatalf("ProposeEdit() error = %v, want ErrPathOutsideRoot", err)
+	}
+}
+
+func TestRuntimeAutoLoopCreatesTempReactPreview(t *testing.T) {
+	root := t.TempDir()
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-1",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" {
+		t.Fatalf("loop.State = %q, want completed", loop.State)
+	}
+	if loop.WorkspaceRoot == "" || loop.WorkspaceRoot == root {
+		t.Fatalf("loop.WorkspaceRoot = %q, root = %q", loop.WorkspaceRoot, root)
+	}
+	if !strings.HasPrefix(loop.PreviewURL, "/api/agent/previews/") {
+		t.Fatalf("loop.PreviewURL = %q", loop.PreviewURL)
+	}
+	if _, err := os.Stat(filepath.Join(root, "react-page.html")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("react-page.html in workspace err = %v, want not exist", err)
+	}
+	previewID := strings.Trim(strings.TrimPrefix(loop.PreviewURL, "/api/agent/previews/"), "/")
+	file, err := runtime.PreviewFile(context.Background(), previewID, "")
+	if err != nil {
+		t.Fatalf("PreviewFile() error = %v", err)
+	}
+	if file.Path != "index.html" || !strings.Contains(string(file.Content), "./assets/app.js") {
+		t.Fatalf("preview file = %#v", file)
+	}
+	if strings.Contains(string(file.Content), "https://") || !strings.Contains(string(file.Content), "./assets/app.css") {
+		t.Fatalf("preview should use local React assets: %s", string(file.Content))
+	}
+	reactShim, err := runtime.PreviewFile(context.Background(), previewID, "vendor/react.js")
+	if err != nil {
+		t.Fatalf("PreviewFile(React shim) error = %v", err)
+	}
+	if !strings.Contains(string(reactShim.Content), "createElement") || !strings.Contains(string(reactShim.Content), "useState") {
+		t.Fatalf("react shim = %s", string(reactShim.Content))
+	}
+	appFile, err := runtime.PreviewFile(context.Background(), previewID, "src/App.jsx")
+	if err != nil {
+		t.Fatalf("PreviewFile(App) error = %v", err)
+	}
+	if !strings.Contains(string(appFile.Content), "export default function App") {
+		t.Fatalf("app file = %#v", appFile)
+	}
+	if !loopHasStep(loop, "preview", "completed") {
+		t.Fatalf("loop missing preview step: %#v", loop.Steps)
+	}
+	if loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("temp preview should not require shell commands: %#v", loop.Steps)
+	}
+
+	edited, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "edit the app and make it louder",
+		Mode:          "auto",
+		TempWorkspace: true,
+		SessionID:     "chat-1",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(edit) error = %v", err)
+	}
+	if edited.WorkspaceRoot != loop.WorkspaceRoot {
+		t.Fatalf("edited.WorkspaceRoot = %q, want %q", edited.WorkspaceRoot, loop.WorkspaceRoot)
+	}
+	editedPreviewID := strings.Trim(strings.TrimPrefix(edited.PreviewURL, "/api/agent/previews/"), "/")
+	editedApp, err := runtime.PreviewFile(context.Background(), editedPreviewID, "src/App.jsx")
+	if err != nil {
+		t.Fatalf("PreviewFile(edited App) error = %v", err)
+	}
+	if !strings.Contains(string(editedApp.Content), "linear-gradient") {
+		t.Fatalf("edited app content = %s", string(editedApp.Content))
+	}
+	originalApp, err := runtime.PreviewFile(context.Background(), previewID, "src/App.jsx")
+	if err != nil {
+		t.Fatalf("PreviewFile(original App) error = %v", err)
+	}
+	if strings.Contains(string(originalApp.Content), "linear-gradient") {
+		t.Fatalf("original preview changed = %s", string(originalApp.Content))
+	}
+}
+
+func TestRuntimeAutoLoopKeepsCurrentWorkspaceReactRequestsInWorkspace(t *testing.T) {
+	root := t.TempDir()
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "create a React app in the current workspace",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.PreviewURL != "" || loop.WorkspaceRoot != "" {
+		t.Fatalf("loop used temp preview path = %#v", loop)
+	}
+	if !loopHasStep(loop, "edit_boundary", "waiting_approval") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	runtime.mu.RLock()
+	sessionCount := len(runtime.appSessions)
+	runtime.mu.RUnlock()
+	if sessionCount != 0 {
+		t.Fatalf("app sessions = %d", sessionCount)
+	}
+}
+
+func TestRuntimeAutoLoopAcceptsPlannerDefaultExportModule(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from 'react';
+
+const App = () => React.createElement("h1", null, "Hi");
+
+export default App;
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-planner",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || loop.PreviewURL == "" {
+		t.Fatalf("loop = %#v", loop)
+	}
+	previewID := strings.Trim(strings.TrimPrefix(loop.PreviewURL, "/api/agent/previews/"), "/")
+	appFile, err := runtime.PreviewFile(context.Background(), previewID, "src/App.jsx")
+	if err != nil {
+		t.Fatalf("PreviewFile(App) error = %v", err)
+	}
+	if !strings.Contains(string(appFile.Content), "export default App") {
+		t.Fatalf("app file = %s", string(appFile.Content))
+	}
+}
+
+func TestRuntimeAutoLoopAcceptsPlannerJSXModule(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+import "./App.css";
+
+export default function App() {
+  return <main><h1>Hi</h1></main>;
+}
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-jsx-planner",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || loop.PreviewURL == "" || !loopHasStep(loop, "preview", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	previewID := strings.Trim(strings.TrimPrefix(loop.PreviewURL, "/api/agent/previews/"), "/")
+	bundle, err := runtime.PreviewFile(context.Background(), previewID, "assets/app.js")
+	if err != nil {
+		t.Fatalf("PreviewFile(bundle) error = %v", err)
+	}
+	if !strings.Contains(string(bundle.Content), "createElement") {
+		t.Fatalf("bundle = %s", string(bundle.Content))
+	}
+}
+
+func TestRuntimeAutoLoopRejectsBrokenPlannerModuleBeforePreview(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `const App = () => React.createElement("h1", null, "Hi");
+
+export default App;
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-broken-planner",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || loop.PreviewURL != "" || !loopHasStep(loop, "app_check", "blocked") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoLoopRestoresLastGoodTempAppAfterFailedEdit(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+
+const App = () => React.createElement("h1", null, "Good");
+
+export default App;
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	created, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-restore",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(create) error = %v", err)
+	}
+	if created.State != "completed" {
+		t.Fatalf("created = %#v", created)
+	}
+	session, ok := runtime.appSession("chat-restore")
+	if !ok {
+		t.Fatal("app session was not saved")
+	}
+	original, err := os.ReadFile(filepath.Join(session.Root, "src", "App.jsx"))
+	if err != nil {
+		t.Fatalf("read original App.jsx: %v", err)
+	}
+
+	planner.plan = EditPlan{
+		Path: "src/App.jsx",
+		Content: `const App = () => React.createElement("h1", null, "Broken");
+
+export default App;
+`,
+		Summary: "Break app",
+	}
+	failed, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "edit the app",
+		Mode:          "auto",
+		TempWorkspace: true,
+		SessionID:     "chat-restore",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(broken edit) error = %v", err)
+	}
+	if failed.State != "attention" || failed.PreviewURL != "" || !loopHasStep(failed, "app_check", "blocked") {
+		t.Fatalf("failed = %#v", failed)
+	}
+	restored, err := os.ReadFile(filepath.Join(session.Root, "src", "App.jsx"))
+	if err != nil {
+		t.Fatalf("read restored App.jsx: %v", err)
+	}
+	if string(restored) != string(original) {
+		t.Fatalf("source was not restored:\n%s", string(restored))
+	}
+
+	planner.plan = EditPlan{
+		Path: "src/App.jsx",
+		Content: `import React from "react";
+
+const App = () => React.createElement("h1", null, "Recovered");
+
+export default App;
+`,
+		Summary: "Recover app",
+	}
+	recovered, err := runtime.ContinueAgentLoop(context.Background(), failed.ID, AgentLoopContinueInput{
+		Query: "edit the app",
+	})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop(recover edit) error = %v", err)
+	}
+	if recovered.State != "completed" || recovered.PreviewURL == "" {
+		t.Fatalf("recovered = %#v", recovered)
+	}
+	if recovered.WorkspaceRoot != session.Root {
+		t.Fatalf("recovered.WorkspaceRoot = %q, want %q", recovered.WorkspaceRoot, session.Root)
+	}
+	previewID := strings.Trim(strings.TrimPrefix(recovered.PreviewURL, "/api/agent/previews/"), "/")
+	recoveredApp, err := runtime.PreviewFile(context.Background(), previewID, "src/App.jsx")
+	if err != nil {
+		t.Fatalf("PreviewFile(recovered App) error = %v", err)
+	}
+	if !strings.Contains(string(recoveredApp.Content), "Recovered") {
+		t.Fatalf("recovered app = %s", string(recoveredApp.Content))
+	}
+}
+
+func TestRuntimeAutoLoopKeepsTempAppWhenPlannerCannotEdit(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+
+const App = () => React.createElement("h1", null, "Original");
+
+export default App;
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	created, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-keep",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(create) error = %v", err)
+	}
+	if created.State != "completed" {
+		t.Fatalf("created = %#v", created)
+	}
+	session, ok := runtime.appSession("chat-keep")
+	if !ok {
+		t.Fatal("app session was not saved")
+	}
+	original, err := os.ReadFile(filepath.Join(session.Root, "src", "App.jsx"))
+	if err != nil {
+		t.Fatalf("read original App.jsx: %v", err)
+	}
+
+	planner.plan = EditPlan{
+		Path:    "src/App.jsx",
+		Content: "not a react module",
+		Summary: "Invalid edit",
+	}
+	edited, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "turn the app into a database",
+		Mode:          "auto",
+		TempWorkspace: true,
+		SessionID:     "chat-keep",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(edit) error = %v", err)
+	}
+	if edited.State != "attention" || edited.PreviewURL != "" || !loopHasStep(edited, "write_file", "blocked") {
+		t.Fatalf("edited = %#v", edited)
+	}
+	restored, err := os.ReadFile(filepath.Join(session.Root, "src", "App.jsx"))
+	if err != nil {
+		t.Fatalf("read restored App.jsx: %v", err)
+	}
+	if string(restored) != string(original) {
+		t.Fatalf("app source changed:\n%s", string(restored))
+	}
+}
+
+func TestRuntimeAutoLoopUsesColorFallbackWhenPlannerCannotEdit(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+
+export default function App() {
+  return <main>Hello bird</main>;
+}
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	created, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a react app which says hello bird",
+		Mode:      "auto",
+		SessionID: "chat-color-fallback",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(create) error = %v", err)
+	}
+	if created.State != "completed" {
+		t.Fatalf("created = %#v", created)
+	}
+
+	planner.plan = EditPlan{
+		Path:    "src/App.jsx",
+		Content: "not a react module",
+		Summary: "Invalid edit",
+	}
+	edited, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "make it blue",
+		Mode:          "auto",
+		TempWorkspace: true,
+		SessionID:     "chat-color-fallback",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(edit) error = %v", err)
+	}
+	if edited.State != "completed" || edited.PreviewURL == "" {
+		t.Fatalf("edited = %#v", edited)
+	}
+	previewID := strings.Trim(strings.TrimPrefix(edited.PreviewURL, "/api/agent/previews/"), "/")
+	app, err := runtime.PreviewFile(context.Background(), previewID, "src/App.jsx")
+	if err != nil {
+		t.Fatalf("PreviewFile(App) error = %v", err)
+	}
+	content := string(app.Content)
+	if !strings.Contains(content, "#1d4ed8") || !strings.Contains(content, "Hello bird") {
+		t.Fatalf("edited app = %s", content)
+	}
+}
+
+func TestRuntimeAutoLoopEditsExistingTempAppWithPlanner(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+
+export default function App() {
+  return React.createElement("h1", null, "Hello bird");
+}
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	created, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a react app which says hello bird",
+		Mode:      "auto",
+		SessionID: "chat-edit-app",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(create) error = %v", err)
+	}
+	if created.State != "completed" {
+		t.Fatalf("created = %#v", created)
+	}
+	session, ok := runtime.appSession("chat-edit-app")
+	if !ok {
+		t.Fatal("app session was not saved")
+	}
+
+	planner.plan = EditPlan{
+		Path: "src/App.jsx",
+		Content: `import React from "react";
+
+export default function App() {
+  return React.createElement("main", { style: {
+    minHeight: "100vh",
+    display: "grid",
+    placeItems: "center",
+    background: "#1d4ed8",
+    color: "white",
+    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+  } }, React.createElement("h1", null, "Hello bird"));
+}
+`,
+		Summary: "Make background blue",
+	}
+	edited, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "make the app background blue",
+		Mode:          "auto",
+		TempWorkspace: true,
+		SessionID:     "chat-edit-app",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(edit) error = %v", err)
+	}
+	if edited.State != "completed" || edited.PreviewURL == "" {
+		t.Fatalf("edited = %#v", edited)
+	}
+	if edited.WorkspaceRoot != session.Root {
+		t.Fatalf("edited.WorkspaceRoot = %q, want %q", edited.WorkspaceRoot, session.Root)
+	}
+	previewID := strings.Trim(strings.TrimPrefix(edited.PreviewURL, "/api/agent/previews/"), "/")
+	app, err := runtime.PreviewFile(context.Background(), previewID, "src/App.jsx")
+	if err != nil {
+		t.Fatalf("PreviewFile(App) error = %v", err)
+	}
+	content := string(app.Content)
+	if !strings.Contains(content, "#1d4ed8") || !strings.Contains(content, "Hello bird") {
+		t.Fatalf("edited app = %s", content)
+	}
+	if len(planner.requests) < 2 || planner.requests[1].Files[0].Path != "src/App.jsx" || !strings.Contains(planner.requests[1].Files[0].Content, "Hello bird") {
+		t.Fatalf("planner requests = %#v", planner.requests)
+	}
+}
+
+func TestRuntimeAutoLoopCreatePromptReplacesExistingTempApp(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+
+export default function App() {
+  return React.createElement("h1", null, "First");
+}
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	created, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-recreate",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(create) error = %v", err)
+	}
+	if created.State != "completed" {
+		t.Fatalf("created = %#v", created)
+	}
+	firstSession, ok := runtime.appSession("chat-recreate")
+	if !ok {
+		t.Fatal("first app session was not saved")
+	}
+
+	planner.plan = EditPlan{
+		Path: "src/App.jsx",
+		Content: `import React from "react";
+
+export default function App() {
+  return React.createElement("h1", null, "Hello");
+}
+`,
+		Summary: "Create hello app",
+	}
+	recreated, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "create a react app which says hello",
+		Mode:          "auto",
+		TempWorkspace: true,
+		SessionID:     "chat-recreate",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop(recreate) error = %v", err)
+	}
+	if recreated.State != "completed" || recreated.PreviewURL == "" || !loopHasStep(recreated, "workspace", "completed") {
+		t.Fatalf("recreated = %#v", recreated)
+	}
+	secondSession, ok := runtime.appSession("chat-recreate")
+	if !ok {
+		t.Fatal("second app session was not saved")
+	}
+	if secondSession.Root == firstSession.Root {
+		t.Fatalf("session root was reused: %q", secondSession.Root)
+	}
+	app, err := os.ReadFile(filepath.Join(secondSession.Root, "src", "App.jsx"))
+	if err != nil {
+		t.Fatalf("read recreated App.jsx: %v", err)
+	}
+	if !strings.Contains(string(app), "Hello") {
+		t.Fatalf("recreated app = %s", string(app))
+	}
+	if _, err := os.Stat(firstSession.Root); !os.IsNotExist(err) {
+		t.Fatalf("old session root still exists or stat failed: %v", err)
+	}
+}
+
+func TestRuntimeAutoLoopUsesPromptMessageFallbackForTempApp(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "src/App.jsx",
+			Content: "not a react module",
+			Summary: "Unsupported app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a react app which says welcome",
+		Mode:      "auto",
+		SessionID: "chat-message-fallback",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || loop.PreviewURL == "" {
+		t.Fatalf("loop = %#v", loop)
+	}
+	previewID := strings.Trim(strings.TrimPrefix(loop.PreviewURL, "/api/agent/previews/"), "/")
+	app, err := runtime.PreviewFile(context.Background(), previewID, "src/App.jsx")
+	if err != nil {
+		t.Fatalf("PreviewFile(App) error = %v", err)
+	}
+	if !strings.Contains(string(app.Content), `"welcome"`) {
+		t.Fatalf("app = %s", string(app.Content))
+	}
+}
+
+func TestRuntimeAutoLoopRejectsMalformedPlannerModuleBeforePreview(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+
+const App = () => React.createElement("h1",, "Hi");
+
+export default App;
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-malformed-planner",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || loop.PreviewURL != "" || !loopHasStep(loop, "app_check", "blocked") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoLoopAcceptsPlannerCSSImportsBeforePreview(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+import "./App.css";
+
+const App = () => React.createElement("h1", null, "Hi");
+
+export default App;
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-relative-import",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || loop.PreviewURL == "" || !loopHasStep(loop, "preview", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoLoopRejectsPlannerPackageImportsBeforePreview(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+import { Link } from "react-router-dom";
+
+const App = () => React.createElement(Link, { to: "/" }, "Hi");
+
+export default App;
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-package-import",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || loop.PreviewURL != "" || !loopHasStep(loop, "app_check", "blocked") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoLoopRejectsMultiplePlannerPackageImportsOnOneLine(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react"; import confetti from "canvas-confetti";
+
+export default function App() {
+  return React.createElement("button", { onClick: confetti }, "Hi");
+}
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-multiple-imports",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || loop.PreviewURL != "" || !loopHasStep(loop, "app_check", "blocked") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoLoopAcceptsCommonReactNamedImportsBeforePreview(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React, { useEffect } from "react";
+
+export default function App() {
+  useEffect(() => {}, []);
+  return React.createElement("h1", null, "Hi");
+}
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-unsupported-react-import",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || loop.PreviewURL == "" || !loopHasStep(loop, "preview", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoLoopAcceptsCommonReactDefaultAPIsBeforePreview(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React from "react";
+
+export default function App() {
+  React.useEffect(() => {}, []);
+  return React.createElement("h1", null, "Hi");
+}
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-unsupported-react-api",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || loop.PreviewURL == "" || !loopHasStep(loop, "preview", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoLoopAcceptsSupportedReactNamedImports(t *testing.T) {
+	root := t.TempDir()
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path: "src/App.jsx",
+			Content: `import React, { useState } from "react";
+
+export default function App() {
+  const [label] = useState("Hi");
+  return React.createElement("h1", null, label);
+}
+`,
+			Summary: "Create app",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "create a React app",
+		Mode:      "auto",
+		SessionID: "chat-supported-react-import",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || loop.PreviewURL == "" || !loopHasStep(loop, "preview", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRegisterAgentPreviewRemovesEvictedRoots(t *testing.T) {
+	runtime := NewRuntime("")
+	evictedRoot := ""
+	for index := 0; index < maxAgentPreviewItems+1; index++ {
+		root := t.TempDir()
+		if index == 0 {
+			evictedRoot = root
+		}
+		if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("ok"), 0o600); err != nil {
+			t.Fatalf("write preview: %v", err)
+		}
+		runtime.registerAgentPreview("loop", "session", root, "index.html")
+	}
+	if _, err := os.Stat(evictedRoot); !os.IsNotExist(err) {
+		t.Fatalf("evicted root still exists, err = %v", err)
+	}
+}
+
+func TestSaveAppSessionRemovesEvictedRoots(t *testing.T) {
+	runtime := NewRuntime("")
+	evictedRoot := ""
+	for index := 0; index < maxAppSessionItems+1; index++ {
+		root := t.TempDir()
+		if index == 0 {
+			evictedRoot = root
+		}
+		runtime.saveAppSession(AppSession{ID: "session-" + strconv.Itoa(index), Root: root})
+	}
+	if _, err := os.Stat(evictedRoot); !os.IsNotExist(err) {
+		t.Fatalf("evicted app root still exists, err = %v", err)
+	}
+}
+
+func TestRecoverAppSessionAcceptsExistingTempPackage(t *testing.T) {
+	runtime := NewRuntime("")
+	root, err := os.MkdirTemp("", "linea-app-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(src) error = %v", err)
+	}
+	for name, content := range map[string]string{
+		"package.json": "{}",
+		"index.html":   "<main></main>",
+		"src/App.jsx":  "export default function App() {}",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if !runtime.RecoverAppSession("chat", root) {
+		t.Fatal("RecoverAppSession() returned false")
+	}
+	if !runtime.HasAppSession("chat") {
+		t.Fatal("session was not recovered")
+	}
+}
+
+func TestRecoverAppSessionRejectsNonTempRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(src) error = %v", err)
+	}
+	for name, content := range map[string]string{
+		"package.json": "{}",
+		"index.html":   "<main></main>",
+		"src/App.jsx":  "export default function App() {}",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	runtime := NewRuntime("")
+	if runtime.RecoverAppSession("chat", root) {
+		t.Fatal("RecoverAppSession() accepted non-temp app root")
+	}
+	if runtime.HasAppSession("chat") {
+		t.Fatal("session was recovered unexpectedly")
 	}
 }
 

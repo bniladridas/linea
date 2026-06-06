@@ -908,6 +908,10 @@ textarea {
   color: #c58f8f;
 }
 
+.agent-activity.waiting em {
+  color: #b2aaa0;
+}
+
 .agent-activity.approved em,
 .agent-activity.completed em {
   color: #a9b7a5;
@@ -933,8 +937,16 @@ textarea {
 .message-content h3,
 .message-content p,
 .message-content ul,
-.message-content pre {
+.message-content pre,
+.message-content hr {
   margin: 0;
+}
+
+.message-content hr {
+  width: 100%;
+  height: 1px;
+  border: 0;
+  background: #2a2a2a;
 }
 
 .message-content h3 {
@@ -975,8 +987,8 @@ textarea {
 .message-content code {
   padding: 1px 5px;
   border-radius: 5px;
-  background: #181818;
-  color: #eeeeee;
+  background: #262626;
+  color: #f0f0f0;
   font-family: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
   font-size: 0.92em;
 }
@@ -1368,7 +1380,7 @@ textarea {
 .details-dialog {
   display: grid;
   gap: 14px;
-  width: min(680px, calc(100vw - 40px));
+  width: min(820px, calc(100vw - 40px));
   max-height: min(720px, calc(100vh - 40px));
   overflow: auto;
   border: 1px solid #181818;
@@ -1491,7 +1503,7 @@ textarea {
 }
 
 .agent-command-form,
-.agent-loop-options {
+.agent-loop-options:not(.proposal-options) {
   grid-template-columns: minmax(0, 1fr) repeat(3, auto);
 }
 
@@ -1508,6 +1520,7 @@ textarea {
 .workspace-search input,
 .agent-command-form input,
 .agent-loop-form input,
+.agent-loop-form textarea,
 .agent-inline-input,
 .agent-mcp-form select,
 .agent-mcp-form textarea {
@@ -1538,10 +1551,19 @@ textarea {
   line-height: 1.35;
 }
 
+.agent-loop-form textarea {
+  grid-column: 1 / -1;
+  min-height: 72px;
+  resize: vertical;
+  padding-top: 8px;
+  line-height: 1.35;
+}
+
 .workspace-root input:focus,
 .workspace-search input:focus,
 .agent-command-form input:focus,
 .agent-loop-form input:focus,
+.agent-loop-form textarea:focus,
 .agent-inline-input:focus,
 .agent-mcp-form select:focus,
 .agent-mcp-form textarea:focus {
@@ -1553,6 +1575,7 @@ textarea {
 .agent-command-form button,
 .agent-loop-form button,
 .agent-loop-actions button,
+.agent-loop-link,
 .agent-mcp-form button,
 .agent-card button,
 .details-list-header button {
@@ -1577,6 +1600,8 @@ textarea {
 .agent-loop-form button:focus-visible:not(:disabled),
 .agent-loop-actions button:hover:not(:disabled),
 .agent-loop-actions button:focus-visible:not(:disabled),
+.agent-loop-link:hover,
+.agent-loop-link:focus-visible,
 .agent-mcp-form button:hover:not(:disabled),
 .agent-mcp-form button:focus-visible:not(:disabled),
 .agent-card button:hover:not(:disabled),
@@ -1596,6 +1621,13 @@ textarea {
 .agent-card button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.agent-loop-link {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .agent-control {
@@ -1950,7 +1982,7 @@ textarea {
 .proposal-layout {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(140px, 0.45fr) minmax(0, 1fr);
+  grid-template-columns: minmax(170px, 0.36fr) minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -2014,7 +2046,9 @@ textarea {
 .proposal-detail {
   display: grid;
   min-width: 0;
+  max-width: 100%;
   gap: 8px;
+  overflow: hidden;
 }
 
 .proposal-detail-top {
@@ -2023,6 +2057,10 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.proposal-detail-top > div:first-child {
+  min-width: 0;
 }
 
 .proposal-detail-top strong,
@@ -2052,6 +2090,8 @@ textarea {
 .proposal-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
 }
 
@@ -2080,8 +2120,11 @@ textarea {
 
 .proposal-diff {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   max-height: 240px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid #171717;
   border-radius: 8px;
   background: #0d0d0d;
@@ -2118,12 +2161,11 @@ textarea {
 
 .proposal-diff-line code {
   min-width: 0;
-  overflow: hidden;
   padding: 3px 8px;
   color: #d8d8d8;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  text-overflow: ellipsis;
-  white-space: pre;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .proposal-diff-more {
@@ -2650,6 +2692,10 @@ textarea:focus {
   color: #252522;
 }
 
+:root[data-theme="light"] .message-content hr {
+  background: #e1e1dd;
+}
+
 :root[data-theme="light"] .details-header strong,
 :root[data-theme="light"] .details-section h3,
 :root[data-theme="light"] .details-list h3,
@@ -2676,6 +2722,7 @@ textarea:focus {
 :root[data-theme="light"] .agent-command-form button,
 :root[data-theme="light"] .agent-loop-form button,
 :root[data-theme="light"] .agent-loop-actions button,
+:root[data-theme="light"] .agent-loop-link,
 :root[data-theme="light"] .agent-mcp-form button,
 :root[data-theme="light"] .agent-card button,
 :root[data-theme="light"] .details-list-header button,
@@ -2767,9 +2814,11 @@ textarea:focus {
 :root[data-theme="light"] .agent-command-form input,
 :root[data-theme="light"] .agent-command-form button,
 :root[data-theme="light"] .agent-loop-form input,
+:root[data-theme="light"] .agent-loop-form textarea,
 :root[data-theme="light"] .agent-loop-form button,
 :root[data-theme="light"] .agent-loop-mode,
 :root[data-theme="light"] .agent-loop-actions button,
+:root[data-theme="light"] .agent-loop-link,
 :root[data-theme="light"] .agent-inline-input,
 :root[data-theme="light"] .agent-mcp-form select,
 :root[data-theme="light"] .agent-mcp-form textarea,
@@ -2802,10 +2851,13 @@ textarea:focus {
 :root[data-theme="light"] .agent-command-form button:hover:not(:disabled),
 :root[data-theme="light"] .agent-command-form button:focus-visible:not(:disabled),
 :root[data-theme="light"] .agent-loop-form input:focus,
+:root[data-theme="light"] .agent-loop-form textarea:focus,
 :root[data-theme="light"] .agent-loop-form button:hover:not(:disabled),
 :root[data-theme="light"] .agent-loop-form button:focus-visible:not(:disabled),
 :root[data-theme="light"] .agent-loop-actions button:hover:not(:disabled),
 :root[data-theme="light"] .agent-loop-actions button:focus-visible:not(:disabled),
+:root[data-theme="light"] .agent-loop-link:hover,
+:root[data-theme="light"] .agent-loop-link:focus-visible,
 :root[data-theme="light"] .agent-inline-input:focus,
 :root[data-theme="light"] .agent-mcp-form select:focus,
 :root[data-theme="light"] .agent-mcp-form textarea:focus,

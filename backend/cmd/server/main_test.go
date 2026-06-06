@@ -299,6 +299,39 @@ func TestStripPlannerJSONKeepsInnerMarkdownFence(t *testing.T) {
 	}
 }
 
+func TestStripPlannerJSONUsesFirstCompleteObject(t *testing.T) {
+	input := "planner output\n{\"path\":\"portfolio.html\",\"content\":\"body { color: red; }\",\"summary\":\"page\"}{\"extra\":true}"
+	got := stripPlannerJSON(input)
+	var plan agent.EditPlan
+	if err := json.Unmarshal([]byte(got), &plan); err != nil {
+		t.Fatalf("Unmarshal() error = %v; json = %q", err, got)
+	}
+	if plan.Path != "portfolio.html" || plan.Content != "body { color: red; }" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestBuildEditPlannerPromptConstrainsTempAppEdits(t *testing.T) {
+	prompt := buildEditPlannerPrompt(agent.EditPlanRequest{
+		Goal: "make the preview background blue",
+		Files: []agent.FileResult{{
+			Path:    "src/App.jsx",
+			Content: "export default function App() {}",
+		}},
+	})
+
+	for _, want := range []string{
+		"temporary React app preview",
+		"Return only path src/App.jsx",
+		"JSX is allowed",
+		"Do not import network resources",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 type recordingStreamer struct {
 	name   string
 	order  *[]string

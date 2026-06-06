@@ -227,7 +227,16 @@ func (p llmEditPlanner) PlanEdit(ctx context.Context, request agent.EditPlanRequ
 func buildEditPlannerPrompt(request agent.EditPlanRequest) string {
 	var builder strings.Builder
 	builder.WriteString("You are Linea's local edit planner. Return only JSON with path, content, and summary. ")
-	builder.WriteString("Content must be the complete replacement text for one existing file. Do not include markdown fences.\n\n")
+	builder.WriteString("Content must be the complete replacement text for one allowed file. Empty files may be new files. Do not include markdown fences.\n\n")
+	if isTempAppPlannerRequest(request) {
+		builder.WriteString("This is a temporary React app preview. Return only path src/App.jsx. ")
+		builder.WriteString("The content must be a complete React module for the local preview. ")
+		builder.WriteString("JSX is allowed. Keep imports local and browser-safe. ")
+		builder.WriteString("Use React from \"react\" for JSX and hooks. ")
+		builder.WriteString("Do not import network resources or packages unless they are already available to the local bundle. ")
+		builder.WriteString("For visual edit requests, preserve existing copy, labels, and casing unless the goal asks to change them. ")
+		builder.WriteString("Preserve useful existing app behavior unless the goal asks to replace it.\n\n")
+	}
 	builder.WriteString("Goal:\n")
 	builder.WriteString(request.Goal)
 	builder.WriteString("\n\n")
@@ -260,10 +269,17 @@ func buildEditPlannerPrompt(request agent.EditPlanRequest) string {
 	return builder.String()
 }
 
+func isTempAppPlannerRequest(request agent.EditPlanRequest) bool {
+	if len(request.Files) != 1 {
+		return false
+	}
+	return request.Files[0].Path == "src/App.jsx"
+}
+
 func stripPlannerJSON(value string) string {
 	value = strings.TrimSpace(value)
 	if !strings.HasPrefix(value, "```") {
-		return value
+		return firstPlannerJSONObject(value)
 	}
 	_, rest, ok := strings.Cut(value, "\n")
 	if !ok {
@@ -273,7 +289,45 @@ func stripPlannerJSON(value string) string {
 	if index < 0 {
 		return value
 	}
-	return strings.TrimSpace(rest[:index])
+	return firstPlannerJSONObject(strings.TrimSpace(rest[:index]))
+}
+
+func firstPlannerJSONObject(value string) string {
+	start := strings.Index(value, "{")
+	if start < 0 {
+		return value
+	}
+	depth := 0
+	inString := false
+	escaped := false
+	for index := start; index < len(value); index++ {
+		char := value[index]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch char {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch char {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return value[start : index+1]
+			}
+		}
+	}
+	return value
 }
 
 func trimPlannerText(value string, limit int) string {

@@ -122,7 +122,7 @@ Initial scope:
 * Local tools
 * Hooks
 * Skills
-* Review-only edit proposals
+* Edit proposals
 * Bounded agent loops
 * Workspace search, file read, diagnostics, and symbols
 * Optional LSP-backed diagnostics, symbols, and references
@@ -176,9 +176,11 @@ Loop modes:
 * Guided loops pause at approval, input, edit, and retry boundaries.
 * Auto loops may continue across safe local steps after explicit activation.
 * Auto loops may use diagnostics, command output, and file reads as evidence.
-* Auto loops may create review-only edit proposals.
-* Auto loops may infer allowlisted check commands from project files.
-* Auto loops must stop before applying edits or running commands without approval.
+* Auto loops may create and apply bounded edit proposals.
+* Auto loops may infer and run allowlisted check commands from project files.
+* Generated app previews should use temporary package sessions unless the user asks to edit the current project.
+* Temporary app sessions should run their checks inside the temp package before showing a preview.
+* Auto loops must stop before destructive actions, broad system access, or commands outside the allowlist.
 
 Rules:
 
@@ -201,7 +203,8 @@ Edit proposals:
 * Chat may create explicit edit proposals.
 * Show proposed diffs before review.
 * Approval and rejection update review state only.
-* Applying changes to disk must be explicit separate work.
+* Guided proposal application must be explicit separate work.
+* Auto loops may apply their own generated proposals after explicit auto activation.
 
 Hooks:
 
