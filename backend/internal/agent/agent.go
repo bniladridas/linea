@@ -26,6 +26,7 @@ type Runtime struct {
 	commandChecks    []CommandCheck
 	commandRuns      []CommandRun
 	workspaceRoot    string
+	lspCommand       string
 	skillsDir        string
 	mcpConfigPath    string
 	commands         []string

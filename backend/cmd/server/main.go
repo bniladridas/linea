@@ -182,6 +182,9 @@ func newAgentRuntime(cfg config.Config, planners ...agent.EditPlanner) *agent.Ru
 	if len(planners) > 0 && planners[0] != nil {
 		options = append(options, agent.WithEditPlanner(planners[0]))
 	}
+	if cfg.AgentLSPCommand != "" {
+		options = append(options, agent.WithLSPCommand(cfg.AgentLSPCommand))
+	}
 	return agent.NewRuntime(
 		cfg.AgentRulesPath,
 		options...,

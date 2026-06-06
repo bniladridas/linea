@@ -30,6 +30,10 @@ func (r *Runtime) ListDiagnostics(ctx context.Context) ([]Diagnostic, error) {
 	if err != nil {
 		return nil, err
 	}
+	if diagnostics, ok := r.listDiagnosticsWithLSP(ctx, root); ok {
+		sortDiagnostics(diagnostics)
+		return diagnostics, nil
+	}
 	diagnostics := []Diagnostic{}
 	filesSeen := 0
 	fileSet := token.NewFileSet()
@@ -80,6 +84,11 @@ func (r *Runtime) ListDiagnostics(ctx context.Context) ([]Diagnostic, error) {
 	if errors.Is(err, filepath.SkipAll) {
 		err = nil
 	}
+	sortDiagnostics(diagnostics)
+	return diagnostics, err
+}
+
+func sortDiagnostics(diagnostics []Diagnostic) {
 	sort.Slice(diagnostics, func(i, j int) bool {
 		if diagnostics[i].Path == diagnostics[j].Path {
 			if diagnostics[i].Line == diagnostics[j].Line {
@@ -89,7 +98,6 @@ func (r *Runtime) ListDiagnostics(ctx context.Context) ([]Diagnostic, error) {
 		}
 		return diagnostics[i].Path < diagnostics[j].Path
 	})
-	return diagnostics, err
 }
 
 type diagnosticMessage struct {

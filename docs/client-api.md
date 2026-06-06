@@ -544,7 +544,7 @@ Updates the workspace root for the running server. Existing edit proposals are c
 
 `GET /api/agent/workspace/diagnostics`
 
-Returns local workspace diagnostics. It currently reports Go syntax errors.
+Returns local workspace diagnostics. When `LINEA_LSP_COMMAND` is set, Linea tries that LSP command first; otherwise it uses the local Go parser fallback.
 
 ```json
 [
@@ -560,7 +560,7 @@ Returns local workspace diagnostics. It currently reports Go syntax errors.
 
 `GET /api/agent/workspace/symbols?q=Run`
 
-Returns basic Go symbols from `LINEA_WORKSPACE_DIR`.
+Returns Go symbols from `LINEA_WORKSPACE_DIR`. When `LINEA_LSP_COMMAND` is set, Linea tries that LSP command first; otherwise it uses the local parser fallback.
 
 ```json
 [
@@ -575,7 +575,7 @@ Returns basic Go symbols from `LINEA_WORKSPACE_DIR`.
 
 `GET /api/agent/workspace/references?q=Run`
 
-Returns basic Go identifier references from `LINEA_WORKSPACE_DIR`.
+Returns Go identifier references from `LINEA_WORKSPACE_DIR` using a name-based local scanner.
 
 ```json
 [
