@@ -54,6 +54,21 @@ func (r *Runtime) ListEditProposals(context.Context) []EditProposal {
 	return append([]EditProposal(nil), r.editProposals...)
 }
 
+func (r *Runtime) editProposalByID(id string) (EditProposal, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return EditProposal{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, proposal := range r.editProposals {
+		if proposal.ID == id {
+			return proposal, true
+		}
+	}
+	return EditProposal{}, false
+}
+
 func (r *Runtime) ProposeEdit(ctx context.Context, input EditProposalInput) (EditProposal, error) {
 	if len([]byte(input.Content)) > maxProposalBytes {
 		return EditProposal{}, errors.New("proposed content is too large")

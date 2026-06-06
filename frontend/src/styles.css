@@ -1734,8 +1734,38 @@ textarea {
   gap: 3px;
 }
 
+.agent-loop-next {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  border-top: 1px solid #171717;
+  padding-top: 6px;
+}
+
+.agent-loop-next > span {
+  min-width: 0;
+  overflow: hidden;
+  color: #b8b8b8;
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-loop-next > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #eeeeee;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-loop-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -2675,6 +2705,18 @@ textarea:focus {
 :root[data-theme="light"] .conversation-rename {
   border-color: #e8e8e3;
   background: #ffffff;
+}
+
+:root[data-theme="light"] .agent-loop-next {
+  border-color: #e8e8e3;
+}
+
+:root[data-theme="light"] .agent-loop-next > span {
+  color: #777771;
+}
+
+:root[data-theme="light"] .agent-loop-next > strong {
+  color: #252522;
 }
 
 :root[data-theme="light"] .message,

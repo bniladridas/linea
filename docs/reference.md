@@ -75,6 +75,12 @@ WEB_ORIGIN=http://localhost:5173
 | `STATIC_DIR` | React assets. Empty means embedded. |
 | `WEB_ORIGIN` | Frontend dev origin. |
 
+Common command allowlist values:
+
+```sh
+LINEA_COMMAND_ALLOWLIST=make test,npm run build,go test ./...
+```
+
 # Source
 
 ```sh

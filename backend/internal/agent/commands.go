@@ -163,6 +163,12 @@ func (r *Runtime) commandAllowed(command string) bool {
 	return false
 }
 
+func (r *Runtime) allowedCommands() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.commands...)
+}
+
 func (r *Runtime) commandApproval(id string) (CommandApproval, bool) {
 	id = strings.TrimSpace(id)
 	if id == "" {

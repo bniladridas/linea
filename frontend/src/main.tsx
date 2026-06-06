@@ -684,8 +684,11 @@ function App() {
         method: 'POST',
       });
       setAgentEditProposals((items) => items.map((item) => (item.id === proposal.id ? proposal : item)));
-      await loadAgentStatus();
+      const nextStatus = await refreshAgentDetails();
       updateAgentActivity(activityId, { state: 'completed', params: proposal.path, result: 'Applied to disk.' });
+      if (nextStatus) {
+        continueAppliedAutoLoops(nextStatus, proposal.id);
+      }
     } catch (applyError) {
       const message = applyError instanceof Error ? applyError.message : 'Could not apply proposal.';
       updateAgentActivity(activityId, { state: 'failed', result: message });
@@ -958,6 +961,23 @@ function App() {
             step.kind === 'command_approval' &&
             step.state === 'waiting_approval' &&
             normalizeCommand(step.command ?? '') === normalized,
+        ),
+    );
+    if (loop) {
+      void continueAgentLoop(loop.id);
+    }
+  }
+
+  function continueAppliedAutoLoops(status: AgentStatus, proposalId: string) {
+    const loop = (status.agentLoops ?? []).find(
+      (item) =>
+        item.mode === 'auto' &&
+        item.state === 'waiting_approval' &&
+        item.steps.some(
+          (step) =>
+            step.kind === 'edit_review' &&
+            step.state === 'waiting_approval' &&
+            step.createdId === proposalId,
         ),
     );
     if (loop) {
@@ -2732,42 +2752,22 @@ function SystemDetailsDialog({
           </form>
           <div className="agent-card-list">
             {(agentStatus?.agentLoops ?? []).slice(0, 3).map((loop) => (
-              <div className="agent-loop-card" key={loop.id}>
-                <div className="agent-loop-top">
-                  <strong>{loop.goal}</strong>
-                  <span>
-                    {loop.mode ?? 'guided'} · {loop.state}
-                  </span>
-                </div>
-                <p>{loop.summary}</p>
-                <div className="agent-loop-steps">
-                  {loop.steps.slice(0, 5).map((step) => (
-                    <span key={step.id}>
-                      {step.title}: {step.state}
-                      {step.detail ? ` · ${step.detail}` : ''}
-                    </span>
-                  ))}
-                </div>
-                {loop.state !== 'completed' && loop.state !== 'canceled' && (
-                  <div className="agent-loop-actions">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onContinueLoop(loop.id, {
-                          command: loopCommandInput.trim() || undefined,
-                          query: loopQueryInput.trim() || undefined,
-                          filePath: loopFileInput.trim() || undefined,
-                        })
-                      }
-                    >
-                      Continue
-                    </button>
-                    <button type="button" onClick={() => onCancelLoop(loop.id)}>
-                      Cancel
-                    </button>
-                  </div>
-                )}
-              </div>
+              <AgentLoopCard
+                editProposals={editProposals}
+                key={loop.id}
+                loop={loop}
+                onApplyProposal={onApplyProposal}
+                onApproveCommand={onApproveCommand}
+                onCancelLoop={onCancelLoop}
+                onContinueLoop={onContinueLoop}
+                onReviewProposal={onReviewProposal}
+                onSelectProposal={setSelectedProposalId}
+                continueInput={{
+                  command: loopCommandInput.trim() || undefined,
+                  query: loopQueryInput.trim() || undefined,
+                  filePath: loopFileInput.trim() || undefined,
+                }}
+              />
             ))}
             {(agentStatus?.agentLoops ?? []).length === 0 && <p>No loops</p>}
           </div>
@@ -3402,6 +3402,133 @@ function truncateText(value: string, maxLength: number) {
     return value;
   }
   return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+type AgentLoopItem = NonNullable<AgentStatus['agentLoops']>[number];
+
+function AgentLoopCard({
+  continueInput,
+  editProposals,
+  loop,
+  onApplyProposal,
+  onApproveCommand,
+  onCancelLoop,
+  onContinueLoop,
+  onReviewProposal,
+  onSelectProposal,
+}: {
+  continueInput: Omit<AgentLoopRequest, 'goal'>;
+  editProposals: AgentEditProposal[];
+  loop: AgentLoopItem;
+  onApplyProposal: (proposalId: string) => void;
+  onApproveCommand: (command: string) => void;
+  onCancelLoop: (loopId: string) => void;
+  onContinueLoop: (loopId: string, input: Omit<AgentLoopRequest, 'goal'>) => void;
+  onReviewProposal: (proposalId: string, status: 'approved' | 'rejected') => void;
+  onSelectProposal: (proposalId: string) => void;
+}) {
+  const proposal = findLoopProposal(loop, editProposals);
+  const commandStep = [...loop.steps]
+    .reverse()
+    .find((step) => step.kind === 'command_approval' && step.state === 'waiting_approval' && step.command);
+  const canContinue = loop.state !== 'completed' && loop.state !== 'canceled';
+  const nextAction = loopNextAction(proposal, commandStep);
+
+  return (
+    <div className="agent-loop-card">
+      <div className="agent-loop-top">
+        <strong>{loop.goal}</strong>
+        <span>
+          {loop.mode ?? 'guided'} · {loop.state}
+        </span>
+      </div>
+      <p>{loop.summary}</p>
+      <div className="agent-loop-steps">
+        {loop.steps.slice(0, 5).map((step) => (
+          <span key={step.id}>
+            {step.title}: {step.state}
+            {step.detail ? ` · ${step.detail}` : ''}
+          </span>
+        ))}
+      </div>
+      {(proposal || commandStep) && (
+        <div className="agent-loop-next">
+          {nextAction && <strong>{nextAction}</strong>}
+          {proposal && (
+            <>
+              <span>
+                Proposal · {proposal.path} · {proposal.status}
+              </span>
+              <div className="agent-loop-actions">
+                <button type="button" onClick={() => onSelectProposal(proposal.id)}>
+                  Review
+                </button>
+                <button
+                  disabled={proposal.status !== 'pending'}
+                  type="button"
+                  onClick={() => onReviewProposal(proposal.id, 'approved')}
+                >
+                  Approve
+                </button>
+                <button
+                  disabled={proposal.status !== 'approved'}
+                  type="button"
+                  onClick={() => onApplyProposal(proposal.id)}
+                >
+                  Apply
+                </button>
+              </div>
+            </>
+          )}
+          {commandStep?.command && (
+            <>
+              <span>Command · {commandStep.command}</span>
+              <div className="agent-loop-actions">
+                <button type="button" onClick={() => onApproveCommand(commandStep.command ?? '')}>
+                  Approve
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {canContinue && (
+        <div className="agent-loop-actions">
+          <button type="button" onClick={() => onContinueLoop(loop.id, continueInput)}>
+            Continue
+          </button>
+          <button type="button" onClick={() => onCancelLoop(loop.id)}>
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function loopNextAction(
+  proposal: AgentEditProposal | undefined,
+  commandStep: AgentLoopItem['steps'][number] | undefined,
+) {
+  if (proposal?.status === 'pending') {
+    return 'Next · review proposal';
+  }
+  if (proposal?.status === 'approved') {
+    return 'Next · apply proposal';
+  }
+  if (commandStep?.command) {
+    return 'Next · approve command';
+  }
+  return '';
+}
+
+function findLoopProposal(loop: AgentLoopItem, proposals: AgentEditProposal[]) {
+  const proposalIDs = new Set(
+    loop.steps
+      .filter((step) => step.kind === 'edit_proposal' || step.kind === 'edit_review')
+      .flatMap((step) => (step.createdId ? [step.createdId] : [])),
+  );
+  return proposals.find((proposal) => proposalIDs.has(proposal.id));
 }
 
 function DetailsSection({ children, title }: { children: React.ReactNode; title: string }) {
