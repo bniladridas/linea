@@ -29,14 +29,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
       - name: edits
         run: node scripts/site-edits.mjs
 
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
