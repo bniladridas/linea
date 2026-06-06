@@ -42,7 +42,7 @@ Returns storage, search, and provider state.
 
 `GET /api/agent`
 
-Returns the local agent contract. It is read-only.
+Returns the local agent contract. It is read-only and does not start MCP servers.
 
 ```json
 {
@@ -265,7 +265,7 @@ Returns local MCP servers from `LINEA_MCP_CONFIG`. It does not start servers. En
 
 `GET /api/agent/mcp-tools`
 
-Returns MCP tool metadata declared in `LINEA_MCP_CONFIG`. It does not start servers.
+Returns MCP tool metadata declared in `LINEA_MCP_CONFIG`. If a configured server has no `tools` list, Linea starts it briefly and calls `tools/list`.
 
 ```json
 [
@@ -286,7 +286,7 @@ Returns recent MCP tool calls.
 
 `POST /api/agent/mcp-calls`
 
-Calls a configured stdio MCP tool.
+Calls a configured stdio MCP tool. Tools may be declared in config or discovered from `tools/list`.
 
 ```json
 {

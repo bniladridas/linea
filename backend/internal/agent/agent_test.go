@@ -38,6 +38,49 @@ func runFakeMCPServer() {
 					"capabilities":    map[string]any{},
 				},
 			})
+		case "tools/list":
+			params, _ := message["params"].(map[string]any)
+			cursor, _ := params["cursor"].(string)
+			if os.Getenv("LINEA_FAKE_MCP_PAGED_TOOLS") == "1" && cursor == "" {
+				_ = writeMCPMessage(os.Stdout, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      id,
+					"result": map[string]any{
+						"nextCursor": "next",
+						"tools": []map[string]any{{
+							"name":        "ping",
+							"description": "Ping",
+							"inputSchema": map[string]any{"type": "object"},
+						}},
+					},
+				})
+				continue
+			}
+			if os.Getenv("LINEA_FAKE_MCP_PAGED_TOOLS") == "1" {
+				_ = writeMCPMessage(os.Stdout, map[string]any{
+					"jsonrpc": "2.0",
+					"id":      id,
+					"result": map[string]any{
+						"tools": []map[string]any{{
+							"name":        "lookup",
+							"description": "Lookup",
+							"inputSchema": map[string]any{"type": "object"},
+						}},
+					},
+				})
+				continue
+			}
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"tools": []map[string]any{{
+						"name":        "ping",
+						"description": "Ping",
+						"inputSchema": map[string]any{"type": "object"},
+					}},
+				},
+			})
 		case "tools/call":
 			_ = writeMCPMessage(os.Stdout, map[string]any{
 				"jsonrpc": "2.0",
@@ -804,6 +847,112 @@ func TestRuntimeCallsMCPTool(t *testing.T) {
 	status := runtime.Status(context.Background())
 	if status.RunSummary.MCPCalls != 1 || len(status.MCPCalls) != 1 {
 		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRuntimeDiscoversMCPTools(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"}
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	tools := runtime.ListMCPTools(context.Background())
+	if len(tools) != 1 {
+		t.Fatalf("tools = %#v", tools)
+	}
+	if tools[0].ID != "docs/ping" || tools[0].Name != "ping" || tools[0].Description != "Ping" || tools[0].State != "ready" {
+		t.Fatalf("tool = %#v", tools[0])
+	}
+}
+
+func TestRuntimeDiscoversPagedMCPTools(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1","LINEA_FAKE_MCP_PAGED_TOOLS":"1"}
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	tools := runtime.ListMCPTools(context.Background())
+	if len(tools) != 2 {
+		t.Fatalf("tools = %#v", tools)
+	}
+	if tools[0].ID != "docs/lookup" || tools[1].ID != "docs/ping" {
+		t.Fatalf("tools = %#v", tools)
+	}
+}
+
+func TestStatusDoesNotDiscoverMCPTools(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"}
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	status := runtime.Status(context.Background())
+
+	if len(status.MCPServers) != 1 || status.MCPServers[0].State != "ready" {
+		t.Fatalf("mcp servers = %#v", status.MCPServers)
+	}
+	if len(status.MCPTools) != 0 {
+		t.Fatalf("mcp tools = %#v", status.MCPTools)
+	}
+}
+
+func TestRuntimeCallsDiscoveredMCPTool(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"}
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	call, err := runtime.CallMCPTool(context.Background(), MCPCallInput{ToolID: "docs/ping"})
+	if err != nil {
+		t.Fatalf("CallMCPTool() error = %v", err)
+	}
+	if call.State != "completed" || call.ToolID != "docs/ping" || !strings.Contains(call.Output, "pong") {
+		t.Fatalf("call = %#v", call)
+	}
+}
+
+func TestRuntimeCallsPagedDiscoveredMCPTool(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1","LINEA_FAKE_MCP_PAGED_TOOLS":"1"}
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	call, err := runtime.CallMCPTool(context.Background(), MCPCallInput{ToolID: "docs/lookup"})
+	if err != nil {
+		t.Fatalf("CallMCPTool() error = %v", err)
+	}
+	if call.State != "completed" || call.ToolID != "docs/lookup" || !strings.Contains(call.Output, "pong") {
+		t.Fatalf("call = %#v", call)
 	}
 }
 
