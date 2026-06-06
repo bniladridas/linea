@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -102,10 +103,22 @@ func (r *Runtime) ListReferences(ctx context.Context, query string) ([]Workspace
 	if err != nil {
 		return nil, err
 	}
+	references, err := scanReferences(ctx, root, query)
+	if err != nil {
+		return nil, err
+	}
+	if lspReferences, ok := r.listReferencesWithLSP(ctx, root, query, references); ok {
+		sortReferences(lspReferences)
+		return lspReferences, nil
+	}
+	return references, nil
+}
+
+func scanReferences(ctx context.Context, root string, query string) ([]WorkspaceReference, error) {
 	fileSet := token.NewFileSet()
 	references := []WorkspaceReference{}
 	filesSeen := 0
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
@@ -246,6 +259,45 @@ func goFiles(ctx context.Context, root string, limit int) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, err
+}
+
+func identifierPositions(ctx context.Context, root string, query string, limit int) ([]string, error) {
+	positions := []string{}
+	files, err := goFiles(ctx, root, maxSymbolFiles)
+	if err != nil {
+		return nil, err
+	}
+	fileSet := token.NewFileSet()
+	for _, displayPath := range files {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		path := filepath.Join(root, filepath.FromSlash(displayPath))
+		data, readErr := os.ReadFile(path)
+		if readErr != nil || len(data) > maxReadBytes || !utf8.Valid(data) {
+			continue
+		}
+		file := fileSet.AddFile(path, fileSet.Base(), len(data))
+		var scanned scanner.Scanner
+		scanned.Init(file, data, nil, 0)
+		for {
+			pos, tokenType, literal := scanned.Scan()
+			if tokenType == token.EOF {
+				break
+			}
+			if tokenType != token.IDENT || literal != query {
+				continue
+			}
+			position := fileSet.Position(pos)
+			positions = append(positions, displayPath+":"+strconv.Itoa(position.Line)+":"+strconv.Itoa(position.Column))
+			if limit > 0 && len(positions) >= limit {
+				return positions, nil
+			}
+		}
+	}
+	return positions, nil
 }
 
 func isGoIdentifier(value string) bool {
