@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -31,6 +32,7 @@ type EditProposal struct {
 	Status       string     `json:"status"`
 	ReviewDetail string     `json:"reviewDetail,omitempty"`
 	BaseHash     string     `json:"-"`
+	BaseExists   bool       `json:"-"`
 	Content      string     `json:"-"`
 	Diff         []DiffLine `json:"diff"`
 	CreatedAt    time.Time  `json:"createdAt"`
@@ -76,7 +78,7 @@ func (r *Runtime) ProposeEdit(ctx context.Context, input EditProposalInput) (Edi
 	if !utf8.ValidString(input.Content) {
 		return EditProposal{}, errors.New("proposed content is not text")
 	}
-	fullPath, displayPath, err := r.workspacePath(input.Path)
+	fullPath, displayPath, err := r.workspacePathAllowMissing(input.Path)
 	if err != nil {
 		return EditProposal{}, err
 	}
@@ -86,8 +88,12 @@ func (r *Runtime) ProposeEdit(ctx context.Context, input EditProposalInput) (Edi
 	default:
 	}
 	current, err := os.ReadFile(fullPath)
+	baseExists := true
 	if err != nil {
-		return EditProposal{}, err
+		if !os.IsNotExist(err) {
+			return EditProposal{}, err
+		}
+		baseExists = false
 	}
 	if len(current) > maxProposalBytes {
 		return EditProposal{}, errors.New("current file is too large")
@@ -96,14 +102,15 @@ func (r *Runtime) ProposeEdit(ctx context.Context, input EditProposalInput) (Edi
 		return EditProposal{}, errors.New("current file is not text")
 	}
 	proposal := EditProposal{
-		ID:        newTraceID(),
-		Path:      displayPath,
-		Summary:   strings.TrimSpace(input.Summary),
-		Status:    "pending",
-		BaseHash:  contentHash(current),
-		Content:   input.Content,
-		Diff:      buildDiff(string(current), input.Content),
-		CreatedAt: time.Now().UTC(),
+		ID:         newTraceID(),
+		Path:       displayPath,
+		Summary:    strings.TrimSpace(input.Summary),
+		Status:     "pending",
+		BaseHash:   contentHash(current),
+		BaseExists: baseExists,
+		Content:    input.Content,
+		Diff:       buildDiff(string(current), input.Content),
+		CreatedAt:  time.Now().UTC(),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -165,7 +172,7 @@ func (r *Runtime) ApplyEditProposal(ctx context.Context, id string) (EditProposa
 	if proposal.Status != "approved" {
 		return EditProposal{}, errors.New("Edit proposal must be approved before applying.")
 	}
-	fullPath, displayPath, err := r.workspacePath(proposal.Path)
+	fullPath, displayPath, err := r.workspacePathAllowMissing(proposal.Path)
 	if err != nil {
 		return EditProposal{}, err
 	}
@@ -175,11 +182,21 @@ func (r *Runtime) ApplyEditProposal(ctx context.Context, id string) (EditProposa
 	default:
 	}
 	current, err := os.ReadFile(fullPath)
+	currentExists := true
 	if err != nil {
-		return EditProposal{}, err
+		if !os.IsNotExist(err) {
+			return EditProposal{}, err
+		}
+		currentExists = false
+	}
+	if currentExists != proposal.BaseExists {
+		return EditProposal{}, errors.New("Edit proposal is stale. Review the latest file before applying.")
 	}
 	if contentHash(current) != proposal.BaseHash {
 		return EditProposal{}, errors.New("Edit proposal is stale. Review the latest file before applying.")
+	}
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+		return EditProposal{}, err
 	}
 	if err := os.WriteFile(fullPath, []byte(proposal.Content), 0o600); err != nil {
 		return EditProposal{}, err

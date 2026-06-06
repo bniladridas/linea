@@ -423,6 +423,212 @@ func TestCreateMessageCanStartAgentLoopFromChat(t *testing.T) {
 	}
 }
 
+func TestCreateMessageRecoversTempAppSessionForEditAfterRestart(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Temp app")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+
+	createPlanner := &apiFakeEditPlanner{plan: agent.EditPlan{
+		Path: "src/App.jsx",
+		Content: `import React from "react";
+
+export default function App() {
+  return React.createElement("h1", null, "Hello bird");
+}
+`,
+		Summary: "Create app",
+	}}
+	createRuntime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithEditPlanner(createPlanner))
+	createServer := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, createRuntime).Handler()
+
+	createRes := postMessage(t, createServer, conversation.ID, "create a react app which says hello bird")
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d: %s", createRes.Code, http.StatusCreated, createRes.Body.String())
+	}
+	if !strings.Contains(createRes.Body.String(), "Create preview") {
+		t.Fatalf("create body missing preview:\n%s", createRes.Body.String())
+	}
+
+	editPlanner := &apiFakeEditPlanner{plan: agent.EditPlan{
+		Path: "src/App.jsx",
+		Content: `import React from "react";
+
+export default function App() {
+  return React.createElement("main", { style: {
+    minHeight: "100vh",
+    background: "#1d4ed8"
+  } }, React.createElement("h1", null, "Hello bird"));
+}
+`,
+		Summary: "Make background blue",
+	}}
+	restartedRuntime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithEditPlanner(editPlanner))
+	restartedServer := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, restartedRuntime).Handler()
+
+	editRes := postMessage(t, restartedServer, conversation.ID, "make the app background blue")
+	if editRes.Code != http.StatusCreated {
+		t.Fatalf("edit status = %d, want %d: %s", editRes.Code, http.StatusCreated, editRes.Body.String())
+	}
+	body := editRes.Body.String()
+	if !strings.Contains(body, "Reuse temp package") || !strings.Contains(body, "Create preview") {
+		t.Fatalf("edit body did not recover temp app session:\n%s", body)
+	}
+	if strings.Contains(body, "should not stream") {
+		t.Fatalf("edit prompt fell through to assistant:\n%s", body)
+	}
+	if !restartedRuntime.HasAppSession(conversation.ID) {
+		t.Fatal("runtime did not recover app session")
+	}
+}
+
+func TestCreateMessageCanStartColonAgentLoopFromChat(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent loop notes\n")
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, ":loop auto search notes\nquery: notes")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "Started agent loop `search notes`.") || !strings.Contains(body, "auto") {
+		t.Fatalf("stream body missing agent loop confirmation:\n%s", body)
+	}
+	if strings.Contains(body, "should not stream") {
+		t.Fatalf("agent loop command called assistant:\n%s", body)
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || loops[0].Goal != "search notes" || loops[0].Mode != "auto" {
+		t.Fatalf("loops = %#v", loops)
+	}
+}
+
+func TestCreateMessageCanStartTempReactAppLoopFromChat(t *testing.T) {
+	root := t.TempDir()
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	res := postMessage(t, server, conversation.ID, "create a React app which says only hi")
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "Started agent loop `create a React app which says only hi`.") || !strings.Contains(body, "Preview: [Open preview](/api/agent/previews/") {
+		t.Fatalf("stream body missing preview confirmation:\n%s", body)
+	}
+	if strings.Contains(body, "should not stream") {
+		t.Fatalf("agent loop command called assistant:\n%s", body)
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || loops[0].Mode != "auto" || loops[0].PreviewURL == "" {
+		t.Fatalf("loops = %#v", loops)
+	}
+	if _, err := os.Stat(filepath.Join(root, "react-page.html")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("react-page.html in workspace err = %v, want not exist", err)
+	}
+
+	previewRes := httptest.NewRecorder()
+	server.ServeHTTP(previewRes, httptest.NewRequest(http.MethodGet, loops[0].PreviewURL, nil))
+	if previewRes.Code != http.StatusOK || !strings.Contains(previewRes.Body.String(), "./assets/app.js") {
+		t.Fatalf("preview response = %d %q", previewRes.Code, previewRes.Body.String())
+	}
+	csp := previewRes.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "sandbox allow-scripts") ||
+		!strings.Contains(csp, "connect-src 'none'") ||
+		!strings.Contains(csp, "style-src 'self' 'unsafe-inline'") ||
+		strings.Contains(csp, "allow-same-origin") ||
+		strings.Contains(csp, "localhost") ||
+		strings.Contains(csp, "127.0.0.1") {
+		t.Fatalf("preview CSP = %q", csp)
+	}
+	if previewRes.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("preview CORS = %q", previewRes.Header().Get("Access-Control-Allow-Origin"))
+	}
+	appRes := httptest.NewRecorder()
+	server.ServeHTTP(appRes, httptest.NewRequest(http.MethodGet, loops[0].PreviewURL+"src/App.jsx", nil))
+	if appRes.Code != http.StatusOK || !strings.Contains(appRes.Body.String(), `React.createElement("h1", null, "hi")`) {
+		t.Fatalf("app response = %d %q", appRes.Code, appRes.Body.String())
+	}
+	if appRes.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("app CORS = %q", appRes.Header().Get("Access-Control-Allow-Origin"))
+	}
+
+	editRes := postMessage(t, server, conversation.ID, "edit the app and make it louder")
+	if editRes.Code != http.StatusCreated {
+		t.Fatalf("edit status = %d, want %d: %s", editRes.Code, http.StatusCreated, editRes.Body.String())
+	}
+	loops = runtime.ListAgentLoops(context.Background())
+	if len(loops) < 2 || loops[0].WorkspaceRoot != loops[1].WorkspaceRoot {
+		t.Fatalf("loops after edit = %#v", loops)
+	}
+	editedAppRes := httptest.NewRecorder()
+	server.ServeHTTP(editedAppRes, httptest.NewRequest(http.MethodGet, loops[0].PreviewURL+"src/App.jsx", nil))
+	if editedAppRes.Code != http.StatusOK || !strings.Contains(editedAppRes.Body.String(), "linear-gradient") {
+		t.Fatalf("edited app response = %d %q", editedAppRes.Code, editedAppRes.Body.String())
+	}
+	originalAppRes := httptest.NewRecorder()
+	server.ServeHTTP(originalAppRes, httptest.NewRequest(http.MethodGet, loops[1].PreviewURL+"src/App.jsx", nil))
+	if originalAppRes.Code != http.StatusOK || !strings.Contains(originalAppRes.Body.String(), `React.createElement("h1", null, "hi")`) {
+		t.Fatalf("original app response changed = %d %q", originalAppRes.Code, originalAppRes.Body.String())
+	}
+}
+
+func TestCreateMessageDoesNotStartTempReactAppLoopForQuestions(t *testing.T) {
+	root := t.TempDir()
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation() error = %v", err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"Use Vite or a similar starter."}}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	for _, prompt := range []string{
+		"how do I create a React app?",
+		"what's the best way to build a React application?",
+	} {
+		res := postMessage(t, server, conversation.ID, prompt)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+		}
+		body := res.Body.String()
+		if !strings.Contains(body, "Use Vite or a similar starter.") {
+			t.Fatalf("stream body missing assistant response for %q:\n%s", prompt, body)
+		}
+		if strings.Contains(body, "Started agent loop") || strings.Contains(body, "Open preview") {
+			t.Fatalf("question started temp app loop for %q:\n%s", prompt, body)
+		}
+	}
+	if loops := runtime.ListAgentLoops(context.Background()); len(loops) != 0 {
+		t.Fatalf("loops = %#v", loops)
+	}
+}
+
 func TestCreateMessageCanStartAgentLoopEditProposalFromChat(t *testing.T) {
 	root := t.TempDir()
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "old\n")
@@ -464,7 +670,7 @@ func TestTemporaryMessageCanStartAgentLoopFromChat(t *testing.T) {
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("content", "run agent search notes\nquery: notes"); err != nil {
+	if err := writer.WriteField("content", ":loop search notes\nquery: notes"); err != nil {
 		t.Fatalf("WriteField() error = %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -1853,6 +2059,18 @@ type fakeAssistant struct {
 	err    error
 }
 
+type apiFakeEditPlanner struct {
+	plan agent.EditPlan
+	err  error
+}
+
+func (p *apiFakeEditPlanner) PlanEdit(context.Context, agent.EditPlanRequest) (agent.EditPlan, error) {
+	if p.err != nil {
+		return agent.EditPlan{}, p.err
+	}
+	return p.plan, nil
+}
+
 type failingImportStore struct {
 	store.Store
 	addCalls   int
@@ -1865,6 +2083,28 @@ func (s *failingImportStore) AddMessage(ctx context.Context, conversationID, rol
 		return store.Message{}, errors.New("forced add failure")
 	}
 	return s.Store.AddMessage(ctx, conversationID, role, content)
+}
+
+func TestShouldEditTempAppFromChatRequiresCommandShape(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{text: "update the app to use blue text", want: true},
+		{text: "can you update the app to use blue text", want: true},
+		{text: "make it louder in the preview", want: true},
+		{text: "make it blue", want: true},
+		{text: "turn it into a dashboard", want: true},
+		{text: "make dinner", want: false},
+		{text: "what changed in the app?", want: false},
+		{text: "how should I update the app?", want: false},
+		{text: "tell me what changed in the app", want: false},
+	}
+	for _, tc := range cases {
+		if got := shouldEditTempAppFromChat(tc.text); got != tc.want {
+			t.Fatalf("shouldEditTempAppFromChat(%q) = %v, want %v", tc.text, got, tc.want)
+		}
+	}
 }
 
 type providerAssistant struct {

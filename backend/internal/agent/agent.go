@@ -20,6 +20,8 @@ type Runtime struct {
 	skillRuns        []SkillRun
 	subagentRuns     []SubagentRun
 	agentLoops       []AgentLoop
+	agentPreviews    []AgentPreview
+	appSessions      []AppSession
 	mcpCalls         []MCPCall
 	editProposals    []EditProposal
 	commandApprovals []CommandApproval
@@ -150,6 +152,9 @@ type AgentLoop struct {
 	Mode          string          `json:"mode"`
 	State         string          `json:"state"`
 	MaxIterations int             `json:"maxIterations,omitempty"`
+	SessionID     string          `json:"sessionId,omitempty"`
+	WorkspaceRoot string          `json:"workspaceRoot,omitempty"`
+	PreviewURL    string          `json:"previewUrl,omitempty"`
 	Steps         []AgentLoopStep `json:"steps"`
 	Summary       string          `json:"summary"`
 	CreatedAt     time.Time       `json:"createdAt"`
@@ -171,6 +176,8 @@ type AgentLoopInput struct {
 	Goal            string `json:"goal"`
 	Mode            string `json:"mode,omitempty"`
 	MaxIterations   int    `json:"maxIterations,omitempty"`
+	TempWorkspace   bool   `json:"tempWorkspace,omitempty"`
+	SessionID       string `json:"sessionId,omitempty"`
 	Command         string `json:"command,omitempty"`
 	Query           string `json:"query,omitempty"`
 	FilePath        string `json:"filePath,omitempty"`
@@ -185,6 +192,29 @@ type AgentLoopContinueInput struct {
 	FilePath        string `json:"filePath,omitempty"`
 	ProposalPath    string `json:"proposalPath,omitempty"`
 	ProposalContent string `json:"proposalContent,omitempty"`
+}
+
+type AgentPreview struct {
+	ID        string    `json:"id"`
+	LoopID    string    `json:"loopId"`
+	SessionID string    `json:"sessionId,omitempty"`
+	Entry     string    `json:"entry"`
+	URL       string    `json:"url"`
+	Root      string    `json:"-"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type PreviewFile struct {
+	Path        string
+	ContentType string
+	Content     []byte
+}
+
+type AppSession struct {
+	ID        string    `json:"id"`
+	Root      string    `json:"root"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type Subagent struct {

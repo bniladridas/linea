@@ -73,6 +73,9 @@ type AgentRuntime interface {
 	StartAgentLoop(context.Context, agent.AgentLoopInput) (agent.AgentLoop, error)
 	ContinueAgentLoop(context.Context, string, agent.AgentLoopContinueInput) (agent.AgentLoop, error)
 	CancelAgentLoop(context.Context, string) (agent.AgentLoop, error)
+	PreviewFile(context.Context, string, string) (agent.PreviewFile, error)
+	HasAppSession(string) bool
+	RecoverAppSession(string, string) bool
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
 	ListCommandChecks(context.Context) []agent.CommandCheck
@@ -209,6 +212,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/loops", s.startAgentLoop)
 	mux.HandleFunc("POST /api/agent/loops/{id}/continue", s.continueAgentLoop)
 	mux.HandleFunc("POST /api/agent/loops/{id}/cancel", s.cancelAgentLoop)
+	mux.HandleFunc("GET /api/agent/previews/{id}/{name...}", s.readAgentPreview)
 	mux.HandleFunc("GET /api/agent/command-approvals", s.listAgentCommandApprovals)
 	mux.HandleFunc("POST /api/agent/command-approvals", s.createAgentCommandApproval)
 	mux.HandleFunc("GET /api/agent/command-checks", s.listAgentCommandChecks)
@@ -532,6 +536,46 @@ func (s *Server) cancelAgentLoop(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "agent loop", loop.State, loop.ID)
 	writeJSON(w, http.StatusOK, loop)
+}
+
+func (s *Server) readAgentPreview(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent previews are not available.")
+		return
+	}
+	file, err := s.agentRuntime.PreviewFile(r.Context(), r.PathValue("id"), r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if strings.TrimSpace(file.ContentType) != "" {
+		w.Header().Set("Content-Type", file.ContentType)
+	}
+	applyAgentPreviewSecurityHeaders(w)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(file.Content)
+}
+
+func applyAgentPreviewSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
+	w.Header().Set("Content-Security-Policy", strings.Join([]string{
+		"default-src 'none'",
+		"script-src 'self' 'unsafe-inline'",
+		"style-src 'self' 'unsafe-inline'",
+		"img-src data: blob:",
+		"connect-src 'none'",
+		"font-src 'none'",
+		"object-src 'none'",
+		"base-uri 'none'",
+		"form-action 'none'",
+		"frame-ancestors 'none'",
+		"navigate-to 'none'",
+		"sandbox allow-scripts",
+	}, "; "))
 }
 
 func (s *Server) listAgentCommandApprovals(w http.ResponseWriter, r *http.Request) {
@@ -971,7 +1015,28 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input, ok, parseErr := parseAgentLoopChatCommand(rawContent); ok {
+		input.SessionID = conversationID
 		s.streamAgentLoopResponse(w, r, conversationID, userMessage, input, parseErr)
+		return
+	}
+	if s.agentRuntime != nil && shouldEditTempAppFromChat(rawContent) {
+		if !s.agentRuntime.HasAppSession(conversationID) {
+			messages, err := s.store.ListMessages(r.Context(), conversationID)
+			if err != nil {
+				slog.Error("load message history", "error", err)
+				writeError(w, http.StatusInternalServerError, "Could not load message history.")
+				return
+			}
+			recoverAppSessionFromMessages(s.agentRuntime, conversationID, messages)
+		}
+	}
+	if s.agentRuntime != nil && s.agentRuntime.HasAppSession(conversationID) && shouldEditTempAppFromChat(rawContent) {
+		s.streamAgentLoopResponse(w, r, conversationID, userMessage, agent.AgentLoopInput{
+			Goal:          rawContent,
+			Mode:          "auto",
+			TempWorkspace: true,
+			SessionID:     conversationID,
+		}, nil)
 		return
 	}
 
@@ -1404,17 +1469,28 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 		goal = strings.TrimSpace(firstLine[len("start agent "):])
 	case strings.HasPrefix(lowerFirstLine, "agent auto "):
 		goal = strings.TrimSpace(firstLine[len("agent auto "):])
+	case strings.HasPrefix(lowerFirstLine, ":loop auto "):
+		goal = strings.TrimSpace(firstLine[len(":loop auto "):])
+	case strings.HasPrefix(lowerFirstLine, ":loop "):
+		goal = strings.TrimSpace(firstLine[len(":loop "):])
 	case strings.HasPrefix(lowerFirstLine, "agent "):
 		goal = strings.TrimSpace(firstLine[len("agent "):])
 	default:
+		if shouldStartTempAppLoopFromChat(lowerFirstLine) {
+			return agent.AgentLoopInput{Goal: firstLine, Mode: "auto", TempWorkspace: true}, true, nil
+		}
 		return agent.AgentLoopInput{}, false, nil
 	}
 	if goal == "" {
-		return agent.AgentLoopInput{}, true, errors.New("Use `agent <goal>` to start an agent loop.")
+		return agent.AgentLoopInput{}, true, errors.New("Use `agent <goal>` or `:loop <goal>` to start an agent loop.")
 	}
 	input := agent.AgentLoopInput{Goal: goal}
-	if strings.HasPrefix(lowerFirstLine, "agent auto ") {
+	if strings.HasPrefix(lowerFirstLine, "agent auto ") || strings.HasPrefix(lowerFirstLine, ":loop auto ") {
 		input.Mode = "auto"
+	}
+	if shouldStartTempAppLoopFromChat(strings.ToLower(goal)) {
+		input.Mode = "auto"
+		input.TempWorkspace = true
 	}
 	lines := strings.Split(body, "\n")
 	for index := 0; index < len(lines); index++ {
@@ -1442,8 +1518,86 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 	return input, true, nil
 }
 
+func shouldStartTempAppLoopFromChat(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if !(strings.Contains(text, "react") && strings.Contains(text, "app")) {
+		return false
+	}
+	if hasInformationalQuestionPrefix(text) {
+		return false
+	}
+	if strings.Contains(text, "propose") ||
+		strings.Contains(text, "file change") ||
+		strings.Contains(text, "edit proposal") ||
+		strings.Contains(text, "build check") {
+		return false
+	}
+	return strings.Contains(text, "create") ||
+		strings.Contains(text, "creat") ||
+		strings.Contains(text, "build") ||
+		strings.Contains(text, "make") ||
+		strings.Contains(text, "generate")
+}
+
+func hasInformationalQuestionPrefix(text string) bool {
+	text = strings.TrimSpace(strings.ToLower(text))
+	for _, prefix := range []string{"what ", "what's ", "what is ", "how ", "why ", "where ", "when ", "which "} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func recoverAppSessionFromMessages(runtime AgentRuntime, conversationID string, messages []store.Message) bool {
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.Role != "assistant" {
+			continue
+		}
+		for _, line := range strings.Split(message.Content, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "Workspace: ") {
+				continue
+			}
+			root := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "Workspace: "), "."))
+			if runtime.RecoverAppSession(conversationID, root) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func shouldEditTempAppFromChat(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if hasInformationalQuestionPrefix(text) {
+		return false
+	}
+	for _, prefix := range []string{"can you ", "could you ", "please "} {
+		text = strings.TrimSpace(strings.TrimPrefix(text, prefix))
+	}
+	hasPreviewTarget := strings.Contains(text, "page") || strings.Contains(text, "app") || strings.Contains(text, "preview")
+	isPronounEdit := strings.HasPrefix(text, "make it ") ||
+		strings.HasPrefix(text, "turn it ") ||
+		strings.Contains(text, " make it ") ||
+		strings.Contains(text, " turn it ")
+	isEditCommand := strings.HasPrefix(text, "edit ") ||
+		strings.HasPrefix(text, "change ") ||
+		strings.HasPrefix(text, "update ") ||
+		strings.HasPrefix(text, "make ") ||
+		strings.HasPrefix(text, "turn ")
+	return isEditCommand && (hasPreviewTarget || isPronounEdit)
+}
+
 func loopSummaryText(loop agent.AgentLoop) string {
 	lines := []string{fmt.Sprintf("Mode: %s.", loop.Mode), fmt.Sprintf("State: %s.", loop.State)}
+	if strings.TrimSpace(loop.WorkspaceRoot) != "" {
+		lines = append(lines, fmt.Sprintf("Workspace: %s.", loop.WorkspaceRoot))
+	}
+	if strings.TrimSpace(loop.PreviewURL) != "" {
+		lines = append(lines, fmt.Sprintf("Preview: [Open preview](%s).", loop.PreviewURL))
+	}
 	for _, step := range loop.Steps {
 		line := fmt.Sprintf("- %s: %s", step.Title, step.State)
 		if strings.TrimSpace(step.Detail) != "" {

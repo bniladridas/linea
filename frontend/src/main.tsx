@@ -206,6 +206,8 @@ type AgentStatus = {
     mode?: 'guided' | 'auto';
     maxIterations?: number;
     state: string;
+    workspaceRoot?: string;
+    previewUrl?: string;
     summary: string;
     createdAt: string;
     updatedAt: string;
@@ -282,7 +284,7 @@ type AgentDiffLine = {
   text: string;
 };
 
-type AgentActivityState = 'running' | 'completed' | 'failed' | 'approved' | 'rejected' | 'blocked';
+type AgentActivityState = 'running' | 'completed' | 'failed' | 'approved' | 'rejected' | 'blocked' | 'waiting';
 
 type AgentActivity = {
   id: string;
@@ -341,6 +343,7 @@ type StreamChunk = {
 type UIPrefs = {
   showModelBadge: boolean;
   showSleepAlert: boolean;
+  showReactions: boolean;
   showComposerShimmer: boolean;
   showScrollCue: boolean;
   theme: ThemeChoice;
@@ -643,6 +646,19 @@ function App() {
     setAgentActivities((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }
 
+  function reconcileAgentLoopActivities(loopId: string, state: string, summary?: string) {
+    if (state !== 'completed') {
+      return;
+    }
+    setAgentActivities((items) =>
+      items.map((item) =>
+        item.kind === 'loop' && item.params === loopId && item.state === 'waiting'
+          ? { ...item, state: 'completed', result: summary ?? 'Completed.' }
+          : item,
+      ),
+    );
+  }
+
   async function reviewAgentEditProposal(proposalId: string, status: 'approved' | 'rejected') {
     const currentProposal = agentEditProposals.find((proposal) => proposal.id === proposalId);
     const activityId = recordAgentActivity({
@@ -931,7 +947,7 @@ function App() {
       params: input.command || input.query || input.filePath || loopId,
     });
     try {
-      const loop = await request<{ state: string; summary?: string }>(`/api/agent/loops/${loopId}/continue`, {
+      const loop = await request<{ id?: string; state: string; summary?: string }>(`/api/agent/loops/${loopId}/continue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
@@ -941,6 +957,7 @@ function App() {
         state: loopActivityState(loop.state),
         result: loop.summary ?? loop.state,
       });
+      reconcileAgentLoopActivities(loop.id ?? loopId, loop.state, loop.summary);
     } catch (loopError) {
       const message = loopError instanceof Error ? loopError.message : 'Could not continue agent loop.';
       updateAgentActivity(activityId, { state: 'failed', result: message });
@@ -1734,15 +1751,17 @@ function App() {
                               }
                               sleepingProviders={systemStatus?.providers.filter((provider) => provider.state === 'sleeping') ?? []}
                             />
-                            <FeedbackRow
-                              selected={messageFeedback[key]}
-                              onSelect={(feedback) =>
-                                setMessageFeedback((current) => ({
-                                  ...current,
-                                  [key]: current[key] === feedback ? '' : feedback,
-                                }))
-                              }
-                            />
+                            {uiPrefs.showReactions && (
+                              <FeedbackRow
+                                selected={messageFeedback[key]}
+                                onSelect={(feedback) =>
+                                  setMessageFeedback((current) => ({
+                                    ...current,
+                                    [key]: current[key] === feedback ? '' : feedback,
+                                  }))
+                                }
+                              />
+                            )}
                           </div>
                         )}
                       </>
@@ -1973,6 +1992,9 @@ function MarkdownContent({ content }: { content: string }) {
             </ul>
           );
         }
+        if (block.type === 'rule') {
+          return <hr key={index} />;
+        }
         return <p key={index}>{renderInlineMarkdown(block.text)}</p>;
       })}
     </div>
@@ -2065,7 +2087,8 @@ type MarkdownBlock =
   | { type: 'heading'; text: string }
   | { type: 'code'; text: string; language?: string }
   | { type: 'paragraph'; text: string }
-  | { type: 'list'; items: string[] };
+  | { type: 'list'; items: string[] }
+  | { type: 'rule' };
 
 function parseMarkdownBlocks(content: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
@@ -2119,6 +2142,13 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
       continue;
     }
 
+    if (/^([-*_])(?:\s*\1){2,}$/.test(line)) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: 'rule' });
+      continue;
+    }
+
     const heading = line.match(/^(#{1,3})\s+(.+)$/) ?? line.match(/^\*\*(.+)\*\*$/);
     if (heading) {
       flushParagraph();
@@ -2127,7 +2157,7 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
       continue;
     }
 
-    const listItem = line.match(/^[-*]\s+(.+)$/);
+    const listItem = line.match(/^[-*•]\s+(.+)$/);
     if (listItem) {
       flushParagraph();
       list.push(cleanMarkdownText(listItem[1]));
@@ -2150,6 +2180,7 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
 function cleanMarkdownText(value: string): string {
   return value
     .replace(/\s+/g, ' ')
+    .replace(/\\`/g, '`')
     .replace(/【([^】(]+)\s+\((https?:\/\/[^)]+)\)】/g, '[$1]($2)')
     .replace(/【([^】]+)】/g, '$1')
     .trim();
@@ -2157,7 +2188,7 @@ function cleanMarkdownText(value: string): string {
 
 function renderInlineMarkdown(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  const pattern = /(`[^`\n]+`|\*\*[^*]+\*\*|\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/[^\s)]+))/g;
+  const pattern = /(`[^`\n]+`|\*\*[^*]+\*\*|\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s)]+))/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -2170,15 +2201,19 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     if (token.startsWith('`')) {
       nodes.push(<code key={`${match.index}-code`}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith('**')) {
-      nodes.push(<strong key={`${match.index}-strong`}>{token.slice(2, -2)}</strong>);
+      nodes.push(<strong key={`${match.index}-strong`}>{renderInlineMarkdown(token.slice(2, -2))}</strong>);
     } else {
       const label = match[2] ?? tidyUrlLabel(token);
       const href = match[3] ?? token;
-      nodes.push(
-        <a key={`${match.index}-link`} href={href} target="_blank" rel="noreferrer">
-          {label}
-        </a>,
-      );
+      if (isSafeMarkdownHref(href)) {
+        nodes.push(
+          <a key={`${match.index}-link`} href={href} target="_blank" rel="noreferrer">
+            {label}
+          </a>,
+        );
+      } else {
+        nodes.push(token);
+      }
     }
     lastIndex = pattern.lastIndex;
   }
@@ -2188,6 +2223,20 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
   }
 
   return nodes;
+}
+
+function isSafeMarkdownHref(href: string) {
+  const value = href.trim();
+  if (/^https?:\/\//i.test(value)) {
+    return true;
+  }
+  if (value.startsWith('/') && !value.startsWith('//')) {
+    return true;
+  }
+  if (value.startsWith('./') || value.startsWith('../')) {
+    return true;
+  }
+  return false;
 }
 
 function highlightCode(code: string, language?: string): React.ReactNode[] {
@@ -2374,6 +2423,8 @@ function SystemDetailsDialog({
   const [loopQueryInput, setLoopQueryInput] = useState('');
   const [loopFileInput, setLoopFileInput] = useState('');
   const [loopCommandInput, setLoopCommandInput] = useState('');
+  const [loopProposalPathInput, setLoopProposalPathInput] = useState('');
+  const [loopProposalContentInput, setLoopProposalContentInput] = useState('');
   const [loopModeInput, setLoopModeInput] = useState<'guided' | 'auto'>('guided');
   const [hookCommandInput, setHookCommandInput] = useState('');
   const [skillCommandInput, setSkillCommandInput] = useState('');
@@ -2747,6 +2798,21 @@ function SystemDetailsDialog({
                 Start
               </button>
             </div>
+            <div className="agent-loop-options proposal-options">
+              <input
+                aria-label="Proposal path"
+                placeholder="Proposal path"
+                value={loopProposalPathInput}
+                onChange={(event) => setLoopProposalPathInput(event.target.value)}
+              />
+              <textarea
+                aria-label="Proposal content"
+                placeholder="Proposal content"
+                rows={3}
+                value={loopProposalContentInput}
+                onChange={(event) => setLoopProposalContentInput(event.target.value)}
+              />
+            </div>
           </form>
           <div className="agent-card-list">
             {(agentStatus?.agentLoops ?? []).slice(0, 3).map((loop) => (
@@ -2764,6 +2830,8 @@ function SystemDetailsDialog({
                   command: loopCommandInput.trim() || undefined,
                   query: loopQueryInput.trim() || undefined,
                   filePath: loopFileInput.trim() || undefined,
+                  proposalPath: loopProposalPathInput.trim() || undefined,
+                  proposalContent: loopProposalPathInput.trim() ? loopProposalContentInput : undefined,
                 }}
               />
             ))}
@@ -3138,13 +3206,11 @@ function SystemDetailsDialog({
                       >
                         Reject
                       </button>
-                      <button
-                        disabled={selectedProposal.status !== 'approved'}
-                        type="button"
-                        onClick={() => onApplyProposal(selectedProposal.id)}
-                      >
-                        Apply
-                      </button>
+                      {selectedProposal.status === 'approved' && (
+                        <button type="button" onClick={() => onApplyProposal(selectedProposal.id)}>
+                          Apply
+                        </button>
+                      )}
                     </div>
                   </div>
                   {selectedProposal.reviewDetail && <p className="proposal-review-detail">{selectedProposal.reviewDetail}</p>}
@@ -3429,8 +3495,12 @@ function AgentLoopCard({
   const commandStep = [...loop.steps]
     .reverse()
     .find((step) => step.kind === 'command_approval' && step.state === 'waiting_approval' && step.command);
+  const editBoundaryStep = [...loop.steps]
+    .reverse()
+    .find((step) => step.kind === 'edit_boundary' && step.state === 'waiting_approval');
   const canContinue = loop.state !== 'completed' && loop.state !== 'canceled';
-  const nextAction = loopNextAction(proposal, commandStep);
+  const needsProposalInput = Boolean(editBoundaryStep && !proposal && !continueInput.proposalPath);
+  const nextAction = loopNextAction(proposal, commandStep, editBoundaryStep);
 
   return (
     <div className="agent-loop-card">
@@ -3449,9 +3519,17 @@ function AgentLoopCard({
           </span>
         ))}
       </div>
-      {(proposal || commandStep) && (
+      {loop.previewUrl && (
+        <div className="agent-loop-actions">
+          <a className="agent-loop-link" href={loop.previewUrl} rel="noreferrer" target="_blank">
+            Preview
+          </a>
+        </div>
+      )}
+      {(proposal || commandStep || editBoundaryStep) && (
         <div className="agent-loop-next">
           {nextAction && <strong>{nextAction}</strong>}
+          {editBoundaryStep && !proposal && <span>{editBoundaryStep.detail}</span>}
           {proposal && (
             <>
               <span>
@@ -3468,13 +3546,11 @@ function AgentLoopCard({
                 >
                   Approve
                 </button>
-                <button
-                  disabled={proposal.status !== 'approved'}
-                  type="button"
-                  onClick={() => onApplyProposal(proposal.id)}
-                >
-                  Apply
-                </button>
+                {proposal.status === 'approved' && (
+                  <button type="button" onClick={() => onApplyProposal(proposal.id)}>
+                    Apply
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -3492,8 +3568,8 @@ function AgentLoopCard({
       )}
       {canContinue && (
         <div className="agent-loop-actions">
-          <button type="button" onClick={() => onContinueLoop(loop.id, continueInput)}>
-            Continue
+          <button disabled={needsProposalInput} type="button" onClick={() => onContinueLoop(loop.id, continueInput)}>
+            {needsProposalInput ? 'Needs proposal' : 'Continue'}
           </button>
           <button type="button" onClick={() => onCancelLoop(loop.id)}>
             Cancel
@@ -3507,7 +3583,11 @@ function AgentLoopCard({
 function loopNextAction(
   proposal: AgentEditProposal | undefined,
   commandStep: AgentLoopItem['steps'][number] | undefined,
+  editBoundaryStep: AgentLoopItem['steps'][number] | undefined,
 ) {
+  if (editBoundaryStep && !proposal) {
+    return 'Next · provide proposal';
+  }
   if (proposal?.status === 'pending') {
     return 'Next · review proposal';
   }
@@ -3623,6 +3703,15 @@ function ThemePanel({
         />
         <CheckBoxMark checked={prefs.showSleepAlert} />
         Fallback status
+      </label>
+      <label>
+        <input
+          checked={prefs.showReactions}
+          type="checkbox"
+          onChange={(event) => onChange((current) => ({ ...current, showReactions: event.target.checked }))}
+        />
+        <CheckBoxMark checked={prefs.showReactions} />
+        Reactions
       </label>
       <label>
         <input
@@ -3797,7 +3886,10 @@ function loopActivityState(state: string): AgentActivityState {
   if (state === 'failed') {
     return 'failed';
   }
-  if (state === 'waiting' || state === 'waiting_approval' || state === 'waiting_input' || state === 'attention') {
+  if (state === 'waiting' || state === 'waiting_approval' || state === 'waiting_input') {
+    return 'waiting';
+  }
+  if (state === 'attention') {
     return 'blocked';
   }
   return 'completed';
@@ -4146,6 +4238,7 @@ function loadUIPrefs(): UIPrefs {
     return {
       showModelBadge: true,
       showSleepAlert: true,
+      showReactions: true,
       showComposerShimmer: true,
       showScrollCue: true,
       ...parsed,
@@ -4155,6 +4248,7 @@ function loadUIPrefs(): UIPrefs {
     return {
       showModelBadge: true,
       showSleepAlert: true,
+      showReactions: true,
       showComposerShimmer: true,
       showScrollCue: true,
       theme: 'system',

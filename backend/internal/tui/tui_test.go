@@ -510,12 +510,12 @@ func TestRunAgentCommandStartsAutoLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runAgentCommand() error = %v", err)
 	}
-	if !strings.Contains(output, "Auto loop waiting for explicit approval.") || !strings.Contains(output, "Next · approve command") || !strings.Contains(output, "make test") {
+	if !strings.Contains(output, "Auto loop completed") || !strings.Contains(output, "Run command") || !strings.Contains(output, "make test") {
 		t.Fatalf("output = %q", output)
 	}
 }
 
-func TestRunAgentCommandContinuesAutoLoopPastLimit(t *testing.T) {
+func TestRunAgentCommandStopsAutoLoopAtProposalReview(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("old\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -532,7 +532,7 @@ func TestRunAgentCommandContinuesAutoLoopPastLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
 	}
-	if loop.State != "waiting_input" || !tuiLoopHasStep(loop, "auto_limit", "waiting_input") {
+	if loop.State != "waiting_approval" || !tuiLoopHasStep(loop, "edit_review", "waiting_approval") {
 		t.Fatalf("loop = %#v", loop)
 	}
 
@@ -541,7 +541,7 @@ func TestRunAgentCommandContinuesAutoLoopPastLimit(t *testing.T) {
 		t.Fatalf("runAgentCommand() error = %v", err)
 	}
 	loops := runtime.ListAgentLoops(context.Background())
-	if len(loops) != 1 || loops[0].MaxIterations != 2 {
+	if len(loops) != 1 || loops[0].State != "waiting_approval" || !strings.Contains(output, "Review edit proposal") {
 		t.Fatalf("loops = %#v\noutput = %q", loops, output)
 	}
 }
@@ -592,7 +592,6 @@ func TestRunAgentCommandAppliesProposalAndContinuesAutoLoop(t *testing.T) {
 		agent.WithCommandAllowlist([]string{"make test"}),
 		agent.WithEditPlanner(planner),
 	)
-	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
 	loop, err := runtime.StartAgentLoop(context.Background(), agent.AgentLoopInput{Goal: "fix diagnostics and run tests", Mode: "auto"})
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
@@ -601,19 +600,25 @@ func TestRunAgentCommandAppliesProposalAndContinuesAutoLoop(t *testing.T) {
 	if len(proposals) != 1 {
 		t.Fatalf("proposals = %#v", proposals)
 	}
+	if proposals[0].Status != "pending" {
+		t.Fatalf("proposal status = %q", proposals[0].Status)
+	}
 	if _, err := runtime.ReviewEditProposal(context.Background(), proposals[0].ID, agent.EditProposalReviewInput{Status: "approved"}); err != nil {
 		t.Fatalf("ReviewEditProposal() error = %v", err)
 	}
-
-	output, err := app.runAgentCommand(context.Background(), ":proposal apply "+proposals[0].ID)
-	if err != nil {
-		t.Fatalf("runAgentCommand() error = %v", err)
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposals[0].ID); err != nil {
+		t.Fatalf("ApplyEditProposal() error = %v", err)
 	}
-	if !strings.Contains(output, "Applied broken.go.") || !strings.Contains(output, "Next · approve command") || !strings.Contains(output, "make test") {
+	loop, err = runtime.ContinueAgentLoop(context.Background(), loop.ID, agent.AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	output := formatAgentLoop(loop)
+	if !strings.Contains(output, "Auto loop completed") || !strings.Contains(output, "Run command") || !strings.Contains(output, "make test") {
 		t.Fatalf("output = %q", output)
 	}
 	loops := runtime.ListAgentLoops(context.Background())
-	if len(loops) != 1 || loops[0].ID != loop.ID || loops[0].State != "waiting_approval" {
+	if len(loops) != 1 || loops[0].ID != loop.ID || loops[0].State != "completed" {
 		t.Fatalf("loops = %#v", loops)
 	}
 }
