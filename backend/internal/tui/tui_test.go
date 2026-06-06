@@ -48,6 +48,15 @@ func (s *fakeSearcher) Search(_ context.Context, query string) ([]search.Result,
 	return s.results, nil
 }
 
+type fakeTUIEditPlanner struct {
+	plan agent.EditPlan
+	err  error
+}
+
+func (p *fakeTUIEditPlanner) PlanEdit(context.Context, agent.EditPlanRequest) (agent.EditPlan, error) {
+	return p.plan, p.err
+}
+
 func TestRunPersistsExchange(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	var out strings.Builder
@@ -425,6 +434,126 @@ func TestRunAgentCommandControlsLoops(t *testing.T) {
 	}
 }
 
+func TestRunAgentCommandStartsAutoLoop(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("test:\n\tprintf ok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root), agent.WithCommandAllowlist([]string{"make test"}))
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+
+	output, err := app.runAgentCommand(context.Background(), ":loop auto fix and test")
+	if err != nil {
+		t.Fatalf("runAgentCommand() error = %v", err)
+	}
+	if !strings.Contains(output, "Auto loop waiting for explicit approval.") || !strings.Contains(output, "Next · approve command") || !strings.Contains(output, "make test") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestRunAgentCommandContinuesAutoLoopPastLimit(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+	loop, err := runtime.StartAgentLoop(context.Background(), agent.AgentLoopInput{
+		Goal:            "edit note",
+		Mode:            "auto",
+		MaxIterations:   1,
+		ProposalPath:    "note.txt",
+		ProposalContent: "new\n",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_input" || !tuiLoopHasStep(loop, "auto_limit", "waiting_input") {
+		t.Fatalf("loop = %#v", loop)
+	}
+
+	output, err := app.runAgentCommand(context.Background(), ":loop continue "+loop.ID)
+	if err != nil {
+		t.Fatalf("runAgentCommand() error = %v", err)
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || loops[0].MaxIterations != 2 {
+		t.Fatalf("loops = %#v\noutput = %q", loops, output)
+	}
+}
+
+func tuiLoopHasStep(loop agent.AgentLoop, kind string, state string) bool {
+	for _, step := range loop.Steps {
+		if step.Kind == kind && step.State == state {
+			return true
+		}
+	}
+	return false
+}
+
+func TestFormatAgentLoopIgnoresStaleAutoLimit(t *testing.T) {
+	output := formatAgentLoop(agent.AgentLoop{
+		Goal:    "fix",
+		Mode:    "auto",
+		State:   "completed",
+		Summary: "Done.",
+		Steps: []agent.AgentLoopStep{
+			{Kind: "auto_limit", Title: "Auto limit", State: "waiting_input", Detail: "Reached 1 iteration(s)."},
+			{Kind: "review_result", Title: "Review result", State: "completed", Detail: "Command completed successfully."},
+		},
+	})
+	if strings.Contains(output, "Next · continue explicitly") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestRunAgentCommandAppliesProposalAndContinuesAutoLoop(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("test:\n\tprintf ok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "broken.go"), []byte("package main\nfunc broken( {\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	planner := &fakeTUIEditPlanner{
+		plan: agent.EditPlan{
+			Path:    "broken.go",
+			Content: "package main\nfunc fixed() {}\n",
+			Summary: "Fix parse error",
+		},
+	}
+	runtime := agent.NewRuntime(
+		"",
+		agent.WithWorkspaceRoot(root),
+		agent.WithCommandAllowlist([]string{"make test"}),
+		agent.WithEditPlanner(planner),
+	)
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+	loop, err := runtime.StartAgentLoop(context.Background(), agent.AgentLoopInput{Goal: "fix diagnostics and run tests", Mode: "auto"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposals[0].ID, agent.EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+
+	output, err := app.runAgentCommand(context.Background(), ":proposal apply "+proposals[0].ID)
+	if err != nil {
+		t.Fatalf("runAgentCommand() error = %v", err)
+	}
+	if !strings.Contains(output, "Applied broken.go.") || !strings.Contains(output, "Next · approve command") || !strings.Contains(output, "make test") {
+		t.Fatalf("output = %q", output)
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || loops[0].ID != loop.ID || loops[0].State != "waiting_approval" {
+		t.Fatalf("loops = %#v", loops)
+	}
+}
+
 func TestBubbleModelSendsMessage(t *testing.T) {
 	assistant := &fakeAssistant{response: "hello"}
 	app := New(store.NewMemoryStore(), assistant, strings.NewReader(""), &strings.Builder{})
@@ -559,6 +688,180 @@ func TestBubblePickerHonorsQuitCommand(t *testing.T) {
 	}
 }
 
+func TestBubbleEscapeBacksOutBeforeQuit(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	if _, err := appStore.CreateConversation(context.Background(), "Existing"); err != nil {
+		t.Fatal(err)
+	}
+	app := New(appStore, &fakeAssistant{response: "ok"}, strings.NewReader(""), &strings.Builder{})
+	model, err := newBubbleModel(context.Background(), app)
+	if err != nil {
+		t.Fatalf("newBubbleModel() error = %v", err)
+	}
+	model.input.SetValue("1")
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("expected no command while opening chat")
+	}
+	model = updated.(bubbleModel)
+	if model.mode != modeChat {
+		t.Fatalf("mode = %v, want chat", model.mode)
+	}
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(bubbleModel)
+	if cmd != nil {
+		t.Fatal("expected first Escape from chat to avoid quitting")
+	}
+	if model.mode != modePick {
+		t.Fatalf("mode = %v, want picker", model.mode)
+	}
+	if !strings.Contains(model.status, "Press Esc again") {
+		t.Fatalf("status = %q", model.status)
+	}
+
+	_, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("expected second Escape to quit")
+	}
+}
+
+func TestBubbleEscapeWaitsForInFlightSend(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	app := New(appStore, &fakeAssistant{response: "ok"}, strings.NewReader(""), &strings.Builder{})
+	model, err := newBubbleModel(context.Background(), app)
+	if err != nil {
+		t.Fatalf("newBubbleModel() error = %v", err)
+	}
+	model.input.SetValue("hi")
+	updated, sendCmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if sendCmd == nil {
+		t.Fatal("expected send command")
+	}
+	if !model.sending {
+		t.Fatal("model was not marked sending")
+	}
+
+	updated, escCmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(bubbleModel)
+	if escCmd != nil {
+		t.Fatal("expected Escape during send to avoid quitting")
+	}
+	if model.mode != modeChat {
+		t.Fatalf("mode = %v, want chat", model.mode)
+	}
+	if model.status != "Wait for the current response to finish." {
+		t.Fatalf("status = %q", model.status)
+	}
+
+	msg := sendCmd()
+	updated, _ = model.Update(msg)
+	model = updated.(bubbleModel)
+	if model.conversation.ID == "" || len(model.messages) != 2 {
+		t.Fatalf("conversation=%#v messages=%#v", model.conversation, model.messages)
+	}
+}
+
+func TestBubblePickerNewClearsCurrentChat(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.AddMessage(context.Background(), conversation.ID, "user", "old"); err != nil {
+		t.Fatal(err)
+	}
+	app := New(appStore, &fakeAssistant{response: "ok"}, strings.NewReader(""), &strings.Builder{})
+	model, err := newBubbleModel(context.Background(), app)
+	if err != nil {
+		t.Fatalf("newBubbleModel() error = %v", err)
+	}
+	model.input.SetValue("1")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if model.conversation.ID == "" || len(model.messages) == 0 {
+		t.Fatalf("expected existing chat, got conversation=%#v messages=%#v", model.conversation, model.messages)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(bubbleModel)
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil {
+		t.Fatal("expected no command while starting blank chat")
+	}
+	if model.conversation.ID != "" || len(model.messages) != 0 || len(model.attachments) != 0 {
+		t.Fatalf("new chat kept stale state: conversation=%#v messages=%#v attachments=%#v", model.conversation, model.messages, model.attachments)
+	}
+}
+
+func TestBubblePickerInvalidInputRefreshesBlankChat(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	conversation, err := appStore.CreateConversation(context.Background(), "Existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.AddMessage(context.Background(), conversation.ID, "user", "old transcript"); err != nil {
+		t.Fatal(err)
+	}
+	app := New(appStore, &fakeAssistant{response: "ok"}, strings.NewReader(""), &strings.Builder{})
+	model, err := newBubbleModel(context.Background(), app)
+	if err != nil {
+		t.Fatalf("newBubbleModel() error = %v", err)
+	}
+	model.input.SetValue("1")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if !strings.Contains(model.viewport.View(), "old transcript") {
+		t.Fatalf("expected old transcript in viewport: %q", model.viewport.View())
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(bubbleModel)
+	model.input.SetValue("foo")
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(bubbleModel)
+	if cmd != nil {
+		t.Fatal("expected no command while starting blank chat")
+	}
+	if model.conversation.ID != "" || len(model.messages) != 0 {
+		t.Fatalf("new chat kept stale state: conversation=%#v messages=%#v", model.conversation, model.messages)
+	}
+	if strings.Contains(model.viewport.View(), "old transcript") {
+		t.Fatalf("viewport kept stale transcript: %q", model.viewport.View())
+	}
+}
+
+func TestBubbleEscapeRequiresConfirmInPicker(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	if _, err := appStore.CreateConversation(context.Background(), "Existing"); err != nil {
+		t.Fatal(err)
+	}
+	app := New(appStore, &fakeAssistant{response: "ok"}, strings.NewReader(""), &strings.Builder{})
+	model, err := newBubbleModel(context.Background(), app)
+	if err != nil {
+		t.Fatalf("newBubbleModel() error = %v", err)
+	}
+	if model.mode != modePick {
+		t.Fatalf("mode = %v, want picker", model.mode)
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(bubbleModel)
+	if cmd != nil {
+		t.Fatal("expected first Escape from picker to avoid quitting")
+	}
+	if !strings.Contains(model.status, "Press Esc again") {
+		t.Fatalf("status = %q", model.status)
+	}
+
+	_, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("expected second Escape to quit")
+	}
+}
+
 func TestBubbleModelResizesViewportAndComposer(t *testing.T) {
 	app := New(store.NewMemoryStore(), &fakeAssistant{response: "ok"}, strings.NewReader(""), &strings.Builder{})
 	model, err := newBubbleModel(context.Background(), app)
@@ -640,7 +943,7 @@ func TestSmokeCoversPickerNewSearchAndAttachments(t *testing.T) {
 		"Queued attachments",
 		"Attached note.txt.",
 		"Search unavailable: offline",
-		"Commands: :new",
+		":help for commands",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q: %q", want, output)

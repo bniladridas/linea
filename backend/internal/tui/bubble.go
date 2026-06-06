@@ -48,6 +48,7 @@ type bubbleModel struct {
 	width        int
 	height       int
 	sending      bool
+	escPending   bool
 }
 
 type bubbleStyles struct {
@@ -135,15 +136,20 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyEsc:
+			return m.pressEscape()
 		case tea.KeyEnter:
+			m.escPending = false
 			value := strings.TrimSpace(m.input.Value())
 			m.input.SetValue("")
 			if m.mode == modePick {
 				return m.pick(value)
 			}
 			return m.submit(value)
+		default:
+			m.escPending = false
 		}
 	case sentMsg:
 		m.sending = false
@@ -180,25 +186,46 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m bubbleModel) pressEscape() (tea.Model, tea.Cmd) {
+	if m.mode == modeChat {
+		if m.sending {
+			m.status = "Wait for the current response to finish."
+			m.escPending = false
+			return m, nil
+		}
+		if recent, err := m.app.store.ListConversations(m.ctx); err == nil {
+			m.recent = recent
+		}
+		m.mode = modePick
+		m.input.Prompt = "Open › "
+		m.input.Placeholder = "Number or Enter for new"
+		m.input.SetValue("")
+		m.status = "Back. Press Esc again to quit."
+		m.escPending = true
+		return m, nil
+	}
+	if m.escPending {
+		return m, tea.Quit
+	}
+	m.status = "Press Esc again to quit."
+	m.escPending = true
+	return m, nil
+}
+
 func (m bubbleModel) pick(value string) (tea.Model, tea.Cmd) {
 	switch value {
 	case ":quit", ":q", "exit":
 		return m, tea.Quit
 	}
 	if value == "" {
-		m.mode = modeChat
-		m.input.Prompt = "Message › "
-		m.input.Placeholder = "Ask Linea"
-		m.status = "Started new chat."
+		m = m.startNewChat()
 		m.syncViewport()
 		return m, nil
 	}
 	index, err := strconv.Atoi(value)
 	if err != nil || index < 1 || index > len(m.recent) || index > 5 {
-		m.mode = modeChat
-		m.input.Prompt = "Message › "
-		m.input.Placeholder = "Ask Linea"
-		m.status = "Started new chat."
+		m = m.startNewChat()
+		m.syncViewport()
 		return m, nil
 	}
 	m.conversation = m.recent[index-1]
@@ -209,12 +236,25 @@ func (m bubbleModel) pick(value string) (tea.Model, tea.Cmd) {
 	}
 	m.messages = messages
 	m.mode = modeChat
+	m.escPending = false
 	m.input.Prompt = "Message › "
 	m.input.Placeholder = "Ask Linea"
 	m.status = "Ready."
 	m.syncViewport()
 	m.viewport.GotoBottom()
 	return m, nil
+}
+
+func (m bubbleModel) startNewChat() bubbleModel {
+	m.mode = modeChat
+	m.conversation = store.Conversation{}
+	m.messages = nil
+	m.attachments = nil
+	m.escPending = false
+	m.input.Prompt = "Message › "
+	m.input.Placeholder = "Ask Linea"
+	m.status = "Started new chat."
+	return m
 }
 
 func (m bubbleModel) submit(value string) (tea.Model, tea.Cmd) {
@@ -368,16 +408,18 @@ func (m bubbleModel) viewChat(styles bubbleStyles) string {
 			b.WriteString("\n")
 		}
 	}
-	if m.sending {
-		b.WriteString("\n")
-		b.WriteString(styles.muted.Render("Linea is writing..."))
-		b.WriteString("\n")
-	}
 	b.WriteString("\n")
 	b.WriteString(styles.composer.Width(m.composerWidth()).Render(lipgloss.NewStyle().Width(m.input.Width).Render(m.input.View())))
 	b.WriteString("\n")
-	b.WriteString(styles.status.Render(m.status + "  :new · :attach <path> · :help · :agent · :diag · :symbols <q> · :refs <id> · :mcp · :loop <goal> · :quit"))
+	b.WriteString(styles.status.Render(m.footerStatus()))
 	return styles.frame.Width(m.contentWidth()).Render(b.String())
+}
+
+func (m bubbleModel) footerStatus() string {
+	if strings.TrimSpace(m.status) == "" {
+		return ":help for commands"
+	}
+	return m.status + "  ·  :help for commands"
 }
 
 func (m bubbleModel) transcript(styles bubbleStyles) string {
@@ -388,10 +430,6 @@ func (m bubbleModel) transcript(styles bubbleStyles) string {
 	for _, message := range m.messages {
 		b.WriteString(m.renderBubbleMessage(styles, message))
 		b.WriteString("\n")
-	}
-	if m.sending {
-		b.WriteString("\n")
-		b.WriteString(styles.muted.Render("Linea is writing..."))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
