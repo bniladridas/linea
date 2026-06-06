@@ -346,7 +346,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Skills:           r.skills(ctx),
 		Subagents:        defaultSubagents(),
 		MCPServers:       r.mcpServers(ctx),
-		MCPTools:         r.mcpTools(ctx),
+		MCPTools:         r.statusMCPTools(ctx),
 		MCPCalls:         r.statusMCPCalls(),
 		Boundaries:       defaultBoundaries(),
 		Next:             defaultNext(),

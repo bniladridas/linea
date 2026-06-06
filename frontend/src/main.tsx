@@ -697,19 +697,17 @@ function App() {
   }
 
   async function refreshAgentDetails() {
-    const [status] = await Promise.all([
+    const [status, mcpTools] = await Promise.all([
       request<AgentStatus>('/api/agent')
-        .then((data) => {
-          setAgentStatus(data);
-          return data;
-        })
-        .catch(() => {
-          setAgentStatus(null);
-          return null;
-        }),
+        .then((data) => data)
+        .catch(() => null),
+      request<NonNullable<AgentStatus['mcpTools']>>('/api/agent/mcp-tools')
+        .then((data) => (Array.isArray(data) ? data : []))
+        .catch(() => []),
       loadAgentRuns(),
       loadAgentEditProposals(),
     ]);
+    setAgentStatus(status ? { ...status, mcpTools } : null);
     return status;
   }
 
@@ -1594,8 +1592,8 @@ function App() {
                   if (!appSettings) {
                     void loadAppSettings();
                   }
+                  void refreshAgentDetails();
                   void loadAgentDiagnostics();
-                  void loadAgentEditProposals();
                 }}
               />
             )}
