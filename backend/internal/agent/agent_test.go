@@ -239,6 +239,153 @@ func TestRuntimeAutoAgentLoopPlansEditFromDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRuntimeAutoAgentLoopInfersAllowedCheckCommand(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "fix and test the project",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "command_infer", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	last := loop.Steps[len(loop.Steps)-1]
+	if last.Kind != "command_approval" || last.Command != "make test" || last.CreatedID == "" {
+		t.Fatalf("last step = %#v", last)
+	}
+	approvals := runtime.ListCommandApprovals(context.Background())
+	if len(approvals) != 1 || approvals[0].Command != "make test" || approvals[0].State != "pending" {
+		t.Fatalf("approvals = %#v", approvals)
+	}
+}
+
+func TestRuntimeAutoAgentLoopInfersAllowedPackageBuildCommand(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"build":"vite build","test":"vitest"}}`)
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"npm run build"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "fix the React frontend build",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "command_infer", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	last := loop.Steps[len(loop.Steps)-1]
+	if last.Kind != "command_approval" || last.Command != "npm run build" || last.CreatedID == "" {
+		t.Fatalf("last step = %#v", last)
+	}
+}
+
+func TestRuntimeAutoAgentLoopDoesNotInferUnallowedPackageCommand(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"build":"vite build","test":"vitest"}}`)
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"go vet ./..."}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "fix the React frontend build",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loopHasStep(loop, "command_infer", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeAutoAgentLoopContinuesFromAppliedProposalToInferredCheck(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "broken.go",
+			Content: "package main\nfunc fixed() {}\n",
+			Summary: "Fix parse error",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "fix diagnostics and run tests",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if _, err := runtime.ReviewEditProposal(context.Background(), proposals[0].ID, EditProposalReviewInput{Status: "approved"}); err != nil {
+		t.Fatalf("ReviewEditProposal() error = %v", err)
+	}
+	if _, err := runtime.ApplyEditProposal(context.Background(), proposals[0].ID); err != nil {
+		t.Fatalf("ApplyEditProposal() error = %v", err)
+	}
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.State != "waiting_approval" || !loopHasStep(continued, "edit_review", "completed") || !loopHasStep(continued, "command_infer", "completed") {
+		t.Fatalf("continued = %#v", continued)
+	}
+	last := continued.Steps[len(continued.Steps)-1]
+	if last.Kind != "command_approval" || last.Command != "make test" || last.CreatedID == "" {
+		t.Fatalf("last step = %#v", last)
+	}
+}
+
+func TestRuntimeAutoAgentLoopProposesEditAfterFailedCheckDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc ok() {}\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "broken.go",
+			Content: "package main\nfunc fixed() {}\n",
+			Summary: "Fix parse error",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"false"}), WithEditPlanner(planner))
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "fix tests",
+		Mode:    "auto",
+		Command: "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "false", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.State != "waiting_approval" || !loopHasStep(continued, "command_run", "blocked") || !loopHasStep(continued, "edit_review", "waiting_approval") {
+		t.Fatalf("continued = %#v", continued)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "broken.go" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+	if len(planner.requests) != 1 || planner.requests[0].Command != "false" || len(planner.requests[0].Diagnostics) != 1 {
+		t.Fatalf("planner requests = %#v", planner.requests)
+	}
+}
+
 func TestRuntimeAutoAgentLoopRejectsPlannerPathOutsideDiagnostics(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")

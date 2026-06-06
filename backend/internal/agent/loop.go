@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -82,6 +85,14 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 		loop.MaxIterations = normalizeAgentLoopIterations(loop.Mode, loop.MaxIterations+1)
 	}
 	loop.State = "running"
+	var blocked bool
+	loop, blocked = r.consumeAppliedEditReviews(loop)
+	if blocked {
+		loop.UpdatedAt = time.Now().UTC()
+		loop.Summary = loopSummary(loop)
+		r.replaceAgentLoop(loop)
+		return loop, nil
+	}
 	continued := false
 	for index, step := range loop.Steps {
 		if step.Kind != "command_approval" || step.State != "waiting_approval" || strings.TrimSpace(step.Command) == "" {
@@ -103,9 +114,32 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 		}
 		loop = appendLoopStep(loop, "command_run", "Run command", "run_command", runErr, detail, step.Command)
 		if runErr != nil {
-			loop = appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
-		}
-		if runErr == nil {
+			if loop.Mode == "auto" && r.WorkspaceEnabled() && shouldReadDiagnostics(strings.ToLower(loop.Goal)) {
+				diagnostics, err := r.ListDiagnostics(ctx)
+				loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", err, fmt.Sprintf("%d diagnostic(s) after failed command", len(diagnostics)), "")
+				if err == nil && len(diagnostics) > 0 {
+					loop.Steps = append(loop.Steps, AgentLoopStep{
+						ID:     newTraceID(),
+						Kind:   "diagnostics_review",
+						Title:  "Review diagnostics",
+						State:  "attention",
+						Detail: fmt.Sprintf("%d diagnostic(s) remain.", len(diagnostics)),
+						ToolID: "diagnostics",
+					})
+					loop.State = "attention"
+					loop = r.autoProposeEdit(ctx, loop, EditPlanRequest{
+						Goal:          loop.Goal,
+						Diagnostics:   diagnostics,
+						Command:       step.Command,
+						CommandOutput: strings.TrimSpace(run.Output),
+					})
+				} else {
+					loop = appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
+				}
+			} else {
+				loop = appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
+			}
+		} else {
 			loop = appendLoopStep(loop, "review_result", "Review result", "run_command", nil, "Command completed successfully.", step.Command)
 			if r.WorkspaceEnabled() && shouldReadDiagnostics(strings.ToLower(loop.Goal)) {
 				diagnostics, err := r.ListDiagnostics(ctx)
@@ -292,6 +326,13 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		}
 	}
 	command := strings.Join(strings.Fields(input.Command), " ")
+	if command == "" && loop.Mode == "auto" && mentionsCommand(goalLower) {
+		inferred, detail := r.inferLoopCommand(ctx, loop.Goal)
+		if inferred != "" {
+			command = inferred
+			loop = appendLoopStep(loop, "command_infer", "Choose check command", "run_command", nil, detail, command)
+		}
+	}
 	if command != "" {
 		check, err := r.CheckCommand(ctx, CommandCheckInput{Command: command})
 		detail := "blocked"
@@ -338,6 +379,37 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		loop.State = "waiting_input"
 	}
 	return loop
+}
+
+func (r *Runtime) consumeAppliedEditReviews(loop AgentLoop) (AgentLoop, bool) {
+	blocked := false
+	for index, step := range loop.Steps {
+		if step.Kind != "edit_review" || step.State != "waiting_approval" || strings.TrimSpace(step.CreatedID) == "" {
+			continue
+		}
+		proposal, ok := r.editProposalByID(step.CreatedID)
+		if !ok {
+			loop.Steps[index].State = "blocked"
+			loop.Steps[index].Detail = "Edit proposal was not found."
+			loop.State = "attention"
+			blocked = true
+			continue
+		}
+		switch proposal.Status {
+		case "applied":
+			loop.Steps[index].State = "completed"
+			loop.Steps[index].Detail = "Proposal applied."
+		case "rejected":
+			loop.Steps[index].State = "completed"
+			loop.Steps[index].Detail = "Proposal rejected."
+			loop = appendRetryStep(loop, loopRetryDetail(loop, "Proposal rejected."))
+			blocked = true
+		default:
+			loop.State = "waiting_approval"
+			blocked = true
+		}
+	}
+	return loop, blocked
 }
 
 func appendLoopStep(loop AgentLoop, kind string, title string, toolID string, err error, detail string, command string) AgentLoop {
@@ -389,6 +461,105 @@ func appendAutoLimitStep(loop AgentLoop) AgentLoop {
 	})
 	loop.State = "waiting_input"
 	return loop
+}
+
+func (r *Runtime) inferLoopCommand(ctx context.Context, goal string) (string, string) {
+	if strings.TrimSpace(goal) == "" {
+		return "", ""
+	}
+	root, err := r.workspaceRootPath()
+	if err != nil {
+		return "", ""
+	}
+	goalLower := strings.ToLower(goal)
+	if command, detail := r.inferPackageCommand(ctx, root, goalLower); command != "" {
+		return command, detail
+	}
+	candidates := []struct {
+		command string
+		file    string
+		terms   []string
+	}{
+		{command: "make test", file: "Makefile", terms: []string{"test", "check", "fix", "build"}},
+		{command: "make check", file: "Makefile", terms: []string{"check", "fix", "build"}},
+		{command: "make ui-check-agent", file: "Makefile", terms: []string{"ui", "agent", "frontend"}},
+		{command: "make tui-check", file: "Makefile", terms: []string{"tui", "terminal"}},
+		{command: "go test ./...", file: "go.mod", terms: []string{"test", "check", "fix"}},
+		{command: "go vet ./...", file: "go.mod", terms: []string{"vet", "check"}},
+		{command: "npm run build", file: "package.json", terms: []string{"build", "frontend", "ui", "typescript"}},
+	}
+	for _, candidate := range candidates {
+		select {
+		case <-ctx.Done():
+			return "", ""
+		default:
+		}
+		if !r.commandAllowed(candidate.command) || !goalMatchesCommandTerms(goalLower, candidate.terms) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, candidate.file)); err == nil {
+			return candidate.command, fmt.Sprintf("Inferred from %s and goal.", candidate.file)
+		}
+	}
+	for _, command := range r.allowedCommands() {
+		if goalMatchesCommand(command, goalLower) {
+			return command, "Inferred from command allowlist and goal."
+		}
+	}
+	return "", ""
+}
+
+func (r *Runtime) inferPackageCommand(ctx context.Context, root string, goal string) (string, string) {
+	select {
+	case <-ctx.Done():
+		return "", ""
+	default:
+	}
+	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		return "", ""
+	}
+	var packageFile struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(data, &packageFile); err != nil || len(packageFile.Scripts) == 0 {
+		return "", ""
+	}
+	for _, script := range packageScriptPreference(goal) {
+		if strings.TrimSpace(packageFile.Scripts[script]) == "" {
+			continue
+		}
+		for _, command := range packageScriptCommands(script) {
+			if r.commandAllowed(command) {
+				return command, fmt.Sprintf("Inferred from package.json script %q.", script)
+			}
+		}
+	}
+	return "", ""
+}
+
+func packageScriptPreference(goal string) []string {
+	switch {
+	case strings.Contains(goal, "lint"):
+		return []string{"lint", "check", "test", "build"}
+	case strings.Contains(goal, "type") || strings.Contains(goal, "typescript"):
+		return []string{"typecheck", "type-check", "check", "build", "test"}
+	case strings.Contains(goal, "test"):
+		return []string{"test", "check", "lint", "build"}
+	case strings.Contains(goal, "build"):
+		return []string{"build", "check", "test", "lint"}
+	case strings.Contains(goal, "ui") || strings.Contains(goal, "frontend") || strings.Contains(goal, "react"):
+		return []string{"build", "test", "lint", "check"}
+	default:
+		return []string{"check", "test", "build", "lint"}
+	}
+}
+
+func packageScriptCommands(script string) []string {
+	if script == "test" {
+		return []string{"npm test", "npm run test"}
+	}
+	return []string{fmt.Sprintf("npm run %s", script)}
 }
 
 func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request EditPlanRequest) AgentLoop {
@@ -616,6 +787,29 @@ func loopSymbolQuery(input AgentLoopInput, goal string) string {
 		}
 	}
 	return ""
+}
+
+func goalMatchesCommandTerms(goal string, terms []string) bool {
+	for _, term := range terms {
+		if strings.Contains(goal, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func goalMatchesCommand(command string, goal string) bool {
+	command = strings.ToLower(command)
+	switch {
+	case strings.Contains(goal, "build"):
+		return strings.Contains(command, "build") || strings.Contains(command, "check") || strings.Contains(command, "test")
+	case strings.Contains(goal, "test"):
+		return strings.Contains(command, "test") || strings.Contains(command, "check")
+	case strings.Contains(goal, "check"):
+		return strings.Contains(command, "check") || strings.Contains(command, "test") || strings.Contains(command, "vet")
+	default:
+		return false
+	}
 }
 
 func trimSymbolQueryTerm(value string) string {

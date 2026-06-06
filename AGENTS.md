@@ -176,6 +176,7 @@ Loop modes:
 * Auto loops may continue across safe local steps after explicit activation.
 * Auto loops may use diagnostics, command output, and file reads as evidence.
 * Auto loops may create review-only edit proposals.
+* Auto loops may infer allowlisted check commands from project files.
 * Auto loops must stop before applying edits or running commands without approval.
 
 Rules:
