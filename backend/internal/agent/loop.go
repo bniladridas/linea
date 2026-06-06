@@ -245,6 +245,9 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		if shouldReadDiagnostics(goalLower) {
 			diagnostics, err := r.ListDiagnostics(ctx)
 			loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", err, fmt.Sprintf("%d diagnostic(s)", len(diagnostics)), "")
+			if loop.Mode == "auto" {
+				loop = r.appendSubagentLoopStep(ctx, loop, "review", SubagentRunInput{Goal: loop.Goal})
+			}
 			if err == nil && len(diagnostics) > 0 && loop.Mode == "auto" {
 				loop.Steps = append(loop.Steps, AgentLoopStep{
 					ID:     newTraceID(),
@@ -265,6 +268,13 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		if query != "" {
 			results, err := r.SearchFiles(ctx, query)
 			loop = appendLoopStep(loop, "search_files", "Search workspace", "search_files", err, fmt.Sprintf("%d result(s) for %q", len(results), query), "")
+			if loop.Mode == "auto" {
+				subagentID := "search"
+				if strings.Contains(goalLower, "doc") {
+					subagentID = "docs"
+				}
+				loop = r.appendSubagentLoopStep(ctx, loop, subagentID, SubagentRunInput{Goal: loop.Goal, Query: query})
+			}
 		}
 		filePath := strings.TrimSpace(input.FilePath)
 		if filePath != "" {
@@ -435,6 +445,33 @@ func appendLoopStep(loop AgentLoop, kind string, title string, toolID string, er
 	}
 	if state == "waiting_input" && loop.State != "attention" {
 		loop.State = "waiting_input"
+	}
+	return loop
+}
+
+func (r *Runtime) appendSubagentLoopStep(ctx context.Context, loop AgentLoop, subagentID string, input SubagentRunInput) AgentLoop {
+	run, err := r.RunSubagent(ctx, subagentID, input)
+	detail := run.Summary
+	state := run.State
+	createdID := run.ID
+	if err != nil {
+		detail = err.Error()
+		state = "blocked"
+	}
+	if strings.TrimSpace(detail) == "" {
+		detail = subagentID
+	}
+	loop.Steps = append(loop.Steps, AgentLoopStep{
+		ID:        newTraceID(),
+		Kind:      "subagent_run",
+		Title:     "Run subagent",
+		State:     state,
+		Detail:    fmt.Sprintf("%s: %s", subagentID, detail),
+		ToolID:    "subagent",
+		CreatedID: createdID,
+	})
+	if state == "blocked" {
+		loop.State = "attention"
 	}
 	return loop
 }

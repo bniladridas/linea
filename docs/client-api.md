@@ -186,7 +186,7 @@ Returns recent bounded agent loops.
 
 `POST /api/agent/loops`
 
-Starts a bounded local agent loop. Read-only workspace steps may run immediately. Commands and edits stop at approval boundaries. `mode` can be `guided` or `auto`; auto loops can create review-only edit proposals from diagnostics and keep going after explicit command approval.
+Starts a bounded local agent loop. Read-only workspace steps may run immediately. Commands and edits stop at approval boundaries. `mode` can be `guided` or `auto`; auto loops can use bounded subagents, create review-only edit proposals from diagnostics, and keep going after explicit command approval.
 
 ```json
 {
