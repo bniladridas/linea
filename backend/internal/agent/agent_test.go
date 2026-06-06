@@ -270,6 +270,9 @@ func TestRuntimeAutoAgentLoopPlansEditFromDiagnostics(t *testing.T) {
 	if loop.State != "waiting_approval" || !loopHasStep(loop, "plan_edit", "completed") || !loopHasStep(loop, "edit_review", "waiting_approval") {
 		t.Fatalf("loop = %#v", loop)
 	}
+	if !loopHasStep(loop, "subagent_run", "completed") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
 	proposals := runtime.ListEditProposals(context.Background())
 	if len(proposals) != 1 || proposals[0].Path != "broken.go" || proposals[0].Content != "package main\nfunc fixed() {}\n" {
 		t.Fatalf("proposals = %#v", proposals)
@@ -279,6 +282,30 @@ func TestRuntimeAutoAgentLoopPlansEditFromDiagnostics(t *testing.T) {
 	}
 	if len(planner.requests) != 1 || len(planner.requests[0].Diagnostics) != 1 || len(planner.requests[0].Files) != 1 {
 		t.Fatalf("planner requests = %#v", planner.requests)
+	}
+	if status := runtime.Status(context.Background()); status.RunSummary.SubagentRuns != 1 {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRuntimeAutoAgentLoopUsesSearchSubagent(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "search agent",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopHasStep(loop, "search_files", "completed") || !loopHasStep(loop, "subagent_run", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	runs := runtime.ListSubagentRuns(context.Background())
+	if len(runs) != 1 || runs[0].SubagentID != "search" || !strings.Contains(runs[0].Summary, "Found 1") {
+		t.Fatalf("subagent runs = %#v", runs)
 	}
 }
 
