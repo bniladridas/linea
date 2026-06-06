@@ -575,7 +575,7 @@ Returns Go symbols from `LINEA_WORKSPACE_DIR`. When `LINEA_LSP_COMMAND` is set, 
 
 `GET /api/agent/workspace/references?q=Run`
 
-Returns Go identifier references from `LINEA_WORKSPACE_DIR` using a name-based local scanner.
+Returns Go identifier references from `LINEA_WORKSPACE_DIR`. When `LINEA_LSP_COMMAND` is set, Linea asks that LSP command for each matching identifier position; otherwise it uses the local scanner fallback.
 
 ```json
 [

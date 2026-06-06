@@ -125,7 +125,7 @@ Initial scope:
 * Review-only edit proposals
 * Bounded agent loops
 * Workspace search, file read, diagnostics, and symbols
-* Optional LSP-backed diagnostics and symbols
+* Optional LSP-backed diagnostics, symbols, and references
 * TUI agent commands
 * Local MCP status and configured tool calls
 * Bounded subagent runs

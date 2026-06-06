@@ -1098,7 +1098,7 @@ func TestRuntimeListsWorkspaceReferences(t *testing.T) {
 	}
 }
 
-func TestRuntimeReferencesStayNameBasedWithLSPConfigured(t *testing.T) {
+func TestRuntimeUsesConfiguredLSPForNameBasedReferences(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "a.go"), "package main\n\nfunc Run() {}\nfunc main() { Run() }\n")
 	writeTestFile(t, filepath.Join(root, "b.go"), "package main\n\nfunc Run() {}\nfunc other() { Run() }\n")
@@ -1112,6 +1112,41 @@ func TestRuntimeReferencesStayNameBasedWithLSPConfigured(t *testing.T) {
 		t.Fatalf("references = %#v", references)
 	}
 	if references[0].Path != "a.go" || references[2].Path != "b.go" {
+		t.Fatalf("references = %#v", references)
+	}
+}
+
+func TestLSPReferencesSkipPathsOutsideWorkspace(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc Run() {}\n")
+	writeTestFile(t, filepath.Join(outside, "external.go"), "package external\n\nfunc Run() {}\n")
+
+	output := []byte(filepath.Join(outside, "external.go") + ":3:6-9\nmain.go:3:6-9\n")
+	references := parseLSPReferences(root, output, "Run")
+	if len(references) != 1 {
+		t.Fatalf("references = %#v", references)
+	}
+	if references[0].Path != "main.go" || !strings.Contains(references[0].Text, "func Run") {
+		t.Fatalf("references = %#v", references)
+	}
+}
+
+func TestLSPReferencesSkipSymlinkTargetsOutsideWorkspace(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc Run() {}\n")
+	writeTestFile(t, filepath.Join(outside, "external.go"), "package external\n\nfunc Run() {}\n")
+	if err := os.Symlink(filepath.Join(outside, "external.go"), filepath.Join(root, "link.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	output := []byte("link.go:3:6-9\nmain.go:3:6-9\n")
+	references := parseLSPReferences(root, output, "Run")
+	if len(references) != 1 {
+		t.Fatalf("references = %#v", references)
+	}
+	if references[0].Path != "main.go" {
 		t.Fatalf("references = %#v", references)
 	}
 }
@@ -1683,8 +1718,23 @@ case "$1" in
     echo "main.go:3:6: func Run"
     ;;
   references)
-    echo "main.go:3:6-9"
-    echo "main.go:4:15-18"
+    if [ "$2" != "-d" ]; then
+      exit 3
+    fi
+    case "$3" in
+      a.go:3:*|a.go:4:*)
+        echo "a.go:3:6-9"
+        echo "a.go:4:15-18"
+        ;;
+      b.go:3:*|b.go:4:*)
+        echo "b.go:3:6-9"
+        echo "b.go:4:16-19"
+        ;;
+      *)
+        echo "main.go:3:6-9"
+        echo "main.go:4:15-18"
+        ;;
+    esac
     ;;
   *)
     exit 2
