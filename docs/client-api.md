@@ -9,7 +9,7 @@ Linea serves the API from the same Go process as the web UI.
 Default base URL:
 
 ```sh
-http://127.0.0.1:8080
+http://localhost:8080
 ```
 
 Clients should treat IDs as opaque strings.
@@ -783,7 +783,7 @@ Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
 
-Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp read <resource-id-or-uri>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, and `:proposal create <path> <content>`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
+Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:hook <id> [command]`, `:skill <id> [command]`, and `:proposal list`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

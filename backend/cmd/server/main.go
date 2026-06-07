@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -148,9 +147,6 @@ func main() {
 	}
 
 	go func() {
-		if isPublicAPIAddr(cfg.APIAddr) {
-			slog.Warn("linea api is listening on a non-loopback address; use only behind a trusted network, VPN, or reverse proxy", "addr", cfg.APIAddr)
-		}
 		slog.Info("linea api listening", "addr", cfg.APIAddr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("listen", "error", err)
@@ -193,25 +189,6 @@ func newAgentRuntime(cfg config.Config, planners ...agent.EditPlanner) *agent.Ru
 		cfg.AgentRulesPath,
 		options...,
 	)
-}
-
-func isPublicAPIAddr(addr string) bool {
-	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
-	if err != nil {
-		if strings.HasPrefix(addr, ":") {
-			return true
-		}
-		host = strings.TrimSpace(addr)
-	}
-	host = strings.Trim(host, "[]")
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	if ip != nil {
-		return !ip.IsLoopback()
-	}
-	return !strings.EqualFold(host, "localhost")
 }
 
 type llmEditPlanner struct {

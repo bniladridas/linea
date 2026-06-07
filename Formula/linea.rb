@@ -34,7 +34,7 @@ class Linea < Formula
     <<~EOS
       Create ~/.config/linea/linea.env with local configuration:
 
-        API_ADDR=127.0.0.1:8080
+        API_ADDR=:8080
         DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
         GEMINI_API_KEY=your-key
         GEMINI_MODEL=gemini-2.5-flash-lite

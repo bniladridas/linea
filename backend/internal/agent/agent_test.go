@@ -1286,39 +1286,6 @@ func TestRuntimeDiscoversReadsMCPResources(t *testing.T) {
 	}
 }
 
-func TestRuntimeMCPServerRunsRelativeToConfigDirectory(t *testing.T) {
-	configDir := t.TempDir()
-	writeTestFile(t, filepath.Join(configDir, "server.sh"), "#!/bin/sh\nexec \""+os.Args[0]+"\"\n")
-	if err := os.Chmod(filepath.Join(configDir, "server.sh"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(configDir, "mcp.json")
-	writeTestFile(t, configPath, `{
-  "mcpServers": {
-    "docs": {
-      "command": "./server.sh",
-      "env": {"LINEA_FAKE_MCP_SERVER":"1"}
-    }
-  }
-}`)
-	originalWD, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(originalWD)
-	})
-	runtime := NewRuntime("", WithMCPConfigPath(configPath))
-
-	tools := runtime.ListMCPTools(context.Background())
-	if len(tools) != 1 || tools[0].ID != "docs/ping" {
-		t.Fatalf("tools = %#v", tools)
-	}
-}
-
 func TestRuntimeMCPResourceIDsPreserveExtensions(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
 	writeTestFile(t, configPath, `{

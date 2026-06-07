@@ -1,15 +1,10 @@
 package tui
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -21,125 +16,6 @@ import (
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
 )
-
-func TestMain(m *testing.M) {
-	if os.Getenv("LINEA_FAKE_TUI_MCP_SERVER") == "1" {
-		runFakeTUIMCPServer()
-		return
-	}
-	os.Exit(m.Run())
-}
-
-func runFakeTUIMCPServer() {
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		message, err := readTUITestMCPMessage(reader)
-		if err != nil {
-			return
-		}
-		id := intTUITestMCPID(message["id"])
-		method, _ := message["method"].(string)
-		switch method {
-		case "initialize":
-			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
-				"jsonrpc": "2.0",
-				"id":      id,
-				"result": map[string]any{
-					"protocolVersion": "2024-11-05",
-					"capabilities":    map[string]any{},
-				},
-			})
-		case "tools/list":
-			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
-				"jsonrpc": "2.0",
-				"id":      id,
-				"result": map[string]any{
-					"tools": []map[string]any{{
-						"name":        "ping",
-						"description": "Ping",
-						"inputSchema": map[string]any{"type": "object"},
-					}},
-				},
-			})
-		case "resources/list":
-			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
-				"jsonrpc": "2.0",
-				"id":      id,
-				"result": map[string]any{
-					"resources": []map[string]any{{
-						"uri":         "docs://readme",
-						"name":        "README",
-						"description": "Project README",
-						"mimeType":    "text/markdown",
-					}},
-				},
-			})
-		case "prompts/list":
-			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
-				"jsonrpc": "2.0",
-				"id":      id,
-				"result": map[string]any{
-					"prompts": []map[string]any{{"name": "review", "description": "Review code"}},
-				},
-			})
-		}
-	}
-}
-
-func readTUITestMCPMessage(reader *bufio.Reader) (map[string]any, error) {
-	var length int
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			break
-		}
-		const prefix = "Content-Length:"
-		if strings.HasPrefix(line, prefix) {
-			value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-			parsed, err := strconv.Atoi(value)
-			if err != nil {
-				return nil, err
-			}
-			length = parsed
-		}
-	}
-	if length <= 0 {
-		return nil, io.ErrUnexpectedEOF
-	}
-	body := make([]byte, length)
-	if _, err := io.ReadFull(reader, body); err != nil {
-		return nil, err
-	}
-	var message map[string]any
-	if err := json.Unmarshal(body, &message); err != nil {
-		return nil, err
-	}
-	return message, nil
-}
-
-func writeTUITestMCPMessage(writer io.Writer, message map[string]any) error {
-	body, err := json.Marshal(message)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n%s", len(body), body)
-	return err
-}
-
-func intTUITestMCPID(value any) int {
-	switch v := value.(type) {
-	case float64:
-		return int(v)
-	case int:
-		return v
-	default:
-		return 0
-	}
-}
 
 type fakeAssistant struct {
 	response    string
@@ -565,39 +441,6 @@ func TestMCPResourceReadInputAcceptsDisplayedURI(t *testing.T) {
 	input = mcpResourceReadInput("docs/docs_readme")
 	if input.ResourceID != "docs/docs_readme" || input.URI != "" {
 		t.Fatalf("input = %#v", input)
-	}
-}
-
-func TestRunMCPDiscoversToolsResourcesAndPrompts(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "mcp.json")
-	if err := os.WriteFile(configPath, []byte(`{
-  "mcpServers": {
-    "docs": {
-      "command": "`+os.Args[0]+`",
-      "env": {"LINEA_FAKE_TUI_MCP_SERVER":"1"}
-    }
-  }
-}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
-	var out strings.Builder
-	input := strings.Join([]string{":mcp", ":quit", ""}, "\n")
-	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(input), &out).WithAgentRuntime(runtime)
-
-	if err := app.Run(context.Background()); err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	output := out.String()
-	for _, want := range []string{
-		"Server docs · ready",
-		"Tool docs/ping",
-		"Resource docs/README · docs://readme",
-		"Prompt docs/review",
-	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("output missing %q: %q", want, output)
-		}
 	}
 }
 

@@ -25,8 +25,6 @@ func (a *App) handleAgentCommand(ctx context.Context, input string) (string, boo
 		!strings.HasPrefix(trimmed, ":check ") &&
 		!strings.HasPrefix(trimmed, ":approve ") &&
 		!strings.HasPrefix(trimmed, ":run ") &&
-		!strings.HasPrefix(trimmed, ":trace ") &&
-		!strings.HasPrefix(trimmed, ":hook-run ") &&
 		!strings.HasPrefix(trimmed, ":hook ") &&
 		!strings.HasPrefix(trimmed, ":skill ") &&
 		!strings.HasPrefix(trimmed, ":proposal") {
@@ -74,7 +72,7 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		return formatReferences(references), nil
 	case input == ":mcp":
 		status := a.agent.Status(ctx)
-		return formatMCP(status.MCPServers, a.agent.ListMCPTools(ctx), a.agent.ListMCPResources(ctx), a.agent.ListMCPPrompts(ctx)), nil
+		return formatMCP(status.MCPServers, status.MCPTools, status.MCPResources, status.MCPPrompts), nil
 	case strings.HasPrefix(input, ":mcp read "):
 		call, err := a.agent.ReadMCPResource(ctx, mcpResourceReadInput(strings.TrimSpace(strings.TrimPrefix(input, ":mcp read "))))
 		if err != nil {
@@ -172,20 +170,6 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 			return "", err
 		}
 		return formatCommandRun(run), nil
-	case strings.HasPrefix(input, ":trace "):
-		event, state, detail := splitThree(strings.TrimSpace(strings.TrimPrefix(input, ":trace ")))
-		trace, err := a.agent.AddTrace(ctx, agent.TraceInput{Event: event, State: state, Detail: detail})
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Trace %s: %s", trace.Event, trace.State), nil
-	case strings.HasPrefix(input, ":hook-run "):
-		hookID, state, detail := splitThree(strings.TrimSpace(strings.TrimPrefix(input, ":hook-run ")))
-		run, err := a.agent.AddHookRun(ctx, agent.HookRunInput{HookID: hookID, State: state, Detail: detail})
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Hook run %s: %s", run.HookID, run.State), nil
 	case strings.HasPrefix(input, ":hook "):
 		id, command := splitIDAndRest(strings.TrimSpace(strings.TrimPrefix(input, ":hook ")))
 		approvalID, err := a.approvalIDForOptionalCommand(ctx, command)
@@ -210,13 +194,6 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		return fmt.Sprintf("Skill %s: %s", execution.SkillRun.SkillID, execution.SkillRun.State), nil
 	case input == ":proposal" || input == ":proposal list":
 		return formatEditProposals(a.agent.ListEditProposals(ctx)), nil
-	case strings.HasPrefix(input, ":proposal create "):
-		path, content := splitIDAndRest(strings.TrimSpace(strings.TrimPrefix(input, ":proposal create ")))
-		proposal, err := a.agent.ProposeEdit(ctx, agent.EditProposalInput{Path: path, Content: content, Summary: "Created from TUI."})
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Proposal %s: %s", proposal.Path, proposal.Status), nil
 	case strings.HasPrefix(input, ":proposal approve "):
 		return a.reviewProposal(ctx, strings.TrimSpace(strings.TrimPrefix(input, ":proposal approve ")), "approved")
 	case strings.HasPrefix(input, ":proposal reject "):
@@ -318,12 +295,9 @@ func agentHelp() string {
 		":check <command>",
 		":approve <command>",
 		":run <command>",
-		":trace <event> <state> [detail]",
-		":hook-run <id> <state> [detail]",
 		":hook <id> [command]",
 		":skill <id> [command]",
 		":proposal list",
-		":proposal create <path> <content>",
 	}, "\n")
 }
 
@@ -577,12 +551,6 @@ func splitIDAndRest(value string) (string, string) {
 		return strings.TrimSpace(value), ""
 	}
 	return strings.TrimSpace(id), strings.TrimSpace(rest)
-}
-
-func splitThree(value string) (string, string, string) {
-	first, rest := splitIDAndRest(value)
-	second, third := splitIDAndRest(rest)
-	return first, second, third
 }
 
 func onOff(value bool) string {

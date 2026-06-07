@@ -27,7 +27,7 @@ Linea reads `~/.config/linea/linea.env`. Shell variables override file values.
 Provider order and fallback toggles are saved in `~/.config/linea/settings.json`.
 
 ```sh
-API_ADDR=127.0.0.1:8080
+API_ADDR=:8080
 LINEA_RULES_FILE=AGENTS.md
 LINEA_SKILLS_DIR=
 LINEA_WORKSPACE_DIR=
@@ -82,15 +82,6 @@ Common command allowlist values:
 LINEA_COMMAND_ALLOWLIST=make test,npm run build,go test ./...
 ```
 
-Office or LAN access must be enabled explicitly. The default `API_ADDR=127.0.0.1:8080` is local-only. To expose Linea on a trusted office network, use a non-loopback bind such as:
-
-```sh
-API_ADDR=0.0.0.0:8080
-WEB_ORIGIN=http://employee-machine.local:8080
-```
-
-Only use LAN mode behind a trusted network, VPN, or reverse proxy with access controls. Linea currently streams chat over HTTP/SSE, not WebSockets, so office routing needs normal HTTP streaming support rather than WebSocket upgrade support.
-
 # Source
 
 ```sh
@@ -120,8 +111,8 @@ Vite runs at `http://localhost:5173`.
 | Setup | `linea -check` |
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
-| Server | `linea -check-server http://127.0.0.1:8080` |
-| Terminal chat | `linea -tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent`, `:diag`, `:symbols <q>`, `:refs <id>`, `:mcp`, `:mcp read <resource-id-or-uri>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent <id> [query]`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:quit`) |
+| Server | `linea -check-server http://localhost:8080` |
+| Terminal chat | `linea -tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent`, `:diag`, `:symbols <q>`, `:refs <id>`, `:mcp`, `:mcp call <tool-id> [json]`, `:subagent <id>`, `:search <q>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:quit`) |
 | Terminal picker | Number or title search |
 | Hand-rolled TUI | `linea -tui-beta` |
 | Agent status | `linea -agent-status` |
@@ -167,10 +158,6 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/subagents/{id}/run` |
 | `GET` | `/api/agent/mcp-servers` |
 | `GET` | `/api/agent/mcp-tools` |
-| `GET` | `/api/agent/mcp-resources` |
-| `POST` | `/api/agent/mcp-resources/read` |
-| `GET` | `/api/agent/mcp-prompts` |
-| `POST` | `/api/agent/mcp-prompts/get` |
 | `GET` | `/api/agent/mcp-calls` |
 | `POST` | `/api/agent/mcp-calls` |
 | `GET` | `/api/agent/traces` |
@@ -184,7 +171,6 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/loops` |
 | `POST` | `/api/agent/loops/{id}/continue` |
 | `POST` | `/api/agent/loops/{id}/cancel` |
-| `GET` | `/api/agent/previews/{id}/{name...}` |
 | `GET` | `/api/agent/command-approvals` |
 | `POST` | `/api/agent/command-approvals` |
 | `GET` | `/api/agent/command-checks` |
@@ -201,9 +187,6 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/edit-proposals` |
 | `PATCH` | `/api/agent/edit-proposals/{id}` |
 | `POST` | `/api/agent/edit-proposals/{id}/apply` |
-| `GET` | `/api/settings` |
-| `PATCH` | `/api/settings` |
-| `POST` | `/api/chat/temp` |
 | `GET` | `/api/conversations` |
 | `POST` | `/api/conversations` |
 | `PATCH` | `/api/conversations/{id}` |
