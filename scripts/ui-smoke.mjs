@@ -5,7 +5,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const baseURL = process.env.LINEA_UI_URL ?? 'http://localhost:8080/';
+const baseURL = process.env.LINEA_UI_URL ?? 'http://127.0.0.1:8080/';
 const chromePath = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sendMessage = process.argv.includes('--send');
 const checkSearchSources = process.argv.includes('--search-sources');

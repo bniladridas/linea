@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -389,6 +390,7 @@ type mcpServerConfig struct {
 	Tools     []mcpToolConfig     `json:"tools"`
 	Resources []mcpResourceConfig `json:"resources"`
 	Prompts   []mcpPromptConfig   `json:"prompts"`
+	Dir       string              `json:"-"`
 }
 
 type mcpToolConfig struct {
@@ -853,6 +855,9 @@ func getMCPPrompt(ctx context.Context, server mcpServerConfig, name string, argu
 func startMCPCommand(ctx context.Context, server mcpServerConfig) (*exec.Cmd, io.WriteCloser, *bufio.Reader, error) {
 	args := append([]string(nil), server.Args...)
 	cmd := exec.CommandContext(ctx, strings.TrimSpace(server.Command), args...)
+	if strings.TrimSpace(server.Dir) != "" {
+		cmd.Dir = server.Dir
+	}
 	cmd.Env = os.Environ()
 	for key, value := range server.Env {
 		if strings.TrimSpace(key) == "" {
@@ -1018,6 +1023,11 @@ func (r *Runtime) loadMCPConfig(ctx context.Context) (mcpConfig, bool) {
 	var config mcpConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return mcpConfig{}, false
+	}
+	configDir := filepath.Dir(r.mcpConfigPath)
+	for name, server := range config.MCPServers {
+		server.Dir = configDir
+		config.MCPServers[name] = server
 	}
 	return config, true
 }
