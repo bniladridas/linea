@@ -427,6 +427,23 @@ func TestRunHandlesAgentCommands(t *testing.T) {
 	}
 }
 
+func TestMCPResourceReadInputAcceptsDisplayedURI(t *testing.T) {
+	input := mcpResourceReadInput("docs://readme")
+	if input.URI != "docs://readme" || input.ResourceID != "" {
+		t.Fatalf("input = %#v", input)
+	}
+
+	input = mcpResourceReadInput("memory:foo")
+	if input.URI != "memory:foo" || input.ResourceID != "" {
+		t.Fatalf("input = %#v", input)
+	}
+
+	input = mcpResourceReadInput("docs/docs_readme")
+	if input.ResourceID != "docs/docs_readme" || input.URI != "" {
+		t.Fatalf("input = %#v", input)
+	}
+}
+
 func TestRunSkillUsesDefaultCommandApproval(t *testing.T) {
 	workspace := t.TempDir()
 	skillsDir := t.TempDir()

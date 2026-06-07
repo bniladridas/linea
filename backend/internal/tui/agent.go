@@ -72,7 +72,24 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		return formatReferences(references), nil
 	case input == ":mcp":
 		status := a.agent.Status(ctx)
-		return formatMCP(status.MCPServers, status.MCPTools), nil
+		return formatMCP(status.MCPServers, status.MCPTools, status.MCPResources, status.MCPPrompts), nil
+	case strings.HasPrefix(input, ":mcp read "):
+		call, err := a.agent.ReadMCPResource(ctx, mcpResourceReadInput(strings.TrimSpace(strings.TrimPrefix(input, ":mcp read "))))
+		if err != nil {
+			return "", err
+		}
+		return formatMCPCall(call), nil
+	case strings.HasPrefix(input, ":mcp prompt "):
+		promptID, rawArgs := splitIDAndRest(strings.TrimSpace(strings.TrimPrefix(input, ":mcp prompt ")))
+		args, err := parseMCPArguments(rawArgs)
+		if err != nil {
+			return "", err
+		}
+		call, err := a.agent.GetMCPPrompt(ctx, agent.MCPPromptGetInput{PromptID: promptID, Arguments: args})
+		if err != nil {
+			return "", err
+		}
+		return formatMCPCall(call), nil
 	case strings.HasPrefix(input, ":mcp call "):
 		toolID, rawArgs := splitIDAndRest(strings.TrimSpace(strings.TrimPrefix(input, ":mcp call ")))
 		args, err := parseMCPArguments(rawArgs)
@@ -271,6 +288,8 @@ func agentHelp() string {
 		":loop continue <id>",
 		":loop cancel <id>",
 		":mcp",
+		":mcp read <resource-id-or-uri>",
+		":mcp prompt <prompt-id> [json]",
 		":mcp call <tool-id> [json]",
 		":subagent [id] [query]",
 		":check <command>",
@@ -280,6 +299,30 @@ func agentHelp() string {
 		":skill <id> [command]",
 		":proposal list",
 	}, "\n")
+}
+
+func mcpResourceReadInput(value string) agent.MCPResourceReadInput {
+	if looksLikeURI(value) {
+		return agent.MCPResourceReadInput{URI: value}
+	}
+	return agent.MCPResourceReadInput{ResourceID: value}
+}
+
+func looksLikeURI(value string) bool {
+	scheme, _, ok := strings.Cut(strings.TrimSpace(value), ":")
+	if !ok || scheme == "" {
+		return false
+	}
+	for index, char := range scheme {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') {
+			continue
+		}
+		if index > 0 && ((char >= '0' && char <= '9') || char == '+' || char == '-' || char == '.') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (a *App) approvalIDForOptionalCommand(ctx context.Context, command string) (string, error) {
@@ -380,8 +423,8 @@ func formatReferences(items []agent.WorkspaceReference) string {
 	return strings.TrimSpace(b.String())
 }
 
-func formatMCP(servers []agent.MCPServer, tools []agent.MCPTool) string {
-	if len(servers) == 0 && len(tools) == 0 {
+func formatMCP(servers []agent.MCPServer, tools []agent.MCPTool, resources []agent.MCPResource, prompts []agent.MCPPrompt) string {
+	if len(servers) == 0 && len(tools) == 0 && len(resources) == 0 && len(prompts) == 0 {
 		return "No MCP entries."
 	}
 	var b strings.Builder
@@ -394,6 +437,12 @@ func formatMCP(servers []agent.MCPServer, tools []agent.MCPTool) string {
 	}
 	for _, tool := range tools {
 		fmt.Fprintf(&b, "Tool %s/%s · %s\n", tool.ServerName, tool.Name, tool.State)
+	}
+	for _, resource := range resources {
+		fmt.Fprintf(&b, "Resource %s/%s · %s\n", resource.ServerName, resource.Name, resource.URI)
+	}
+	for _, prompt := range prompts {
+		fmt.Fprintf(&b, "Prompt %s/%s · %s\n", prompt.ServerName, prompt.Name, prompt.State)
 	}
 	return strings.TrimSpace(b.String())
 }

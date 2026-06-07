@@ -94,6 +94,45 @@ func runFakeMCPServer() {
 				time.Sleep(30 * time.Second)
 			}
 			return
+		case "resources/list":
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"resources": []map[string]any{{
+						"uri":         "docs://readme",
+						"name":        "README",
+						"description": "Project README",
+						"mimeType":    "text/markdown",
+					}},
+				},
+			})
+		case "resources/read":
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"contents": []map[string]any{{"uri": "docs://readme", "mimeType": "text/markdown", "text": "# README"}},
+				},
+			})
+			return
+		case "prompts/list":
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"prompts": []map[string]any{{"name": "review", "description": "Review code"}},
+				},
+			})
+		case "prompts/get":
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"messages": []map[string]any{{"role": "user", "content": map[string]any{"type": "text", "text": "Review this"}}},
+				},
+			})
+			return
 		}
 	}
 }
@@ -801,6 +840,35 @@ func TestRuntimeAgentLoopInspectsSymbolsAndMCP(t *testing.T) {
 	}
 }
 
+func TestRuntimeAgentLoopPlansNamedMCPToolWithoutCalling(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "tools": [{"name":"ping","description":"Ping","inputSchema":"{\"type\":\"object\"}"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{Goal: "use mcp tool ping"})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopHasStep(loop, "mcp_plan", "completed") || !loopHasStep(loop, "mcp_boundary", "completed") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+	if loopHasStep(loop, "mcp_call", "completed") {
+		t.Fatalf("loop called MCP tool before approval: %#v", loop.Steps)
+	}
+	calls := runtime.ListMCPCalls(context.Background())
+	if len(calls) != 0 {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
 func TestRuntimeAgentLoopCreatesEditProposal(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "old\n")
@@ -997,7 +1065,7 @@ func TestStatusLoadsMCPServersFromConfig(t *testing.T) {
       "command": "node",
       "args": ["server.js"],
       "env": {"TOKEN": "secret"},
-      "tools": [{"name": "search_docs", "description": "Search docs"}]
+      "tools": [{"name": "search_docs", "description": "Search docs", "inputSchema": {"type":"object"}}]
     }
   }
 }`)
@@ -1024,6 +1092,9 @@ func TestStatusLoadsMCPServersFromConfig(t *testing.T) {
 	tool := status.MCPTools[0]
 	if tool.ID != "docs/search_docs" || tool.ServerID != "docs" || tool.Name != "search_docs" || tool.State != "ready" {
 		t.Fatalf("mcp tool = %#v", tool)
+	}
+	if tool.InputSchema != `{"type":"object"}` {
+		t.Fatalf("mcp tool schema = %#v", tool)
 	}
 }
 
@@ -1187,6 +1258,146 @@ func TestRuntimeCallsPersistentMCPTool(t *testing.T) {
 	}
 	if call.State != "completed" || !strings.Contains(call.Output, "pong") {
 		t.Fatalf("call = %#v", call)
+	}
+}
+
+func TestRuntimeDiscoversReadsMCPResources(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"}
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	resources := runtime.ListMCPResources(context.Background())
+	if len(resources) != 1 || resources[0].ID != "docs/"+mcpURIID("docs://readme") || resources[0].URI != "docs://readme" {
+		t.Fatalf("resources = %#v", resources)
+	}
+	call, err := runtime.ReadMCPResource(context.Background(), MCPResourceReadInput{ResourceID: resources[0].ID})
+	if err != nil {
+		t.Fatalf("ReadMCPResource() error = %v", err)
+	}
+	if call.State != "completed" || !strings.Contains(call.Output, "# README") {
+		t.Fatalf("call = %#v", call)
+	}
+}
+
+func TestRuntimeMCPResourceIDsPreserveExtensions(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "node",
+      "resources": [
+        {"uri":"file:///repo/README.md","name":"README md"},
+        {"uri":"file:///repo/README.txt","name":"README txt"}
+      ]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	resources := runtime.ListMCPResources(context.Background())
+	if len(resources) != 2 {
+		t.Fatalf("resources = %#v", resources)
+	}
+	ids := map[string]bool{}
+	for _, resource := range resources {
+		ids[resource.ID] = true
+	}
+	hasMD := false
+	hasTXT := false
+	for id := range ids {
+		hasMD = hasMD || strings.HasPrefix(id, "docs/file_repo_readme_md_")
+		hasTXT = hasTXT || strings.HasPrefix(id, "docs/file_repo_readme_txt_")
+	}
+	if !hasMD || !hasTXT {
+		t.Fatalf("resource ids = %#v", resources)
+	}
+}
+
+func TestRuntimeMCPResourceIDsAvoidPunctuationCollisions(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "node",
+      "resources": [
+        {"uri":"docs://foo-bar","name":"dash"},
+        {"uri":"docs://foo_bar","name":"underscore"}
+      ]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	resources := runtime.ListMCPResources(context.Background())
+	if len(resources) != 2 {
+		t.Fatalf("resources = %#v", resources)
+	}
+	ids := map[string]bool{}
+	for _, resource := range resources {
+		if ids[resource.ID] {
+			t.Fatalf("duplicate resource id %q in %#v", resource.ID, resources)
+		}
+		ids[resource.ID] = true
+	}
+}
+
+func TestRuntimeDiscoversGetsMCPPrompts(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"}
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	prompts := runtime.ListMCPPrompts(context.Background())
+	if len(prompts) != 1 || prompts[0].ID != "docs/"+mcpPromptID("review") || prompts[0].Name != "review" {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+	call, err := runtime.GetMCPPrompt(context.Background(), MCPPromptGetInput{PromptID: prompts[0].ID})
+	if err != nil {
+		t.Fatalf("GetMCPPrompt() error = %v", err)
+	}
+	if call.State != "completed" || !strings.Contains(call.Output, "Review this") {
+		t.Fatalf("call = %#v", call)
+	}
+}
+
+func TestRuntimeMCPPromptIDsAvoidPunctuationCollisions(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "node",
+      "prompts": [
+        {"name":"review-code","description":"dash"},
+        {"name":"review_code","description":"underscore"}
+      ]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	prompts := runtime.ListMCPPrompts(context.Background())
+	if len(prompts) != 2 {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+	ids := map[string]bool{}
+	for _, prompt := range prompts {
+		if ids[prompt.ID] {
+			t.Fatalf("duplicate prompt id %q in %#v", prompt.ID, prompts)
+		}
+		ids[prompt.ID] = true
 	}
 }
 

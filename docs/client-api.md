@@ -277,14 +277,44 @@ Returns MCP tool metadata declared in `LINEA_MCP_CONFIG`. If a configured server
     "serverName": "docs",
     "name": "search_docs",
     "description": "Search docs",
+    "inputSchema": "{\"type\":\"object\"}",
     "state": "ready"
   }
 ]
 ```
 
+`GET /api/agent/mcp-resources`
+
+Returns MCP resource metadata declared in `LINEA_MCP_CONFIG`. If a configured server has no `resources` list, Linea starts it briefly and calls `resources/list`.
+
+`POST /api/agent/mcp-resources/read`
+
+Reads a configured or discovered stdio MCP resource.
+
+```json
+{
+  "uri": "docs://readme"
+}
+```
+
+`GET /api/agent/mcp-prompts`
+
+Returns MCP prompt metadata declared in `LINEA_MCP_CONFIG`. If a configured server has no `prompts` list, Linea starts it briefly and calls `prompts/list`.
+
+`POST /api/agent/mcp-prompts/get`
+
+Gets a configured or discovered stdio MCP prompt.
+
+```json
+{
+  "name": "review",
+  "arguments": {"topic": "routing"}
+}
+```
+
 `GET /api/agent/mcp-calls`
 
-Returns recent MCP tool calls.
+Returns recent MCP tool, resource, and prompt calls.
 
 `POST /api/agent/mcp-calls`
 
