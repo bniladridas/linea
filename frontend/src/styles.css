@@ -903,6 +903,22 @@ textarea {
   margin: 0;
 }
 
+.agent-activity-output {
+  max-height: 220px;
+  margin: 2px 0 0;
+  overflow: auto;
+  border: 1px solid #1f1f1f;
+  border-radius: 6px;
+  background: #0b0b0b;
+  color: #d8d8d8;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .agent-activity.failed em,
 .agent-activity.blocked em {
   color: #c58f8f;
@@ -1496,10 +1512,19 @@ textarea {
 .workspace-root,
 .workspace-search,
 .agent-command-form,
+.agent-manual-form,
 .agent-mcp-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
+}
+
+.agent-manual-form {
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto) minmax(0, 1fr) auto;
+}
+
+.agent-manual-form.stacked {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
 }
 
 .agent-command-form,
@@ -1519,6 +1544,9 @@ textarea {
 .workspace-root input,
 .workspace-search input,
 .agent-command-form input,
+.agent-manual-form input,
+.agent-manual-form select,
+.agent-manual-form textarea,
 .agent-loop-form input,
 .agent-loop-form textarea,
 .agent-inline-input,
@@ -1537,6 +1565,8 @@ textarea {
 .workspace-root input,
 .workspace-search input,
 .agent-command-form input,
+.agent-manual-form input,
+.agent-manual-form select,
 .agent-loop-form input,
 .agent-inline-input,
 .agent-mcp-form select {
@@ -1546,6 +1576,14 @@ textarea {
 .agent-mcp-form textarea {
   grid-column: 1 / -1;
   min-height: 68px;
+  resize: vertical;
+  padding-top: 8px;
+  line-height: 1.35;
+}
+
+.agent-manual-form textarea {
+  grid-column: 1 / -1;
+  min-height: 88px;
   resize: vertical;
   padding-top: 8px;
   line-height: 1.35;
@@ -1562,6 +1600,9 @@ textarea {
 .workspace-root input:focus,
 .workspace-search input:focus,
 .agent-command-form input:focus,
+.agent-manual-form input:focus,
+.agent-manual-form select:focus,
+.agent-manual-form textarea:focus,
 .agent-loop-form input:focus,
 .agent-loop-form textarea:focus,
 .agent-inline-input:focus,
@@ -1573,6 +1614,7 @@ textarea {
 .workspace-root button,
 .workspace-search button,
 .agent-command-form button,
+.agent-manual-form button,
 .agent-loop-form button,
 .agent-loop-actions button,
 .agent-loop-link,
@@ -1596,6 +1638,8 @@ textarea {
 .workspace-search button:focus-visible:not(:disabled),
 .agent-command-form button:hover:not(:disabled),
 .agent-command-form button:focus-visible:not(:disabled),
+.agent-manual-form button:hover:not(:disabled),
+.agent-manual-form button:focus-visible:not(:disabled),
 .agent-loop-form button:hover:not(:disabled),
 .agent-loop-form button:focus-visible:not(:disabled),
 .agent-loop-actions button:hover:not(:disabled),
@@ -1615,6 +1659,7 @@ textarea {
 .workspace-root button:disabled,
 .workspace-search button:disabled,
 .agent-command-form button:disabled,
+.agent-manual-form button:disabled,
 .agent-loop-form button:disabled,
 .agent-loop-actions button:disabled,
 .agent-mcp-form button:disabled,

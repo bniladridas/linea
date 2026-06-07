@@ -38,6 +38,9 @@ type Searcher interface {
 
 type AgentRuntime interface {
 	Status(context.Context) agent.Status
+	ListMCPTools(context.Context) []agent.MCPTool
+	ListMCPResources(context.Context) []agent.MCPResource
+	ListMCPPrompts(context.Context) []agent.MCPPrompt
 	CallMCPTool(context.Context, agent.MCPCallInput) (agent.MCPCall, error)
 	ReadMCPResource(context.Context, agent.MCPResourceReadInput) (agent.MCPCall, error)
 	GetMCPPrompt(context.Context, agent.MCPPromptGetInput) (agent.MCPCall, error)
@@ -55,9 +58,12 @@ type AgentRuntime interface {
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
 	RunCommand(context.Context, agent.CommandCheckInput) (agent.CommandRun, error)
+	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
+	AddHookRun(context.Context, agent.HookRunInput) (agent.HookRun, error)
 	RunHook(context.Context, string, agent.HookExecutionInput) (agent.HookExecution, error)
 	RunSkill(context.Context, string, agent.SkillExecutionInput) (agent.SkillExecution, error)
 	ListEditProposals(context.Context) []agent.EditProposal
+	ProposeEdit(context.Context, agent.EditProposalInput) (agent.EditProposal, error)
 	ReviewEditProposal(context.Context, string, agent.EditProposalReviewInput) (agent.EditProposal, error)
 	ApplyEditProposal(context.Context, string) (agent.EditProposal, error)
 }
