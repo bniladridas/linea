@@ -60,8 +60,12 @@ type AgentRuntime interface {
 	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
 	ListMCPServers(context.Context) []agent.MCPServer
 	ListMCPTools(context.Context) []agent.MCPTool
+	ListMCPResources(context.Context) []agent.MCPResource
+	ListMCPPrompts(context.Context) []agent.MCPPrompt
 	ListMCPCalls(context.Context) []agent.MCPCall
 	CallMCPTool(context.Context, agent.MCPCallInput) (agent.MCPCall, error)
+	ReadMCPResource(context.Context, agent.MCPResourceReadInput) (agent.MCPCall, error)
+	GetMCPPrompt(context.Context, agent.MCPPromptGetInput) (agent.MCPCall, error)
 	ListTraces(context.Context) []agent.Trace
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ListHookRuns(context.Context) []agent.HookRun
@@ -199,8 +203,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/subagents/{id}/run", s.runAgentSubagent)
 	mux.HandleFunc("GET /api/agent/mcp-servers", s.listAgentMCPServers)
 	mux.HandleFunc("GET /api/agent/mcp-tools", s.listAgentMCPTools)
+	mux.HandleFunc("GET /api/agent/mcp-resources", s.listAgentMCPResources)
+	mux.HandleFunc("GET /api/agent/mcp-prompts", s.listAgentMCPPrompts)
 	mux.HandleFunc("GET /api/agent/mcp-calls", s.listAgentMCPCalls)
 	mux.HandleFunc("POST /api/agent/mcp-calls", s.callAgentMCPTool)
+	mux.HandleFunc("POST /api/agent/mcp-resources/read", s.readAgentMCPResource)
+	mux.HandleFunc("POST /api/agent/mcp-prompts/get", s.getAgentMCPPrompt)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
 	mux.HandleFunc("GET /api/agent/hook-runs", s.listAgentHookRuns)
@@ -352,6 +360,22 @@ func (s *Server) listAgentMCPTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPTools(r.Context()))
 }
 
+func (s *Server) listAgentMCPResources(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.MCPResource{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPResources(r.Context()))
+}
+
+func (s *Server) listAgentMCPPrompts(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.MCPPrompt{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPPrompts(r.Context()))
+}
+
 func (s *Server) listAgentMCPCalls(w http.ResponseWriter, r *http.Request) {
 	if s.agentRuntime == nil {
 		writeJSON(w, http.StatusOK, []agent.MCPCall{})
@@ -376,6 +400,44 @@ func (s *Server) callAgentMCPTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recordAgentTrace(r.Context(), "mcp call", call.State, call.ToolID)
+	writeJSON(w, http.StatusCreated, call)
+}
+
+func (s *Server) readAgentMCPResource(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "MCP resources are not available.")
+		return
+	}
+	var input agent.MCPResourceReadInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	call, err := s.agentRuntime.ReadMCPResource(r.Context(), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "mcp resource", call.State, call.ToolID)
+	writeJSON(w, http.StatusCreated, call)
+}
+
+func (s *Server) getAgentMCPPrompt(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "MCP prompts are not available.")
+		return
+	}
+	var input agent.MCPPromptGetInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	call, err := s.agentRuntime.GetMCPPrompt(r.Context(), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "mcp prompt", call.State, call.ToolID)
 	writeJSON(w, http.StatusCreated, call)
 }
 

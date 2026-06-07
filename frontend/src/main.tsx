@@ -131,6 +131,25 @@ type AgentStatus = {
     serverId: string;
     serverName?: string;
     description?: string;
+    inputSchema?: string;
+    state?: string;
+  }>;
+  mcpResources?: Array<{
+    id: string;
+    uri: string;
+    name: string;
+    serverId: string;
+    serverName?: string;
+    description?: string;
+    mimeType?: string;
+    state?: string;
+  }>;
+  mcpPrompts?: Array<{
+    id: string;
+    name: string;
+    serverId: string;
+    serverName?: string;
+    description?: string;
     state?: string;
   }>;
   mcpCalls?: Array<{
@@ -713,17 +732,23 @@ function App() {
   }
 
   async function refreshAgentDetails() {
-    const [status, mcpTools] = await Promise.all([
+    const [status, mcpTools, mcpResources, mcpPrompts] = await Promise.all([
       request<AgentStatus>('/api/agent')
         .then((data) => data)
         .catch(() => null),
       request<NonNullable<AgentStatus['mcpTools']>>('/api/agent/mcp-tools')
         .then((data) => (Array.isArray(data) ? data : []))
         .catch(() => []),
+      request<NonNullable<AgentStatus['mcpResources']>>('/api/agent/mcp-resources')
+        .then((data) => (Array.isArray(data) ? data : []))
+        .catch(() => []),
+      request<NonNullable<AgentStatus['mcpPrompts']>>('/api/agent/mcp-prompts')
+        .then((data) => (Array.isArray(data) ? data : []))
+        .catch(() => []),
       loadAgentRuns(),
       loadAgentEditProposals(),
     ]);
-    setAgentStatus(status ? { ...status, mcpTools } : null);
+    setAgentStatus(status ? { ...status, mcpTools, mcpResources, mcpPrompts } : null);
     return status;
   }
 
@@ -900,6 +925,56 @@ function App() {
       });
     } catch (mcpError) {
       const message = mcpError instanceof Error ? mcpError.message : 'Could not call MCP tool.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
+    }
+  }
+
+  async function readAgentMCPResource(resourceId: string) {
+    const activityId = recordAgentActivity({
+      kind: 'mcp',
+      label: 'Read resource',
+      state: 'running',
+      params: resourceId,
+    });
+    try {
+      const call = await request<{ state: string; output?: string; error?: string; truncated?: boolean }>('/api/agent/mcp-resources/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resourceId }),
+      });
+      await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: call.state === 'failed' ? 'failed' : 'completed',
+        result: summarizeAgentResult(call.state, call.error || call.output, call.truncated),
+      });
+    } catch (mcpError) {
+      const message = mcpError instanceof Error ? mcpError.message : 'Could not read MCP resource.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
+    }
+  }
+
+  async function getAgentMCPPrompt(promptId: string, args: Record<string, unknown>) {
+    const activityId = recordAgentActivity({
+      kind: 'mcp',
+      label: 'Get prompt',
+      state: 'running',
+      params: `${promptId} ${summarizeJSON(args)}`.trim(),
+    });
+    try {
+      const call = await request<{ state: string; output?: string; error?: string; truncated?: boolean }>('/api/agent/mcp-prompts/get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promptId, arguments: args }),
+      });
+      await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: call.state === 'failed' ? 'failed' : 'completed',
+        result: summarizeAgentResult(call.state, call.error || call.output, call.truncated),
+      });
+    } catch (mcpError) {
+      const message = mcpError instanceof Error ? mcpError.message : 'Could not get MCP prompt.';
       updateAgentActivity(activityId, { state: 'failed', result: message });
       setError(message);
     }
@@ -1873,6 +1948,8 @@ function App() {
           onRunSkill={(skillId, command, approvalId) => void runAgentSkill(skillId, command, approvalId)}
           onRunSubagent={(subagentId, query) => void runAgentSubagent(subagentId, query)}
           onCallMCPTool={(toolId, args) => void callAgentMCPTool(toolId, args)}
+          onReadMCPResource={(resourceId) => void readAgentMCPResource(resourceId)}
+          onGetMCPPrompt={(promptId, args) => void getAgentMCPPrompt(promptId, args)}
           onSaveRun={() => void saveAgentRunSnapshot()}
           onStartLoop={(input) => void startAgentLoop(input)}
           onContinueLoop={(loopId, input) => void continueAgentLoop(loopId, input)}
@@ -2385,6 +2462,8 @@ function SystemDetailsDialog({
   onRunSkill,
   onRunSubagent,
   onCallMCPTool,
+  onReadMCPResource,
+  onGetMCPPrompt,
   onSaveRun,
   onStartLoop,
   onContinueLoop,
@@ -2408,6 +2487,8 @@ function SystemDetailsDialog({
   onRunSkill: (skillId: string, command: string, approvalId?: string) => void;
   onRunSubagent: (subagentId: string, query: string) => void;
   onCallMCPTool: (toolId: string, args: Record<string, unknown>) => void;
+  onReadMCPResource: (resourceId: string) => void;
+  onGetMCPPrompt: (promptId: string, args: Record<string, unknown>) => void;
   onSaveRun: () => void;
   onStartLoop: (input: AgentLoopRequest) => void;
   onContinueLoop: (loopId: string, input: Omit<AgentLoopRequest, 'goal'>) => void;
@@ -2429,7 +2510,10 @@ function SystemDetailsDialog({
   const [hookCommandInput, setHookCommandInput] = useState('');
   const [skillCommandInput, setSkillCommandInput] = useState('');
   const [mcpToolId, setMCPToolId] = useState(agentStatus?.mcpTools?.[0]?.id ?? '');
+  const [mcpResourceId, setMCPResourceId] = useState(agentStatus?.mcpResources?.[0]?.id ?? '');
+  const [mcpPromptId, setMCPPromptId] = useState(agentStatus?.mcpPrompts?.[0]?.id ?? '');
   const [mcpArguments, setMCPArguments] = useState('{}');
+  const [mcpPromptArguments, setMCPPromptArguments] = useState('{}');
   const [mcpError, setMCPError] = useState<string | null>(null);
   const [workspaceRootInput, setWorkspaceRootInput] = useState(agentStatus?.workspaceRoot ?? '');
   const [workspaceQuery, setWorkspaceQuery] = useState('');
@@ -2454,6 +2538,8 @@ function SystemDetailsDialog({
   const selectedProposal =
     editProposals.find((proposal) => proposal.id === selectedProposalId) ?? editProposals[0] ?? null;
   const mcpTools = agentStatus?.mcpTools ?? [];
+  const mcpResources = agentStatus?.mcpResources ?? [];
+  const mcpPrompts = agentStatus?.mcpPrompts ?? [];
   const agentTimeline = useMemo(() => buildAgentTimeline(agentStatus, editProposals), [agentStatus, editProposals]);
   const workspaceEmptyText = !workspaceOn
     ? 'Workspace tools are off'
@@ -2486,6 +2572,26 @@ function SystemDetailsDialog({
       setMCPToolId(mcpTools[0].id);
     }
   }, [mcpToolId, mcpTools]);
+
+  useEffect(() => {
+    if (!mcpResourceId && mcpResources.length > 0) {
+      setMCPResourceId(mcpResources[0].id);
+      return;
+    }
+    if (mcpResourceId && mcpResources.length > 0 && !mcpResources.some((resource) => resource.id === mcpResourceId)) {
+      setMCPResourceId(mcpResources[0].id);
+    }
+  }, [mcpResourceId, mcpResources]);
+
+  useEffect(() => {
+    if (!mcpPromptId && mcpPrompts.length > 0) {
+      setMCPPromptId(mcpPrompts[0].id);
+      return;
+    }
+    if (mcpPromptId && mcpPrompts.length > 0 && !mcpPrompts.some((prompt) => prompt.id === mcpPromptId)) {
+      setMCPPromptId(mcpPrompts[0].id);
+    }
+  }, [mcpPromptId, mcpPrompts]);
 
   useEffect(() => {
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
@@ -2659,6 +2765,38 @@ function SystemDetailsDialog({
     onCallMCPTool(mcpToolId, args as Record<string, unknown>);
   }
 
+  function submitMCPResourceRead(event: FormEvent) {
+    event.preventDefault();
+    if (!mcpResourceId) {
+      return;
+    }
+    setMCPError(null);
+    onReadMCPResource(mcpResourceId);
+  }
+
+  function submitMCPPromptGet(event: FormEvent) {
+    event.preventDefault();
+    if (!mcpPromptId) {
+      return;
+    }
+    let args: unknown = {};
+    const rawArgs = mcpPromptArguments.trim();
+    if (rawArgs) {
+      try {
+        args = JSON.parse(rawArgs);
+      } catch {
+        setMCPError('Prompt arguments must be JSON.');
+        return;
+      }
+    }
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      setMCPError('Prompt arguments must be a JSON object.');
+      return;
+    }
+    setMCPError(null);
+    onGetMCPPrompt(mcpPromptId, args as Record<string, unknown>);
+  }
+
   return (
     <div className="dialog-backdrop" onPointerDown={onClose}>
       <section
@@ -2705,6 +2843,8 @@ function SystemDetailsDialog({
           <DetailsSection title="MCP">
             <DetailLine label="Servers" value={String(agentStatus?.mcpServers?.length ?? 0)} />
             <DetailLine label="Tools" value={String(agentStatus?.mcpTools?.length ?? 0)} />
+            <DetailLine label="Resources" value={String(agentStatus?.mcpResources?.length ?? 0)} />
+            <DetailLine label="Prompts" value={String(agentStatus?.mcpPrompts?.length ?? 0)} />
           </DetailsSection>
         </div>
 
@@ -2977,6 +3117,55 @@ function SystemDetailsDialog({
             <h3>MCP</h3>
             <span>{agentStatus?.runSummary?.mcpCalls ?? 0}</span>
           </div>
+          <form className="agent-mcp-form" onSubmit={submitMCPResourceRead}>
+            <select
+              aria-label="MCP resource"
+              disabled={mcpResources.length === 0}
+              value={mcpResourceId}
+              onChange={(event) => setMCPResourceId(event.target.value)}
+            >
+              {mcpResources.length === 0 ? (
+                <option value="">No resources</option>
+              ) : (
+                mcpResources.map((resource) => (
+                  <option key={resource.id} value={resource.id}>
+                    {resource.serverName || resource.serverId}/{resource.name}
+                  </option>
+                ))
+              )}
+            </select>
+            <button disabled={!mcpResourceId} type="submit">
+              Read
+            </button>
+          </form>
+          <form className="agent-mcp-form" onSubmit={submitMCPPromptGet}>
+            <select
+              aria-label="MCP prompt"
+              disabled={mcpPrompts.length === 0}
+              value={mcpPromptId}
+              onChange={(event) => setMCPPromptId(event.target.value)}
+            >
+              {mcpPrompts.length === 0 ? (
+                <option value="">No prompts</option>
+              ) : (
+                mcpPrompts.map((prompt) => (
+                  <option key={prompt.id} value={prompt.id}>
+                    {prompt.serverName || prompt.serverId}/{prompt.name}
+                  </option>
+                ))
+              )}
+            </select>
+            <textarea
+              aria-label="MCP prompt arguments"
+              disabled={mcpPrompts.length === 0}
+              rows={2}
+              value={mcpPromptArguments}
+              onChange={(event) => setMCPPromptArguments(event.target.value)}
+            />
+            <button disabled={!mcpPromptId} type="submit">
+              Get
+            </button>
+          </form>
           <form className="agent-mcp-form" onSubmit={submitMCPCall}>
             <select
               aria-label="MCP tool"
@@ -3020,6 +3209,23 @@ function SystemDetailsDialog({
                 <div>
                   <strong>{tool.name}</strong>
                   <span>{tool.description || tool.serverName || tool.serverId}</span>
+                  {tool.inputSchema && <span>{tool.inputSchema}</span>}
+                </div>
+              </div>
+            ))}
+            {(agentStatus?.mcpResources ?? []).map((resource) => (
+              <div className="agent-card read-only" key={resource.id}>
+                <div>
+                  <strong>{resource.name}</strong>
+                  <span>{resource.description || resource.uri}</span>
+                </div>
+              </div>
+            ))}
+            {(agentStatus?.mcpPrompts ?? []).map((prompt) => (
+              <div className="agent-card read-only" key={prompt.id}>
+                <div>
+                  <strong>{prompt.name}</strong>
+                  <span>{prompt.description || prompt.serverName || prompt.serverId}</span>
                 </div>
               </div>
             ))}
@@ -3031,7 +3237,10 @@ function SystemDetailsDialog({
                 </div>
               </div>
             ))}
-            {(agentStatus?.mcpServers ?? []).length === 0 && (agentStatus?.mcpTools ?? []).length === 0 && <p>No MCP entries</p>}
+            {(agentStatus?.mcpServers ?? []).length === 0 &&
+              (agentStatus?.mcpTools ?? []).length === 0 &&
+              (agentStatus?.mcpResources ?? []).length === 0 &&
+              (agentStatus?.mcpPrompts ?? []).length === 0 && <p>No MCP entries</p>}
           </div>
         </section>
 

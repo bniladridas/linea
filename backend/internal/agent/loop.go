@@ -766,7 +766,20 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 	if strings.Contains(goalLower, "mcp") {
 		servers := r.ListMCPServers(ctx)
 		tools := r.ListMCPTools(ctx)
-		loop = appendLoopStep(loop, "mcp", "Inspect MCP", "mcp", nil, fmt.Sprintf("%d server(s), %d tool(s)", len(servers), len(tools)), "")
+		resources := r.ListMCPResources(ctx)
+		prompts := r.ListMCPPrompts(ctx)
+		loop = appendLoopStep(loop, "mcp", "Inspect MCP", "mcp", nil, fmt.Sprintf("%d server(s), %d tool(s), %d resource(s), %d prompt(s)", len(servers), len(tools), len(resources), len(prompts)), "")
+		if plan, ok := planMCPAction(goalLower, tools, resources, prompts); ok {
+			loop = appendLoopStep(loop, "mcp_plan", plan.Title, plan.ToolID, nil, plan.Target, "")
+			if plan.Kind == "mcp_call" {
+				loop = appendLoopStep(loop, "mcp_boundary", "Review MCP tool", plan.ToolID, nil, "Run this MCP tool explicitly from System or TUI.", "")
+				return loop
+			}
+			result := r.executeMCPPlanStep(ctx, plan)
+			loop = appendLoopExecutionStep(loop, plan.Kind, plan.ExecutionTitle, plan.ToolID, result.Err, result.Detail, result.CreatedID)
+			validation := validateMCPExecution(plan, result)
+			loop = appendLoopStep(loop, "mcp_validate", "Validate MCP result", plan.ToolID, validation.Err, validation.Detail, "")
+		}
 	}
 	if loop.Mode == "auto" && autoLoopLimitReached(loop) {
 		return appendAutoLimitStep(loop)
@@ -1031,6 +1044,14 @@ func appendLoopStep(loop AgentLoop, kind string, title string, toolID string, er
 	}
 	if state == "waiting_input" && loop.State != "attention" {
 		loop.State = "waiting_input"
+	}
+	return loop
+}
+
+func appendLoopExecutionStep(loop AgentLoop, kind string, title string, toolID string, err error, detail string, createdID string) AgentLoop {
+	loop = appendLoopStep(loop, kind, title, toolID, err, detail, "")
+	if strings.TrimSpace(createdID) != "" && len(loop.Steps) > 0 {
+		loop.Steps[len(loop.Steps)-1].CreatedID = createdID
 	}
 	return loop
 }
@@ -1981,6 +2002,151 @@ func loopSymbolQuery(input AgentLoopInput, goal string) string {
 		}
 	}
 	return ""
+}
+
+type loopPlanStep struct {
+	Kind           string
+	Title          string
+	ExecutionTitle string
+	ToolID         string
+	Target         string
+}
+
+type loopExecutionResult struct {
+	Detail    string
+	CreatedID string
+	Err       error
+}
+
+type loopValidationResult struct {
+	Detail string
+	Err    error
+}
+
+func planMCPAction(goal string, tools []MCPTool, resources []MCPResource, prompts []MCPPrompt) (loopPlanStep, bool) {
+	if selected := selectMCPResourceForGoal(goal, resources); selected != "" {
+		return loopPlanStep{
+			Kind:           "mcp_resource",
+			Title:          "Plan MCP resource",
+			ExecutionTitle: "Read MCP resource",
+			ToolID:         "mcp",
+			Target:         selected,
+		}, true
+	}
+	if selected := selectMCPPromptForGoal(goal, prompts); selected != "" {
+		return loopPlanStep{
+			Kind:           "mcp_prompt",
+			Title:          "Plan MCP prompt",
+			ExecutionTitle: "Get MCP prompt",
+			ToolID:         "mcp",
+			Target:         selected,
+		}, true
+	}
+	if selected := selectMCPToolForGoal(goal, tools); selected != "" {
+		return loopPlanStep{
+			Kind:           "mcp_call",
+			Title:          "Plan MCP tool",
+			ExecutionTitle: "Call MCP tool",
+			ToolID:         "mcp",
+			Target:         selected,
+		}, true
+	}
+	return loopPlanStep{}, false
+}
+
+func (r *Runtime) executeMCPPlanStep(ctx context.Context, plan loopPlanStep) loopExecutionResult {
+	var call MCPCall
+	var err error
+	switch plan.Kind {
+	case "mcp_resource":
+		call, err = r.ReadMCPResource(ctx, MCPResourceReadInput{ResourceID: plan.Target})
+	case "mcp_prompt":
+		call, err = r.GetMCPPrompt(ctx, MCPPromptGetInput{PromptID: plan.Target})
+	case "mcp_call":
+		call, err = r.CallMCPTool(ctx, MCPCallInput{ToolID: plan.Target})
+	default:
+		err = fmt.Errorf("unknown MCP plan step %q", plan.Kind)
+	}
+	return loopExecutionResult{
+		Detail:    summarizeMCPCall(call),
+		CreatedID: call.ID,
+		Err:       err,
+	}
+}
+
+func validateMCPExecution(plan loopPlanStep, result loopExecutionResult) loopValidationResult {
+	if result.Err != nil {
+		return loopValidationResult{Err: result.Err}
+	}
+	if strings.TrimSpace(result.CreatedID) == "" {
+		return loopValidationResult{Err: errors.New("MCP result was not recorded.")}
+	}
+	if strings.TrimSpace(result.Detail) == "" {
+		return loopValidationResult{Err: errors.New("MCP result was empty.")}
+	}
+	return loopValidationResult{Detail: fmt.Sprintf("%s recorded.", plan.Target)}
+}
+
+func selectMCPResourceForGoal(goal string, resources []MCPResource) string {
+	if !strings.Contains(goal, "resource") && !strings.Contains(goal, "read") {
+		return ""
+	}
+	for _, resource := range resources {
+		if mcpEntryMatchesGoal(goal, resource.ID, resource.Name, resource.URI) {
+			return resource.ID
+		}
+	}
+	return ""
+}
+
+func selectMCPPromptForGoal(goal string, prompts []MCPPrompt) string {
+	if !strings.Contains(goal, "prompt") {
+		return ""
+	}
+	for _, prompt := range prompts {
+		if mcpEntryMatchesGoal(goal, prompt.ID, prompt.Name) {
+			return prompt.ID
+		}
+	}
+	return ""
+}
+
+func selectMCPToolForGoal(goal string, tools []MCPTool) string {
+	if !strings.Contains(goal, "tool") && !strings.Contains(goal, "call") && !strings.Contains(goal, "run") {
+		return ""
+	}
+	for _, tool := range tools {
+		if mcpEntryMatchesGoal(goal, tool.ID, tool.Name) {
+			return tool.ID
+		}
+	}
+	return ""
+}
+
+func mcpEntryMatchesGoal(goal string, values ...string) bool {
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if strings.Contains(goal, value) || strings.Contains(goal, strings.ReplaceAll(value, "_", "-")) {
+			return true
+		}
+	}
+	return false
+}
+
+func summarizeMCPCall(call MCPCall) string {
+	if call.State == "" {
+		return ""
+	}
+	detail := call.ToolID
+	if call.Error != "" {
+		detail += " · " + call.Error
+	} else if call.Output != "" {
+		detail += fmt.Sprintf(" · %d bytes", len(call.Output))
+	}
+	return detail
 }
 
 func goalMatchesCommandTerms(goal string, terms []string) bool {

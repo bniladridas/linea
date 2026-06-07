@@ -62,6 +62,8 @@ type Status struct {
 	Subagents        []Subagent        `json:"subagents"`
 	MCPServers       []MCPServer       `json:"mcpServers"`
 	MCPTools         []MCPTool         `json:"mcpTools"`
+	MCPResources     []MCPResource     `json:"mcpResources"`
+	MCPPrompts       []MCPPrompt       `json:"mcpPrompts"`
 	MCPCalls         []MCPCall         `json:"mcpCalls"`
 	Boundaries       []string          `json:"boundaries"`
 	Next             []string          `json:"next"`
@@ -267,6 +269,27 @@ type MCPTool struct {
 	ServerName  string `json:"serverName"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	InputSchema string `json:"inputSchema,omitempty"`
+	State       string `json:"state"`
+}
+
+type MCPResource struct {
+	ID          string `json:"id"`
+	ServerID    string `json:"serverId"`
+	ServerName  string `json:"serverName"`
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	State       string `json:"state"`
+}
+
+type MCPPrompt struct {
+	ID          string `json:"id"`
+	ServerID    string `json:"serverId"`
+	ServerName  string `json:"serverName"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 	State       string `json:"state"`
 }
 
@@ -284,6 +307,17 @@ type MCPCall struct {
 
 type MCPCallInput struct {
 	ToolID    string         `json:"toolId"`
+	Arguments map[string]any `json:"arguments,omitempty"`
+}
+
+type MCPResourceReadInput struct {
+	ResourceID string `json:"resourceId,omitempty"`
+	URI        string `json:"uri,omitempty"`
+}
+
+type MCPPromptGetInput struct {
+	PromptID  string         `json:"promptId,omitempty"`
+	Name      string         `json:"name,omitempty"`
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
@@ -377,6 +411,8 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		Subagents:        defaultSubagents(),
 		MCPServers:       r.mcpServers(ctx),
 		MCPTools:         r.statusMCPTools(ctx),
+		MCPResources:     r.statusMCPResources(ctx),
+		MCPPrompts:       r.statusMCPPrompts(ctx),
 		MCPCalls:         r.statusMCPCalls(),
 		Boundaries:       defaultBoundaries(),
 		Next:             defaultNext(),

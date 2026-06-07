@@ -39,6 +39,8 @@ type Searcher interface {
 type AgentRuntime interface {
 	Status(context.Context) agent.Status
 	CallMCPTool(context.Context, agent.MCPCallInput) (agent.MCPCall, error)
+	ReadMCPResource(context.Context, agent.MCPResourceReadInput) (agent.MCPCall, error)
+	GetMCPPrompt(context.Context, agent.MCPPromptGetInput) (agent.MCPCall, error)
 	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)

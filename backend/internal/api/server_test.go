@@ -1125,6 +1125,44 @@ func TestAgentMCPToolsEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentMCPResourcesPromptsEndpoints(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","resources":[{"uri":"docs://readme","name":"README"}],"prompts":[{"name":"review","description":"Review code"}]}}}`)
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	resourceReq := httptest.NewRequest(http.MethodGet, "/api/agent/mcp-resources", nil)
+	resourceRes := httptest.NewRecorder()
+	server.ServeHTTP(resourceRes, resourceReq)
+	if resourceRes.Code != http.StatusOK {
+		t.Fatalf("resource status = %d, want %d: %s", resourceRes.Code, http.StatusOK, resourceRes.Body.String())
+	}
+	var resources []agent.MCPResource
+	if err := json.NewDecoder(resourceRes.Body).Decode(&resources); err != nil {
+		t.Fatalf("Decode resources error = %v", err)
+	}
+	if len(resources) != 1 || !strings.HasPrefix(resources[0].ID, "docs/docs_readme_") || resources[0].URI != "docs://readme" {
+		t.Fatalf("resources = %#v", resources)
+	}
+
+	promptReq := httptest.NewRequest(http.MethodGet, "/api/agent/mcp-prompts", nil)
+	promptRes := httptest.NewRecorder()
+	server.ServeHTTP(promptRes, promptReq)
+	if promptRes.Code != http.StatusOK {
+		t.Fatalf("prompt status = %d, want %d: %s", promptRes.Code, http.StatusOK, promptRes.Body.String())
+	}
+	var prompts []agent.MCPPrompt
+	if err := json.NewDecoder(promptRes.Body).Decode(&prompts); err != nil {
+		t.Fatalf("Decode prompts error = %v", err)
+	}
+	if len(prompts) != 1 || !strings.HasPrefix(prompts[0].ID, "docs/review_") || prompts[0].Description != "Review code" {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+}
+
 func TestCreateAgentTraceRejectsEmptyEvent(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")

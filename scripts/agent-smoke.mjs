@@ -113,6 +113,12 @@ async function runChecks() {
   const mcpTools = await requestJSON('/api/agent/mcp-tools');
   assert(Array.isArray(mcpTools), 'mcp tool list is not an array');
 
+  const mcpResources = await requestJSON('/api/agent/mcp-resources');
+  assert(Array.isArray(mcpResources), 'mcp resource list is not an array');
+
+  const mcpPrompts = await requestJSON('/api/agent/mcp-prompts');
+  assert(Array.isArray(mcpPrompts), 'mcp prompt list is not an array');
+
   const mcpCalls = await requestJSON('/api/agent/mcp-calls');
   assert(Array.isArray(mcpCalls), 'mcp call list is not an array');
 
