@@ -21,6 +21,16 @@ func TestEnvBoolUsesFallbackForUnknownValues(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsAPIAddrToLoopback(t *testing.T) {
+	t.Setenv("API_ADDR", "")
+
+	cfg := Load()
+
+	if cfg.APIAddr != "127.0.0.1:8080" {
+		t.Fatalf("APIAddr = %q, want 127.0.0.1:8080", cfg.APIAddr)
+	}
+}
+
 func TestLoadReadsAgentRulesPath(t *testing.T) {
 	t.Setenv("LINEA_RULES_FILE", "docs/rules.md")
 	t.Setenv("LINEA_SKILLS_DIR", "docs/skills")

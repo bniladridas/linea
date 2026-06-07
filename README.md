@@ -22,7 +22,7 @@ Uses memory storage when `DATABASE_URL` is empty.
 
 Run `linea`.
 
-Open `http://localhost:8080`.
+Open `http://127.0.0.1:8080`.
 
 Run `linea -check` to check setup.
 

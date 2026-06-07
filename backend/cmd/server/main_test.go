@@ -126,6 +126,30 @@ func TestPrintAgentStatusWritesLocalContract(t *testing.T) {
 	}
 }
 
+func TestIsPublicAPIAddr(t *testing.T) {
+	tests := []struct {
+		name string
+		addr string
+		want bool
+	}{
+		{name: "loopback ipv4", addr: "127.0.0.1:8080", want: false},
+		{name: "localhost", addr: "localhost:8080", want: false},
+		{name: "loopback ipv6", addr: "[::1]:8080", want: false},
+		{name: "port only", addr: ":8080", want: true},
+		{name: "all ipv4", addr: "0.0.0.0:8080", want: true},
+		{name: "all ipv6", addr: "[::]:8080", want: true},
+		{name: "lan ipv4", addr: "192.168.1.20:8080", want: true},
+		{name: "hostname", addr: "linea.local:8080", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isPublicAPIAddr(tt.addr); got != tt.want {
+				t.Fatalf("isPublicAPIAddr(%q) = %v, want %v", tt.addr, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProviderSettingsStorePersistsOrderAndToggles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	defaults := api.Settings{Providers: []api.ProviderSetting{

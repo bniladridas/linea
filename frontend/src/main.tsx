@@ -312,6 +312,7 @@ type AgentActivity = {
   state: AgentActivityState;
   params?: string;
   result?: string;
+  resultDetail?: string;
   createdAt: string;
 };
 
@@ -731,6 +732,32 @@ function App() {
     }
   }
 
+  async function createAgentEditProposal(input: { path: string; content: string; summary?: string }) {
+    const activityId = recordAgentActivity({
+      kind: 'proposal',
+      label: 'Create proposal',
+      state: 'running',
+      params: input.path,
+    });
+    try {
+      const proposal = await request<AgentEditProposal>('/api/agent/edit-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      setAgentEditProposals((items) => [proposal, ...items.filter((item) => item.id !== proposal.id)]);
+      await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: 'completed',
+        result: proposal.summary || proposal.status,
+      });
+    } catch (proposalError) {
+      const message = proposalError instanceof Error ? proposalError.message : 'Could not create proposal.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
+    }
+  }
+
   async function refreshAgentDetails() {
     const [status, mcpTools, mcpResources, mcpPrompts] = await Promise.all([
       request<AgentStatus>('/api/agent')
@@ -855,6 +882,31 @@ function App() {
     }
   }
 
+  async function createAgentHookRun(input: { hookId: string; state: string; detail?: string }) {
+    const activityId = recordAgentActivity({
+      kind: 'hook',
+      label: 'Record hook run',
+      state: 'running',
+      params: input.hookId,
+    });
+    try {
+      const run = await request<{ hookId: string; state: string; detail?: string }>('/api/agent/hook-runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: run.state === 'failed' ? 'failed' : 'completed',
+        result: run.detail || run.state,
+      });
+    } catch (hookError) {
+      const message = hookError instanceof Error ? hookError.message : 'Could not record hook run.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
+    }
+  }
+
   async function runAgentSkill(skillId: string, command: string, approvalId?: string) {
     const activityId = recordAgentActivity({
       kind: 'skill',
@@ -922,6 +974,7 @@ function App() {
       updateAgentActivity(activityId, {
         state: call.state === 'failed' ? 'failed' : 'completed',
         result: summarizeAgentResult(call.state, call.error || call.output, call.truncated),
+        resultDetail: formatAgentActivityDetail(call.error || call.output),
       });
     } catch (mcpError) {
       const message = mcpError instanceof Error ? mcpError.message : 'Could not call MCP tool.';
@@ -947,6 +1000,7 @@ function App() {
       updateAgentActivity(activityId, {
         state: call.state === 'failed' ? 'failed' : 'completed',
         result: summarizeAgentResult(call.state, call.error || call.output, call.truncated),
+        resultDetail: formatAgentActivityDetail(call.error || call.output),
       });
     } catch (mcpError) {
       const message = mcpError instanceof Error ? mcpError.message : 'Could not read MCP resource.';
@@ -972,6 +1026,7 @@ function App() {
       updateAgentActivity(activityId, {
         state: call.state === 'failed' ? 'failed' : 'completed',
         result: summarizeAgentResult(call.state, call.error || call.output, call.truncated),
+        resultDetail: formatAgentActivityDetail(call.error || call.output),
       });
     } catch (mcpError) {
       const message = mcpError instanceof Error ? mcpError.message : 'Could not get MCP prompt.';
@@ -986,6 +1041,31 @@ function App() {
       await refreshAgentDetails();
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Could not save agent run.');
+    }
+  }
+
+  async function createAgentTrace(input: { event: string; state: string; detail?: string }) {
+    const activityId = recordAgentActivity({
+      kind: 'trace',
+      label: 'Create trace',
+      state: 'running',
+      params: input.event,
+    });
+    try {
+      const trace = await request<{ event: string; state: string; detail?: string }>('/api/agent/traces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: trace.state === 'failed' ? 'failed' : 'completed',
+        result: trace.detail || trace.state,
+      });
+    } catch (traceError) {
+      const message = traceError instanceof Error ? traceError.message : 'Could not create trace.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
     }
   }
 
@@ -1941,16 +2021,19 @@ function App() {
           settings={appSettings}
           onReviewProposal={(proposalId, status) => void reviewAgentEditProposal(proposalId, status)}
           onApplyProposal={(proposalId) => void applyAgentEditProposal(proposalId)}
+          onCreateProposal={(input) => void createAgentEditProposal(input)}
           onApproveCommand={(command) => void approveAgentCommand(command)}
           onCheckCommand={(command) => void checkAgentCommand(command)}
           onRunCommand={(command, approvalId) => void runAgentCommand(command, approvalId)}
           onRunHook={(hookId, command, approvalId) => void runAgentHook(hookId, command, approvalId)}
+          onCreateHookRun={(input) => void createAgentHookRun(input)}
           onRunSkill={(skillId, command, approvalId) => void runAgentSkill(skillId, command, approvalId)}
           onRunSubagent={(subagentId, query) => void runAgentSubagent(subagentId, query)}
           onCallMCPTool={(toolId, args) => void callAgentMCPTool(toolId, args)}
           onReadMCPResource={(resourceId) => void readAgentMCPResource(resourceId)}
           onGetMCPPrompt={(promptId, args) => void getAgentMCPPrompt(promptId, args)}
           onSaveRun={() => void saveAgentRunSnapshot()}
+          onCreateTrace={(input) => void createAgentTrace(input)}
           onStartLoop={(input) => void startAgentLoop(input)}
           onContinueLoop={(loopId, input) => void continueAgentLoop(loopId, input)}
           onCancelLoop={(loopId) => void cancelAgentLoop(loopId)}
@@ -2044,6 +2127,7 @@ function AgentActivityRow({ activity }: { activity: AgentActivity }) {
           {activity.result && <span>{activity.result}</span>}
         </p>
       )}
+      {activity.resultDetail && <pre className="agent-activity-output">{activity.resultDetail}</pre>}
     </article>
   );
 }
@@ -2456,6 +2540,9 @@ function SystemDetailsDialog({
   onApproveCommand,
   onCheckCommand,
   onClose,
+  onCreateHookRun,
+  onCreateProposal,
+  onCreateTrace,
   onReviewProposal,
   onRunCommand,
   onRunHook,
@@ -2481,6 +2568,9 @@ function SystemDetailsDialog({
   onApproveCommand: (command: string) => void;
   onCheckCommand: (command: string) => void;
   onClose: () => void;
+  onCreateHookRun: (input: { hookId: string; state: string; detail?: string }) => void;
+  onCreateProposal: (input: { path: string; content: string; summary?: string }) => void;
+  onCreateTrace: (input: { event: string; state: string; detail?: string }) => void;
   onReviewProposal: (proposalId: string, status: 'approved' | 'rejected') => void;
   onRunCommand: (command: string, approvalId: string) => void;
   onRunHook: (hookId: string, command: string, approvalId?: string) => void;
@@ -2508,7 +2598,16 @@ function SystemDetailsDialog({
   const [loopProposalContentInput, setLoopProposalContentInput] = useState('');
   const [loopModeInput, setLoopModeInput] = useState<'guided' | 'auto'>('guided');
   const [hookCommandInput, setHookCommandInput] = useState('');
+  const [hookRunHookId, setHookRunHookId] = useState(agentStatus?.hooks?.[0]?.id ?? '');
+  const [hookRunState, setHookRunState] = useState('completed');
+  const [hookRunDetail, setHookRunDetail] = useState('');
   const [skillCommandInput, setSkillCommandInput] = useState('');
+  const [traceEventInput, setTraceEventInput] = useState('manual trace');
+  const [traceStateInput, setTraceStateInput] = useState('completed');
+  const [traceDetailInput, setTraceDetailInput] = useState('');
+  const [proposalPathInput, setProposalPathInput] = useState('');
+  const [proposalSummaryInput, setProposalSummaryInput] = useState('');
+  const [proposalContentInput, setProposalContentInput] = useState('');
   const [mcpToolId, setMCPToolId] = useState(agentStatus?.mcpTools?.[0]?.id ?? '');
   const [mcpResourceId, setMCPResourceId] = useState(agentStatus?.mcpResources?.[0]?.id ?? '');
   const [mcpPromptId, setMCPPromptId] = useState(agentStatus?.mcpPrompts?.[0]?.id ?? '');
@@ -2562,6 +2661,16 @@ function SystemDetailsDialog({
   useEffect(() => {
     setWorkspaceRootInput(agentStatus?.workspaceRoot ?? '');
   }, [agentStatus?.workspaceRoot]);
+
+  useEffect(() => {
+    if (!hookRunHookId && (agentStatus?.hooks ?? []).length > 0) {
+      setHookRunHookId((agentStatus?.hooks ?? [])[0].id);
+      return;
+    }
+    if (hookRunHookId && (agentStatus?.hooks ?? []).length > 0 && !(agentStatus?.hooks ?? []).some((hook) => hook.id === hookRunHookId)) {
+      setHookRunHookId((agentStatus?.hooks ?? [])[0].id);
+    }
+  }, [agentStatus?.hooks, hookRunHookId]);
 
   useEffect(() => {
     if (!mcpToolId && mcpTools.length > 0) {
@@ -2733,6 +2842,50 @@ function SystemDetailsDialog({
       return;
     }
     onRunHook(hookId, normalizedHookCommandInput, hookCommandApproval?.id);
+  }
+
+  function submitHookRun(event: FormEvent) {
+    event.preventDefault();
+    if (!hookRunHookId || !hookRunState.trim()) {
+      return;
+    }
+    onCreateHookRun({
+      hookId: hookRunHookId,
+      state: hookRunState.trim(),
+      detail: hookRunDetail.trim() || undefined,
+    });
+    setHookRunDetail('');
+  }
+
+  function submitTrace(event: FormEvent) {
+    event.preventDefault();
+    const eventName = traceEventInput.trim();
+    const state = traceStateInput.trim();
+    if (!eventName || !state) {
+      return;
+    }
+    onCreateTrace({
+      event: eventName,
+      state,
+      detail: traceDetailInput.trim() || undefined,
+    });
+    setTraceDetailInput('');
+  }
+
+  function submitProposal(event: FormEvent) {
+    event.preventDefault();
+    const path = proposalPathInput.trim();
+    if (!path) {
+      return;
+    }
+    onCreateProposal({
+      path,
+      summary: proposalSummaryInput.trim() || undefined,
+      content: proposalContentInput,
+    });
+    setProposalPathInput('');
+    setProposalSummaryInput('');
+    setProposalContentInput('');
   }
 
   function runSkill(skillId: string, command: string, approvalId?: string) {
@@ -3029,6 +3182,38 @@ function SystemDetailsDialog({
             value={hookCommandInput}
             onChange={(event) => setHookCommandInput(event.target.value)}
           />
+          <form className="agent-manual-form" onSubmit={submitHookRun}>
+            <select
+              aria-label="Hook run hook"
+              disabled={(agentStatus?.hooks ?? []).length === 0}
+              value={hookRunHookId}
+              onChange={(event) => setHookRunHookId(event.target.value)}
+            >
+              {(agentStatus?.hooks ?? []).length === 0 ? (
+                <option value="">No hooks</option>
+              ) : (
+                (agentStatus?.hooks ?? []).map((hook) => (
+                  <option key={hook.id} value={hook.id}>
+                    {hook.event}
+                  </option>
+                ))
+              )}
+            </select>
+            <select aria-label="Hook run state" value={hookRunState} onChange={(event) => setHookRunState(event.target.value)}>
+              <option value="completed">completed</option>
+              <option value="failed">failed</option>
+              <option value="skipped">skipped</option>
+            </select>
+            <input
+              aria-label="Hook run detail"
+              placeholder="Detail"
+              value={hookRunDetail}
+              onChange={(event) => setHookRunDetail(event.target.value)}
+            />
+            <button disabled={!hookRunHookId || !hookRunState.trim()} type="submit">
+              Record
+            </button>
+          </form>
           <div className="agent-card-list">
             {(agentStatus?.hooks ?? []).map((hook) => (
               <div className="agent-card" key={hook.id}>
@@ -3376,6 +3561,30 @@ function SystemDetailsDialog({
             <h3>Edit proposals</h3>
             <span>{editProposals.length}</span>
           </div>
+          <form className="agent-manual-form stacked" onSubmit={submitProposal}>
+            <input
+              aria-label="Proposal path"
+              placeholder="Path"
+              value={proposalPathInput}
+              onChange={(event) => setProposalPathInput(event.target.value)}
+            />
+            <input
+              aria-label="Proposal summary"
+              placeholder="Summary"
+              value={proposalSummaryInput}
+              onChange={(event) => setProposalSummaryInput(event.target.value)}
+            />
+            <textarea
+              aria-label="Proposal content"
+              placeholder="Proposed file content"
+              rows={4}
+              value={proposalContentInput}
+              onChange={(event) => setProposalContentInput(event.target.value)}
+            />
+            <button disabled={!proposalPathInput.trim()} type="submit">
+              Create
+            </button>
+          </form>
           {editProposals.length > 0 ? (
             <div className="proposal-layout">
               <div className="proposal-list" role="list">
@@ -3453,12 +3662,45 @@ function SystemDetailsDialog({
           title="Subagent runs"
           render={(run) => `${run.subagentId}: ${run.state} · ${run.summary}`}
         />
-        <DetailsList
-          empty="No traces"
-          items={agentStatus?.traceEvents ?? []}
-          title="Recent traces"
-          render={(trace) => `${trace.event}: ${trace.state}${trace.detail ? ` (${trace.detail})` : ''}`}
-        />
+        <section className="details-list">
+          <div className="details-list-header">
+            <h3>Recent traces</h3>
+            <span>{agentStatus?.traceEvents?.length ?? 0}</span>
+          </div>
+          <form className="agent-manual-form" onSubmit={submitTrace}>
+            <input
+              aria-label="Trace event"
+              placeholder="Event"
+              value={traceEventInput}
+              onChange={(event) => setTraceEventInput(event.target.value)}
+            />
+            <select aria-label="Trace state" value={traceStateInput} onChange={(event) => setTraceStateInput(event.target.value)}>
+              <option value="completed">completed</option>
+              <option value="ready">ready</option>
+              <option value="failed">failed</option>
+              <option value="attention">attention</option>
+            </select>
+            <input
+              aria-label="Trace detail"
+              placeholder="Detail"
+              value={traceDetailInput}
+              onChange={(event) => setTraceDetailInput(event.target.value)}
+            />
+            <button disabled={!traceEventInput.trim() || !traceStateInput.trim()} type="submit">
+              Add
+            </button>
+          </form>
+          {(agentStatus?.traceEvents ?? []).length > 0 ? (
+            (agentStatus?.traceEvents ?? []).map((trace, index) => (
+              <p key={`${trace.id}-${index}`}>
+                {trace.event}: {trace.state}
+                {trace.detail ? ` (${trace.detail})` : ''}
+              </p>
+            ))
+          ) : (
+            <p>No traces</p>
+          )}
+        </section>
         <DetailsList
           empty="No blocked checks"
           items={blockedChecks}
@@ -4089,6 +4331,18 @@ function summarizeAgentResult(prefix: string, value?: string, truncated = false)
   }
   const capped = summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
   return truncated && !capped.endsWith('...') ? `${capped}...` : capped;
+}
+
+function formatAgentActivityDetail(value?: string) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return undefined;
+  }
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text.includes('\n') || text.length > 120 ? text : undefined;
+  }
 }
 
 function loopActivityState(state: string): AgentActivityState {
