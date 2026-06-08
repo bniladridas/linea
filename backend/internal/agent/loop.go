@@ -561,16 +561,16 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 	if loop.State == "completed" {
 		return AgentLoop{}, errors.New("Agent loop is already completed.")
 	}
-	if loop.Mode == "auto" && input.MaxIterations != 0 {
+	if isAutonomousAgentLoopMode(loop.Mode) && input.MaxIterations != 0 {
 		nextMax := normalizeAgentLoopIterations(loop.Mode, input.MaxIterations)
 		if nextMax > loop.MaxIterations {
 			loop.MaxIterations = nextMax
 		}
 	}
-	if loop.Mode == "auto" && input.AutoApply {
+	if isAutonomousAgentLoopMode(loop.Mode) && input.AutoApply {
 		loop.AutoApply = true
 	}
-	if loop.Mode == "auto" && input.MaxIterations == 0 && autoLoopLimitReached(loop) && hasExplicitLoopContinueInput(input) {
+	if isAutonomousAgentLoopMode(loop.Mode) && input.MaxIterations == 0 && autoLoopLimitReached(loop) && hasExplicitLoopContinueInput(input) {
 		loop.MaxIterations = normalizeAgentLoopIterations(loop.Mode, loop.MaxIterations+1)
 	}
 	loop.State = "running"
@@ -720,10 +720,10 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		if shouldReadDiagnostics(goalLower) || shouldGatherAutoEvidence(goalLower, loop.Mode) {
 			diagnostics, err := r.ListDiagnostics(ctx)
 			loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", err, fmt.Sprintf("%d diagnostic(s)", len(diagnostics)), "")
-			if loop.Mode == "auto" {
+			if isAutonomousAgentLoopMode(loop.Mode) {
 				loop = r.appendSubagentLoopStep(ctx, loop, "review", SubagentRunInput{Goal: loop.Goal})
 			}
-			if err == nil && len(diagnostics) > 0 && loop.Mode == "auto" {
+			if err == nil && len(diagnostics) > 0 && isAutonomousAgentLoopMode(loop.Mode) {
 				loop.Steps = append(loop.Steps, AgentLoopStep{
 					ID:     newTraceID(),
 					Kind:   "diagnostics_review",
@@ -743,7 +743,7 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		if query != "" {
 			results, err := r.SearchFiles(ctx, query)
 			loop = appendLoopStep(loop, "search_files", "Search workspace", "search_files", err, fmt.Sprintf("%d result(s) for %q", len(results), query), "")
-			if loop.Mode == "auto" {
+			if isAutonomousAgentLoopMode(loop.Mode) {
 				subagentID := "search"
 				if strings.Contains(goalLower, "doc") {
 					subagentID = "docs"
@@ -753,7 +753,13 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		}
 		filePath := strings.TrimSpace(input.FilePath)
 		if filePath != "" {
-			file, err := r.ReadFile(ctx, filePath)
+			var file FileResult
+			var err error
+			if loop.Mode == "developer" {
+				file, err = r.ReadDeveloperFile(ctx, filePath)
+			} else {
+				file, err = r.ReadFile(ctx, filePath)
+			}
 			loop = appendLoopStep(loop, "read_file", "Read file", "read_file", err, fmt.Sprintf("%s · %d bytes", file.Path, file.Size), "")
 		}
 		if shouldReadSymbols(goalLower) {
@@ -775,11 +781,12 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		resources := r.ListMCPResources(ctx)
 		prompts := r.ListMCPPrompts(ctx)
 		loop = appendLoopStep(loop, "mcp", "Inspect MCP", "mcp", nil, fmt.Sprintf("%d server(s), %d tool(s), %d resource(s), %d prompt(s)", len(servers), len(tools), len(resources), len(prompts)), "")
-		if plan, ok := planMCPAction(goalLower, tools, resources, prompts); ok {
+		for _, plan := range planMCPActions(loop.Goal, tools, resources, prompts) {
 			loop = appendLoopStep(loop, "mcp_plan", plan.Title, plan.ToolID, nil, plan.Target, "")
 			if plan.Kind == "mcp_call" {
-				if loop.Mode != "auto" || !selectedMCPToolAllowsEmptyArguments(plan.Target, tools) {
+				if !isAutonomousAgentLoopMode(loop.Mode) || (len(plan.Arguments) == 0 && !selectedMCPToolAllowsEmptyArguments(plan.Target, tools)) {
 					loop = appendLoopStep(loop, "mcp_boundary", "Review MCP tool", plan.ToolID, nil, "Run this MCP tool explicitly from System or TUI.", "")
+					loop.State = "attention"
 					return loop
 				}
 			}
@@ -789,7 +796,7 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 			loop = appendLoopStep(loop, "mcp_validate", "Validate MCP result", plan.ToolID, validation.Err, validation.Detail, "")
 		}
 	}
-	if loop.Mode == "auto" && autoLoopLimitReached(loop) {
+	if isAutonomousAgentLoopMode(loop.Mode) && autoLoopLimitReached(loop) {
 		return appendAutoLimitStep(loop)
 	}
 	proposalPath := strings.TrimSpace(input.ProposalPath)
@@ -821,7 +828,7 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		}
 		return loop
 	} else if shouldRequestEditBoundary(goalLower) && !hasCompletedEditReview(loop) {
-		if loop.Mode == "auto" && r.editPlanner != nil {
+		if isAutonomousAgentLoopMode(loop.Mode) && r.editPlanner != nil {
 			files, err := r.autoCreateContextFiles(ctx, loop.Goal)
 			if err != nil {
 				loop = appendLoopStep(loop, "read_file", "Read create context", "read_file", err, "", "")
@@ -835,7 +842,7 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 				return loop
 			}
 			if hasCompletedEditReview(loop) {
-				if loop.Mode == "auto" && autoLoopLimitReached(loop) {
+				if isAutonomousAgentLoopMode(loop.Mode) && autoLoopLimitReached(loop) {
 					return appendAutoLimitStep(loop)
 				}
 				goto afterEditBoundary
@@ -856,7 +863,13 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 	}
 afterEditBoundary:
 	command := strings.Join(strings.Fields(input.Command), " ")
-	if command == "" && loop.Mode == "auto" && mentionsCommand(goalLower) {
+	if command == "" && loop.Mode == "developer" {
+		if inferred, detail := r.inferDeveloperLoopCommand(ctx, loop.Goal); inferred != "" {
+			command = inferred
+			loop = appendLoopStep(loop, "command_infer", "Choose developer command", "run_command", nil, detail, command)
+		}
+	}
+	if command == "" && isAutonomousAgentLoopMode(loop.Mode) && mentionsCommand(goalLower) {
 		inferred, detail, projectCheck := r.inferLoopCommand(ctx, loop.Goal)
 		if inferred != "" {
 			command = inferred
@@ -868,6 +881,9 @@ afterEditBoundary:
 		}
 	}
 	if command != "" {
+		if loop.Mode == "developer" {
+			return r.runDeveloperCommand(ctx, loop, command)
+		}
 		check, err := r.CheckCommand(ctx, CommandCheckInput{Command: command})
 		detail := "blocked"
 		if err == nil {
@@ -970,17 +986,21 @@ func (r *Runtime) consumeAppliedEditReviews(loop AgentLoop) (AgentLoop, bool) {
 
 func (r *Runtime) runLoopCommand(ctx context.Context, loop AgentLoop, command string, approvalID string) AgentLoop {
 	run, runErr := r.RunCommand(ctx, CommandCheckInput{Command: command, ApprovalID: approvalID})
-	detail := fmt.Sprintf("exit %d", run.ExitCode)
+	detail := commandRunDetail(run)
 	if runErr == nil && run.ExitCode != 0 {
 		runErr = fmt.Errorf("command exited with %d", run.ExitCode)
 	}
 	if runErr != nil {
-		detail = runErr.Error()
+		if strings.TrimSpace(run.Output) != "" {
+			detail += " · " + runErr.Error()
+		} else {
+			detail = runErr.Error()
+		}
 	}
 	loop = appendLoopStep(loop, "command_run", "Run command", "run_command", runErr, detail, command)
 	goalLower := strings.ToLower(loop.Goal)
 	if runErr != nil {
-		if loop.Mode == "auto" && r.WorkspaceEnabled() && shouldReadDiagnostics(goalLower) {
+		if isAutonomousAgentLoopMode(loop.Mode) && r.WorkspaceEnabled() && shouldReadDiagnostics(goalLower) {
 			diagnostics, err := r.ListDiagnostics(ctx)
 			loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", err, fmt.Sprintf("%d diagnostic(s) after failed command", len(diagnostics)), "")
 			if err == nil && len(diagnostics) > 0 {
@@ -1021,7 +1041,7 @@ func (r *Runtime) runLoopCommand(ctx context.Context, loop AgentLoop, command st
 				ToolID: "diagnostics",
 			})
 			loop.State = "attention"
-			if loop.Mode == "auto" {
+			if isAutonomousAgentLoopMode(loop.Mode) {
 				loop = r.autoProposeEdit(ctx, loop, EditPlanRequest{
 					Goal:          loop.Goal,
 					Diagnostics:   diagnostics,
@@ -1122,6 +1142,113 @@ func appendAutoLimitStep(loop AgentLoop) AgentLoop {
 	return loop
 }
 
+func (r *Runtime) runDeveloperCommand(ctx context.Context, loop AgentLoop, command string) AgentLoop {
+	reason, err := checkDeveloperCommand(command)
+	check := CommandCheck{
+		ID:        newTraceID(),
+		Command:   command,
+		Allowed:   err == nil,
+		Reason:    reason,
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	r.commandChecks = append([]CommandCheck{check}, r.commandChecks...)
+	if len(r.commandChecks) > 50 {
+		r.commandChecks = r.commandChecks[:50]
+	}
+	r.mu.Unlock()
+	loop = appendLoopStep(loop, "command_check", "Check command", "run_command", err, reason, command)
+	if err != nil {
+		return loop
+	}
+	approval := CommandApproval{
+		ID:        newTraceID(),
+		Command:   command,
+		State:     "approved",
+		Detail:    "Developer loop approved non-destructive command.",
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	r.commandApprovals = append([]CommandApproval{approval}, r.commandApprovals...)
+	if len(r.commandApprovals) > 50 {
+		r.commandApprovals = r.commandApprovals[:50]
+	}
+	r.mu.Unlock()
+	loop.Steps = append(loop.Steps, AgentLoopStep{
+		ID:        newTraceID(),
+		Kind:      "command_approval",
+		Title:     "Approve command",
+		State:     "completed",
+		Detail:    approval.Detail,
+		ToolID:    "run_command",
+		Command:   command,
+		CreatedID: approval.ID,
+	})
+	return r.runCheckedLoopCommand(ctx, loop, command)
+}
+
+func checkDeveloperCommand(command string) (string, error) {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return "command is required", errors.New("Command is required.")
+	}
+	name := strings.ToLower(filepath.Base(fields[0]))
+	blocked := false
+	switch name {
+	case "rm", "rmdir", "sudo", "su", "dd", "mkfs", "shutdown", "reboot", "halt":
+		blocked = true
+	case "sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh":
+		blocked = true
+	case "python", "python3", "node", "ruby", "perl", "php", "osascript":
+		blocked = commandUsesInlineInterpreter(fields[1:])
+	case "env", "printenv":
+		blocked = true
+	case "cat", "less", "more", "head", "tail", "grep", "rg":
+		blocked = commandReferencesSecretPath(fields[1:])
+	case "diskutil":
+		for _, arg := range fields[1:] {
+			arg = strings.ToLower(arg)
+			if arg == "erasevolume" || arg == "erasedisk" || arg == "partitiondisk" {
+				blocked = true
+				break
+			}
+		}
+	case "chmod", "chown", "chgrp":
+		for _, arg := range fields[1:] {
+			if strings.Contains(strings.ToLower(arg), "r") && strings.HasPrefix(arg, "-") {
+				blocked = true
+				break
+			}
+		}
+	}
+	if blocked {
+		return "developer mode blocked destructive or system command", errors.New("developer mode blocks destructive or system command")
+	}
+	return "developer mode", nil
+}
+
+func commandUsesInlineInterpreter(args []string) bool {
+	for _, arg := range args {
+		switch strings.ToLower(arg) {
+		case "-c", "-e", "-pe", "-ne", "-exec", "--eval", "--execute", "-command":
+			return true
+		}
+	}
+	return false
+}
+
+func commandReferencesSecretPath(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if isSecretPath(arg) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Runtime) runInferredProjectCommand(ctx context.Context, loop AgentLoop, command string) AgentLoop {
 	check := CommandCheck{
 		ID:        newTraceID(),
@@ -1168,16 +1295,23 @@ func (r *Runtime) runInferredProjectCommand(ctx context.Context, loop AgentLoop,
 		Command:   command,
 		CreatedID: approval.ID,
 	})
+	return r.runCheckedLoopCommand(ctx, loop, command)
+}
+
+func (r *Runtime) runCheckedLoopCommand(ctx context.Context, loop AgentLoop, command string) AgentLoop {
 	run, err := r.runCheckedCommand(ctx, command)
-	detail := fmt.Sprintf("exit %d", run.ExitCode)
+	detail := commandRunDetail(run)
 	if err == nil && run.ExitCode != 0 {
 		err = fmt.Errorf("command exited with %d", run.ExitCode)
 	}
 	if err != nil {
-		detail = err.Error()
+		if strings.TrimSpace(run.Output) != "" {
+			detail += " · " + err.Error()
+		} else {
+			detail = err.Error()
+		}
 	}
-	loop = appendLoopStep(loop, "command_run", "Run command", "run_command", err, detail, command)
-	return loop
+	return appendLoopStep(loop, "command_run", "Run command", "run_command", err, detail, command)
 }
 
 func (r *Runtime) inferLoopCommand(ctx context.Context, goal string) (string, string, bool) {
@@ -1224,6 +1358,56 @@ func (r *Runtime) inferLoopCommand(ctx context.Context, goal string) (string, st
 		}
 	}
 	return "", "", false
+}
+
+func (r *Runtime) inferDeveloperLoopCommand(ctx context.Context, goal string) (string, string) {
+	if strings.TrimSpace(goal) == "" {
+		return "", ""
+	}
+	root, err := r.workspaceRootPath()
+	if err != nil {
+		return "", ""
+	}
+	goalLower := strings.ToLower(goal)
+	hasFile := func(name string) bool {
+		_, err := os.Stat(filepath.Join(root, name))
+		return err == nil
+	}
+	switch {
+	case strings.Contains(goalLower, "install") || strings.Contains(goalLower, "dependencies") || strings.Contains(goalLower, "deps"):
+		if hasFile("package.json") {
+			return "npm install", "Inferred npm install from package.json."
+		}
+		if hasFile("go.mod") {
+			return "go mod download", "Inferred go module download from go.mod."
+		}
+	case strings.Contains(goalLower, "lint"):
+		if hasFile("package.json") {
+			return "npm run lint", "Inferred npm lint from package.json."
+		}
+		if hasFile("go.mod") {
+			return "go vet ./...", "Inferred Go vet from go.mod."
+		}
+	case strings.Contains(goalLower, "format") || strings.Contains(goalLower, "fmt"):
+		if hasFile("go.mod") {
+			return "go fmt ./...", "Inferred Go formatting from go.mod."
+		}
+		if hasFile("package.json") {
+			return "npm run format", "Inferred npm format from package.json."
+		}
+	case strings.Contains(goalLower, "list files") || strings.Contains(goalLower, "inspect files"):
+		return "find . -maxdepth 2 -type f", "Inferred file listing for workspace inspection."
+	}
+	return "", ""
+}
+
+func commandRunDetail(run CommandRun) string {
+	detail := fmt.Sprintf("exit %d", run.ExitCode)
+	output := strings.TrimSpace(redactSecrets(run.Output))
+	if output == "" {
+		return detail
+	}
+	return detail + " · " + trimRunes(strings.ReplaceAll(output, "\n", " "), 220)
 }
 
 func (r *Runtime) inferPackageCommand(ctx context.Context, root string, goal string) (string, string) {
@@ -1357,7 +1541,7 @@ func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request E
 	loop = appendLoopStep(loop, "edit_proposal", "Create edit proposal", "edit_file", err, detail, "")
 	if createdID != "" {
 		loop.Steps[len(loop.Steps)-1].CreatedID = createdID
-		if loop.Mode == "auto" && loop.AutoApply {
+		if isAutonomousAgentLoopMode(loop.Mode) && loop.AutoApply {
 			return r.autoApplyGeneratedEditProposal(ctx, loop, createdID)
 		}
 		loop.Steps = append(loop.Steps, AgentLoopStep{
@@ -1962,13 +2146,15 @@ func normalizeAgentLoopMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "auto":
 		return "auto"
+	case "developer":
+		return "developer"
 	default:
 		return "guided"
 	}
 }
 
 func normalizeAgentLoopIterations(mode string, limit int) int {
-	if mode != "auto" {
+	if !isAutonomousAgentLoopMode(mode) {
 		return 0
 	}
 	if limit <= 0 {
@@ -1978,6 +2164,10 @@ func normalizeAgentLoopIterations(mode string, limit int) int {
 		return maxAutoLoopIterationsLimit
 	}
 	return limit
+}
+
+func isAutonomousAgentLoopMode(mode string) bool {
+	return mode == "auto" || mode == "developer"
 }
 
 func firstNonZero(values ...int) int {
@@ -1990,21 +2180,25 @@ func firstNonZero(values ...int) int {
 }
 
 func loopPlanDetail(mode string) string {
-	if mode == "auto" {
+	switch mode {
+	case "auto":
 		return "Created an auto local plan with bounded local steps."
+	case "developer":
+		return "Created a developer local plan with expanded command access."
+	default:
+		return "Created a bounded local plan."
 	}
-	return "Created a bounded local plan."
 }
 
 func loopRetryDetail(loop AgentLoop, reason string) string {
-	if loop.Mode == "auto" {
-		return reason + " Auto loop paused for the next proposal or approved command."
+	if isAutonomousAgentLoopMode(loop.Mode) {
+		return reason + " Loop paused for the next proposal or approved command."
 	}
 	return reason + " Provide another proposal or command to continue."
 }
 
 func autoLoopLimitReached(loop AgentLoop) bool {
-	if loop.Mode != "auto" || loop.MaxIterations <= 0 {
+	if !isAutonomousAgentLoopMode(loop.Mode) || loop.MaxIterations <= 0 {
 		return false
 	}
 	iterations := 0
@@ -2115,6 +2309,7 @@ type loopPlanStep struct {
 	ExecutionTitle string
 	ToolID         string
 	Target         string
+	Arguments      map[string]any
 }
 
 type loopExecutionResult struct {
@@ -2129,34 +2324,76 @@ type loopValidationResult struct {
 }
 
 func planMCPAction(goal string, tools []MCPTool, resources []MCPResource, prompts []MCPPrompt) (loopPlanStep, bool) {
-	if selected := selectMCPResourceForGoal(goal, resources); selected != "" {
-		return loopPlanStep{
+	plans := planMCPActions(goal, tools, resources, prompts)
+	if len(plans) == 0 {
+		return loopPlanStep{}, false
+	}
+	return plans[0], true
+}
+
+func planMCPActions(goal string, tools []MCPTool, resources []MCPResource, prompts []MCPPrompt) []loopPlanStep {
+	goalLower := strings.ToLower(goal)
+	if strings.Contains(goalLower, "all") || strings.Contains(goalLower, "multi") {
+		plans := []loopPlanStep{}
+		if len(resources) > 0 {
+			plans = append(plans, loopPlanStep{
+				Kind:           "mcp_resource",
+				Title:          "Plan MCP resource",
+				ExecutionTitle: "Read MCP resource",
+				ToolID:         "mcp",
+				Target:         resources[0].ID,
+			})
+		}
+		if len(prompts) > 0 {
+			plans = append(plans, loopPlanStep{
+				Kind:           "mcp_prompt",
+				Title:          "Plan MCP prompt",
+				ExecutionTitle: "Get MCP prompt",
+				ToolID:         "mcp",
+				Target:         prompts[0].ID,
+			})
+		}
+		if len(tools) > 0 {
+			plans = append(plans, loopPlanStep{
+				Kind:           "mcp_call",
+				Title:          "Plan MCP tool",
+				ExecutionTitle: "Call MCP tool",
+				ToolID:         "mcp",
+				Target:         tools[0].ID,
+				Arguments:      inferMCPToolArguments(goal, tools[0].ID, tools),
+			})
+		}
+		return plans
+	}
+	if selected := selectMCPResourceForGoal(goalLower, resources); selected != "" {
+		return []loopPlanStep{{
 			Kind:           "mcp_resource",
 			Title:          "Plan MCP resource",
 			ExecutionTitle: "Read MCP resource",
 			ToolID:         "mcp",
 			Target:         selected,
-		}, true
+		}}
 	}
-	if selected := selectMCPPromptForGoal(goal, prompts); selected != "" {
-		return loopPlanStep{
+	if selected := selectMCPPromptForGoal(goalLower, prompts); selected != "" {
+		return []loopPlanStep{{
 			Kind:           "mcp_prompt",
 			Title:          "Plan MCP prompt",
 			ExecutionTitle: "Get MCP prompt",
 			ToolID:         "mcp",
 			Target:         selected,
-		}, true
+		}}
 	}
-	if selected := selectMCPToolForGoal(goal, tools); selected != "" {
-		return loopPlanStep{
+	if selected := selectMCPToolForGoal(goalLower, tools); selected != "" {
+		return []loopPlanStep{{
 			Kind:           "mcp_call",
 			Title:          "Plan MCP tool",
 			ExecutionTitle: "Call MCP tool",
 			ToolID:         "mcp",
 			Target:         selected,
-		}, true
+			Arguments:      inferMCPToolArguments(goal, selected, tools),
+		}}
 	}
-	return loopPlanStep{}, false
+	return nil
 }
 
 func (r *Runtime) executeMCPPlanStep(ctx context.Context, plan loopPlanStep) loopExecutionResult {
@@ -2168,7 +2405,7 @@ func (r *Runtime) executeMCPPlanStep(ctx context.Context, plan loopPlanStep) loo
 	case "mcp_prompt":
 		call, err = r.GetMCPPrompt(ctx, MCPPromptGetInput{PromptID: plan.Target})
 	case "mcp_call":
-		call, err = r.CallMCPTool(ctx, MCPCallInput{ToolID: plan.Target})
+		call, err = r.CallMCPTool(ctx, MCPCallInput{ToolID: plan.Target, Arguments: plan.Arguments})
 	default:
 		err = fmt.Errorf("unknown MCP plan step %q", plan.Kind)
 	}
@@ -2235,6 +2472,71 @@ func selectedMCPToolAllowsEmptyArguments(toolID string, tools []MCPTool) bool {
 		}
 	}
 	return false
+}
+
+func inferMCPToolArguments(goal string, toolID string, tools []MCPTool) map[string]any {
+	var selected MCPTool
+	for _, tool := range tools {
+		if tool.ID == toolID || tool.Name == toolID {
+			selected = tool
+			break
+		}
+	}
+	if selected.ID == "" && selected.Name == "" {
+		return nil
+	}
+	schema := strings.TrimSpace(selected.InputSchema)
+	if schema == "" {
+		return nil
+	}
+	var parsed struct {
+		Required   []string `json:"required"`
+		Properties map[string]struct {
+			Type        string `json:"type"`
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(schema), &parsed); err != nil {
+		return nil
+	}
+	if len(parsed.Required) == 0 {
+		return nil
+	}
+	value, ok := inferMCPStringValue(goal)
+	if !ok {
+		return nil
+	}
+	args := map[string]any{}
+	for _, name := range parsed.Required {
+		prop := parsed.Properties[name]
+		switch prop.Type {
+		case "", "string":
+			args[name] = value
+		default:
+			return nil
+		}
+	}
+	return args
+}
+
+func inferMCPStringValue(goal string) (string, bool) {
+	goal = strings.TrimSpace(goal)
+	for _, quote := range []string{"\"", "'"} {
+		parts := strings.Split(goal, quote)
+		if len(parts) >= 3 && strings.TrimSpace(parts[1]) != "" {
+			return strings.TrimSpace(parts[1]), true
+		}
+	}
+	lower := strings.ToLower(goal)
+	for _, marker := range []string{" message ", " text ", " query ", " with ", " saying ", " say "} {
+		if index := strings.Index(lower, marker); index >= 0 {
+			value := strings.TrimSpace(goal[index+len(marker):])
+			if value != "" {
+				return trimRunes(value, 240), true
+			}
+		}
+	}
+	return "", false
 }
 
 func mcpToolAllowsEmptyArguments(tool MCPTool) bool {
@@ -2322,15 +2624,24 @@ func loopSummary(loop AgentLoop) string {
 		if loop.Mode == "auto" {
 			return fmt.Sprintf("Auto loop completed %d step(s).", counts["completed"])
 		}
+		if loop.Mode == "developer" {
+			return fmt.Sprintf("Developer loop completed %d step(s).", counts["completed"])
+		}
 		return fmt.Sprintf("Completed %d step(s).", counts["completed"])
 	case "waiting_approval":
 		if loop.Mode == "auto" {
 			return "Auto loop waiting at boundary."
 		}
+		if loop.Mode == "developer" {
+			return "Developer loop waiting at boundary."
+		}
 		return "Waiting for explicit approval."
 	case "waiting_input":
 		if loop.Mode == "auto" {
 			return "Auto loop waiting for input."
+		}
+		if loop.Mode == "developer" {
+			return "Developer loop waiting for input."
 		}
 		return "Waiting for workspace or command input."
 	case "canceled":
@@ -2345,7 +2656,7 @@ func shouldReadDiagnostics(goal string) bool {
 }
 
 func shouldGatherAutoEvidence(goal string, mode string) bool {
-	if mode != "auto" {
+	if !isAutonomousAgentLoopMode(mode) {
 		return false
 	}
 	return strings.Contains(goal, "fix") ||

@@ -8,6 +8,8 @@ import (
 type Config struct {
 	APIAddr               string
 	AgentRulesPath        string
+	AgentDeveloperMode    bool
+	AgentWorkspaceTrust   string
 	AgentSkillsDir        string
 	AgentWorkspaceDir     string
 	AgentLSPCommand       string
@@ -35,6 +37,8 @@ func Load() Config {
 	return Config{
 		APIAddr:               env("API_ADDR", "127.0.0.1:8080"),
 		AgentRulesPath:        env("LINEA_RULES_FILE", "AGENTS.md"),
+		AgentDeveloperMode:    envBool("LINEA_AGENT_DEVELOPER_MODE", false),
+		AgentWorkspaceTrust:   os.Getenv("LINEA_AGENT_WORKSPACE_TRUST"),
 		AgentSkillsDir:        os.Getenv("LINEA_SKILLS_DIR"),
 		AgentWorkspaceDir:     os.Getenv("LINEA_WORKSPACE_DIR"),
 		AgentLSPCommand:       os.Getenv("LINEA_LSP_COMMAND"),

@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,9 +24,23 @@ const (
 	mcpShutdownGrace = 500 * time.Millisecond
 	maxMCPOutput     = 64 * 1024
 	maxMCPCalls      = 50
+	maxMCPEvents     = 50
 	maxMCPToolPages  = 20
 	maxMCPListPages  = 20
 )
+
+type mcpSession struct {
+	serverID   string
+	serverName string
+	server     mcpServerConfig
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	reader     *bufio.Reader
+	mu         sync.Mutex
+	nextID     int
+	pending    map[int]chan map[string]any
+	closed     bool
+}
 
 func WithMCPConfigPath(path string) func(*Runtime) {
 	return func(r *Runtime) {
@@ -135,12 +150,105 @@ func (r *Runtime) CallMCPTool(ctx context.Context, input MCPCallInput) (MCPCall,
 	return r.recordMCPCall(call, output, err)
 }
 
+func (r *Runtime) SubscribeMCPResource(ctx context.Context, input MCPSubscribeInput) (MCPSubscription, error) {
+	resourceID := strings.TrimSpace(input.ResourceID)
+	uri := strings.TrimSpace(input.URI)
+	config, ok := r.loadMCPConfig(ctx)
+	if !ok {
+		return MCPSubscription{}, errors.New("MCP config is not available.")
+	}
+	serverName, server, resource, ok := r.findMCPResourceConfig(ctx, config, resourceID, uri)
+	if !ok {
+		return MCPSubscription{}, errors.New("MCP resource was not found.")
+	}
+	if strings.TrimSpace(server.Command) == "" {
+		return MCPSubscription{}, errors.New("MCP server command is required.")
+	}
+	if uri == "" {
+		uri = strings.TrimSpace(resource.URI)
+	}
+	serverID := skillIDFromFile(serverName)
+	now := time.Now().UTC()
+	subscription := MCPSubscription{
+		ID:         newTraceID(),
+		ServerID:   serverID,
+		ServerName: serverName,
+		ResourceID: resourceID,
+		URI:        uri,
+		State:      "subscribing",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	r.mu.Lock()
+	r.mcpSubscriptions = append([]MCPSubscription{subscription}, r.mcpSubscriptions...)
+	r.mu.Unlock()
+	session, err := r.mcpPersistentSession(serverName, server)
+	if err != nil {
+		r.updateMCPSubscriptionState(subscription.ID, "failed", err.Error())
+		return MCPSubscription{}, err
+	}
+	if err := session.request(ctx, "resources/subscribe", map[string]any{"uri": uri}); err != nil {
+		r.updateMCPSubscriptionState(subscription.ID, "failed", err.Error())
+		return MCPSubscription{}, err
+	}
+	subscription.State = "active"
+	subscription.UpdatedAt = time.Now().UTC()
+	r.updateMCPSubscriptionState(subscription.ID, "active", "")
+	return subscription, nil
+}
+
+func (r *Runtime) UnsubscribeMCPResource(ctx context.Context, id string) (MCPSubscription, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return MCPSubscription{}, errors.New("MCP subscription ID is required.")
+	}
+	r.mu.RLock()
+	var subscription MCPSubscription
+	found := false
+	for _, item := range r.mcpSubscriptions {
+		if item.ID == id {
+			subscription = item
+			found = true
+			break
+		}
+	}
+	session := r.mcpSessions[subscription.ServerID]
+	r.mu.RUnlock()
+	if !found {
+		return MCPSubscription{}, errors.New("MCP subscription was not found.")
+	}
+	var err error
+	if session != nil {
+		err = session.request(ctx, "resources/unsubscribe", map[string]any{"uri": subscription.URI})
+	}
+	now := time.Now().UTC()
+	subscription.State = "inactive"
+	subscription.UpdatedAt = now
+	if err != nil {
+		subscription.State = "failed"
+		subscription.Error = err.Error()
+	}
+	r.mu.Lock()
+	for index := range r.mcpSubscriptions {
+		if r.mcpSubscriptions[index].ID == id {
+			r.mcpSubscriptions[index] = subscription
+			break
+		}
+	}
+	r.mu.Unlock()
+	r.stopIdleMCPSession(subscription.ServerID)
+	if err != nil {
+		return subscription, err
+	}
+	return subscription, nil
+}
+
 func (r *Runtime) recordMCPCall(call MCPCall, output string, err error) (MCPCall, error) {
 	if err != nil {
 		call.State = "failed"
 		call.Error = err.Error()
 	} else {
-		call.Output, call.Truncated = truncateMCPOutput(output)
+		call.Output, call.Truncated = truncateMCPOutput(redactSecrets(output))
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -162,7 +270,15 @@ func (r *Runtime) mcpServers(ctx context.Context) []MCPServer {
 		}
 		return []MCPServer{{ID: "mcp", Name: "MCP", State: "unavailable"}}
 	}
-	return mcpServersFromConfig(config)
+	servers := mcpServersFromConfig(config)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for index := range servers {
+		if session := r.mcpSessions[servers[index].ID]; session != nil && !session.isClosed() {
+			servers[index].State = "active"
+		}
+	}
+	return servers
 }
 
 func (r *Runtime) mcpTools(ctx context.Context) []MCPTool {
@@ -881,6 +997,286 @@ func startMCPCommand(ctx context.Context, server mcpServerConfig) (*exec.Cmd, io
 		return nil, nil, nil, err
 	}
 	return cmd, stdin, reader, nil
+}
+
+func (r *Runtime) mcpPersistentSession(serverName string, server mcpServerConfig) (*mcpSession, error) {
+	serverID := skillIDFromFile(serverName)
+	r.mu.RLock()
+	if session := r.mcpSessions[serverID]; session != nil && !session.isClosed() {
+		r.mu.RUnlock()
+		return session, nil
+	}
+	r.mu.RUnlock()
+	cmd, stdin, reader, err := startMCPCommand(r.mcpSessionContext(), server)
+	if err != nil {
+		return nil, err
+	}
+	session := &mcpSession{
+		serverID:   serverID,
+		serverName: serverName,
+		server:     server,
+		cmd:        cmd,
+		stdin:      stdin,
+		reader:     reader,
+		nextID:     10,
+		pending:    map[int]chan map[string]any{},
+	}
+	r.mu.Lock()
+	r.mcpSessions[serverID] = session
+	r.mu.Unlock()
+	go session.readLoop(r)
+	return session, nil
+}
+
+func (s *mcpSession) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
+func (s *mcpSession) request(ctx context.Context, method string, params map[string]any) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New("MCP session is closed.")
+	}
+	id := s.nextID
+	s.nextID++
+	ch := make(chan map[string]any, 1)
+	s.pending[id] = ch
+	err := writeMCPMessage(s.stdin, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  method,
+		"params":  params,
+	})
+	s.mu.Unlock()
+	if err != nil {
+		s.removePending(id)
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		s.removePending(id)
+		return ctx.Err()
+	case response, ok := <-ch:
+		if !ok {
+			return errors.New("MCP session closed.")
+		}
+		if errData, ok := response["error"]; ok {
+			data, _ := json.Marshal(errData)
+			return fmt.Errorf("MCP %s failed: %s", method, string(data))
+		}
+		return nil
+	case <-time.After(mcpCallTimeout):
+		s.removePending(id)
+		return fmt.Errorf("MCP %s timed out.", method)
+	}
+}
+
+func (s *mcpSession) removePending(id int) {
+	s.mu.Lock()
+	delete(s.pending, id)
+	s.mu.Unlock()
+}
+
+func (s *mcpSession) readLoop(r *Runtime) {
+	for {
+		message, err := readMCPMessage(s.reader)
+		if err != nil {
+			if s.isClosed() {
+				s.closePending()
+				return
+			}
+			s.closePending()
+			r.recordMCPEvent(MCPEvent{
+				ID:        newTraceID(),
+				ServerID:  s.serverID,
+				Method:    "session",
+				Error:     err.Error(),
+				CreatedAt: time.Now().UTC(),
+			})
+			return
+		}
+		if value, ok := message["id"]; ok {
+			id := intID(value)
+			s.mu.Lock()
+			ch := s.pending[id]
+			delete(s.pending, id)
+			s.mu.Unlock()
+			if ch != nil {
+				ch <- message
+			}
+			continue
+		}
+		method, _ := message["method"].(string)
+		params, _ := message["params"].(map[string]any)
+		uri := mcpNotificationURI(params)
+		r.recordMCPEvent(MCPEvent{
+			ID:             newTraceID(),
+			SubscriptionID: r.mcpSubscriptionIDForURI(s.serverID, uri),
+			ServerID:       s.serverID,
+			URI:            uri,
+			Method:         strings.TrimSpace(method),
+			Output:         redactSecrets(mcpNotificationOutput(params)),
+			CreatedAt:      time.Now().UTC(),
+		})
+	}
+}
+
+func (s *mcpSession) closePending() {
+	s.mu.Lock()
+	s.closed = true
+	for id, ch := range s.pending {
+		delete(s.pending, id)
+		close(ch)
+	}
+	s.mu.Unlock()
+}
+
+func (r *Runtime) recordMCPEvent(event MCPEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.mcpEvents = append([]MCPEvent{event}, r.mcpEvents...)
+	if len(r.mcpEvents) > maxMCPEvents {
+		r.mcpEvents = r.mcpEvents[:maxMCPEvents]
+	}
+}
+
+func (r *Runtime) updateMCPSubscriptionState(id string, state string, errDetail string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now().UTC()
+	for index := range r.mcpSubscriptions {
+		if r.mcpSubscriptions[index].ID == id {
+			r.mcpSubscriptions[index].State = state
+			r.mcpSubscriptions[index].Error = strings.TrimSpace(errDetail)
+			r.mcpSubscriptions[index].UpdatedAt = now
+			return
+		}
+	}
+}
+
+func (r *Runtime) mcpSubscriptionIDForURI(serverID string, uri string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, item := range r.mcpSubscriptions {
+		if item.ServerID == serverID && item.URI == uri && (item.State == "active" || item.State == "subscribing") {
+			return item.ID
+		}
+	}
+	return ""
+}
+
+func (r *Runtime) stopIdleMCPSession(serverID string) {
+	r.mu.RLock()
+	active := false
+	session := r.mcpSessions[serverID]
+	for _, item := range r.mcpSubscriptions {
+		if item.ServerID == serverID && item.State == "active" {
+			active = true
+			break
+		}
+	}
+	r.mu.RUnlock()
+	if active || session == nil {
+		return
+	}
+	r.mu.Lock()
+	delete(r.mcpSessions, serverID)
+	r.mu.Unlock()
+	session.stop()
+}
+
+func (r *Runtime) Shutdown(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if r.shutdownCancel != nil {
+		r.shutdownCancel()
+	}
+	r.mu.Lock()
+	sessions := make([]*mcpSession, 0, len(r.mcpSessions))
+	for serverID, session := range r.mcpSessions {
+		if session != nil {
+			sessions = append(sessions, session)
+		}
+		delete(r.mcpSessions, serverID)
+	}
+	now := time.Now().UTC()
+	for index := range r.mcpSubscriptions {
+		switch r.mcpSubscriptions[index].State {
+		case "active", "subscribing":
+			r.mcpSubscriptions[index].State = "inactive"
+			r.mcpSubscriptions[index].UpdatedAt = now
+		}
+	}
+	r.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		for _, session := range sessions {
+			session.stop()
+		}
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return nil
+	}
+}
+
+func (r *Runtime) mcpSessionContext() context.Context {
+	r.mu.RLock()
+	ctx := r.shutdownCtx
+	r.mu.RUnlock()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func (s *mcpSession) stop() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.closed = true
+	stdin := s.stdin
+	cmd := s.cmd
+	s.mu.Unlock()
+	shutdownMCPCommand(cmd, stdin)
+}
+
+func mcpNotificationURI(params map[string]any) string {
+	if params == nil {
+		return ""
+	}
+	if uri, _ := params["uri"].(string); uri != "" {
+		return uri
+	}
+	if resource, _ := params["resource"].(map[string]any); resource != nil {
+		uri, _ := resource["uri"].(string)
+		return uri
+	}
+	return ""
+}
+
+func mcpNotificationOutput(params map[string]any) string {
+	if len(params) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		return ""
+	}
+	output, truncated := truncateMCPOutput(string(data))
+	if truncated {
+		return output + "..."
+	}
+	return output
 }
 
 func initializeMCPCommand(cmd *exec.Cmd, stdin io.Writer, reader *bufio.Reader) error {

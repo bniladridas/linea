@@ -127,6 +127,13 @@ func main() {
 	}
 	llmClient := newRoutingAssistant(cfg, settingsStore)
 	agentRuntime := newAgentRuntime(cfg, llmEditPlanner{assistant: llmClient})
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := agentRuntime.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("shutdown agent runtime", "error", err)
+		}
+	}()
 	if *runTUIBeta {
 		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).WithAgentRuntime(agentRuntime).RunBeta(ctx); err != nil {
 			slog.Error("hand-rolled tui", "error", err)
@@ -179,6 +186,7 @@ func printAgentStatus(ctx context.Context, cfg config.Config, out io.Writer) err
 func newAgentRuntime(cfg config.Config, planners ...agent.EditPlanner) *agent.Runtime {
 	options := []func(*agent.Runtime){
 		agent.WithWorkspaceRoot(cfg.AgentWorkspaceDir),
+		agent.WithDeveloperMode(cfg.AgentDeveloperMode, cfg.AgentWorkspaceTrust),
 		agent.WithSkillsDir(cfg.AgentSkillsDir),
 		agent.WithMCPConfigPath(cfg.AgentMCPConfig),
 		agent.WithCommandAllowlist(cfg.AgentCommandAllowlist),

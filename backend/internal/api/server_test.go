@@ -1,16 +1,19 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -20,6 +23,111 @@ import (
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
 )
+
+func TestMain(m *testing.M) {
+	if os.Getenv("LINEA_FAKE_API_MCP_SERVER") == "1" {
+		runFakeAPIMCPServer()
+		return
+	}
+	os.Exit(m.Run())
+}
+
+func runFakeAPIMCPServer() {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		message, err := readAPITestMCPMessage(reader)
+		if err != nil {
+			return
+		}
+		id := apiTestMCPID(message["id"])
+		method, _ := message["method"].(string)
+		switch method {
+		case "initialize":
+			_ = writeAPITestMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities":    map[string]any{},
+				},
+			})
+		case "resources/subscribe":
+			params, _ := message["params"].(map[string]any)
+			uri, _ := params["uri"].(string)
+			_ = writeAPITestMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result":  map[string]any{},
+			})
+			_ = writeAPITestMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"method":  "notifications/resources/updated",
+				"params":  map[string]any{"uri": uri},
+			})
+		case "resources/unsubscribe":
+			_ = writeAPITestMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result":  map[string]any{},
+			})
+			return
+		}
+	}
+}
+
+func readAPITestMCPMessage(reader *bufio.Reader) (map[string]any, error) {
+	length := 0
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			break
+		}
+		key, value, ok := strings.Cut(line, ":")
+		if ok && strings.EqualFold(strings.TrimSpace(key), "Content-Length") {
+			parsed, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil {
+				return nil, err
+			}
+			length = parsed
+		}
+	}
+	if length <= 0 {
+		return nil, errors.New("missing content length")
+	}
+	data := make([]byte, length)
+	if _, err := io.ReadFull(reader, data); err != nil {
+		return nil, err
+	}
+	var message map[string]any
+	if err := json.Unmarshal(data, &message); err != nil {
+		return nil, err
+	}
+	return message, nil
+}
+
+func writeAPITestMCPMessage(writer io.Writer, message map[string]any) error {
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n%s", len(data), data)
+	return err
+}
+
+func apiTestMCPID(value any) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	default:
+		return 0
+	}
+}
 
 func TestCreateMessageStreamsAndPersistsAssistant(t *testing.T) {
 	appStore := store.NewMemoryStore()
@@ -528,6 +636,21 @@ func TestParseAgentLoopChatCommandAutoModeCanAutoApply(t *testing.T) {
 			t.Fatalf("parseAgentLoopChatCommand(%q) error = %v", command, err)
 		}
 		if !ok || input.Goal != "fix diagnostics" || input.Mode != "auto" || !input.AutoApply {
+			t.Fatalf("input = %#v, ok = %v", input, ok)
+		}
+	}
+}
+
+func TestParseAgentLoopChatCommandDeveloperModeCanAutoApply(t *testing.T) {
+	for _, command := range []string{
+		":loop developer fix diagnostics",
+		"agent developer fix diagnostics",
+	} {
+		input, ok, err := parseAgentLoopChatCommand(command)
+		if err != nil {
+			t.Fatalf("parseAgentLoopChatCommand(%q) error = %v", command, err)
+		}
+		if !ok || input.Goal != "fix diagnostics" || input.Mode != "developer" || !input.AutoApply {
 			t.Fatalf("input = %#v, ok = %v", input, ok)
 		}
 	}
@@ -1185,6 +1308,52 @@ func TestAgentMCPResourcesPromptsEndpoints(t *testing.T) {
 	}
 	if len(prompts) != 1 || !strings.HasPrefix(prompts[0].ID, "docs/review_") || prompts[0].Description != "Review code" {
 		t.Fatalf("prompts = %#v", prompts)
+	}
+}
+
+func TestAgentMCPSubscriptionEndpoints(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeAPITestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_API_MCP_SERVER":"1"},
+      "resources": [{"uri":"docs://readme","name":"README"}]
+    }
+  }
+}`)
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	subscribeReq := httptest.NewRequest(http.MethodPost, "/api/agent/mcp-resources/subscribe", strings.NewReader(`{"uri":"docs://readme"}`))
+	subscribeRes := httptest.NewRecorder()
+	server.ServeHTTP(subscribeRes, subscribeReq)
+	if subscribeRes.Code != http.StatusCreated {
+		t.Fatalf("subscribe status = %d, want %d: %s", subscribeRes.Code, http.StatusCreated, subscribeRes.Body.String())
+	}
+	var subscription agent.MCPSubscription
+	if err := json.NewDecoder(subscribeRes.Body).Decode(&subscription); err != nil {
+		t.Fatalf("Decode subscription error = %v", err)
+	}
+	if subscription.State != "active" || subscription.URI != "docs://readme" {
+		t.Fatalf("subscription = %#v", subscription)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/agent/mcp-subscriptions", nil)
+	listRes := httptest.NewRecorder()
+	server.ServeHTTP(listRes, listReq)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d: %s", listRes.Code, http.StatusOK, listRes.Body.String())
+	}
+
+	unsubscribeReq := httptest.NewRequest(http.MethodPost, "/api/agent/mcp-subscriptions/"+subscription.ID+"/unsubscribe", nil)
+	unsubscribeRes := httptest.NewRecorder()
+	server.ServeHTTP(unsubscribeRes, unsubscribeReq)
+	if unsubscribeRes.Code != http.StatusOK {
+		t.Fatalf("unsubscribe status = %d, want %d: %s", unsubscribeRes.Code, http.StatusOK, unsubscribeRes.Body.String())
 	}
 }
 

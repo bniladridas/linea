@@ -74,13 +74,28 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		return formatReferences(references), nil
 	case input == ":mcp":
 		status := a.agent.Status(ctx)
-		return formatMCP(status.MCPServers, a.agent.ListMCPTools(ctx), a.agent.ListMCPResources(ctx), a.agent.ListMCPPrompts(ctx)), nil
+		status.MCPTools = a.agent.ListMCPTools(ctx)
+		status.MCPResources = a.agent.ListMCPResources(ctx)
+		status.MCPPrompts = a.agent.ListMCPPrompts(ctx)
+		return formatMCP(status), nil
 	case strings.HasPrefix(input, ":mcp read "):
 		call, err := a.agent.ReadMCPResource(ctx, mcpResourceReadInput(strings.TrimSpace(strings.TrimPrefix(input, ":mcp read "))))
 		if err != nil {
 			return "", err
 		}
 		return formatMCPCall(call), nil
+	case strings.HasPrefix(input, ":mcp subscribe "):
+		subscription, err := a.agent.SubscribeMCPResource(ctx, mcpSubscribeInput(strings.TrimSpace(strings.TrimPrefix(input, ":mcp subscribe "))))
+		if err != nil {
+			return "", err
+		}
+		return formatMCPSubscription(subscription), nil
+	case strings.HasPrefix(input, ":mcp unsubscribe "):
+		subscription, err := a.agent.UnsubscribeMCPResource(ctx, strings.TrimSpace(strings.TrimPrefix(input, ":mcp unsubscribe ")))
+		if err != nil {
+			return "", err
+		}
+		return formatMCPSubscription(subscription), nil
 	case strings.HasPrefix(input, ":mcp prompt "):
 		promptID, rawArgs := splitIDAndRest(strings.TrimSpace(strings.TrimPrefix(input, ":mcp prompt ")))
 		args, err := parseMCPArguments(rawArgs)
@@ -243,6 +258,10 @@ func (a *App) startAgentLoop(ctx context.Context, value string) (agent.AgentLoop
 		mode = "auto"
 		autoApply = true
 		goal = strings.TrimSpace(rest)
+	} else if rest, ok := strings.CutPrefix(goal, "developer "); ok {
+		mode = "developer"
+		autoApply = true
+		goal = strings.TrimSpace(rest)
 	} else if rest, ok := strings.CutPrefix(goal, "guided "); ok {
 		mode = "guided"
 		goal = strings.TrimSpace(rest)
@@ -253,7 +272,7 @@ func (a *App) startAgentLoop(ctx context.Context, value string) (agent.AgentLoop
 func (a *App) continueAgentLoop(ctx context.Context, id string) (agent.AgentLoop, error) {
 	input := agent.AgentLoopContinueInput{}
 	for _, loop := range a.agent.ListAgentLoops(ctx) {
-		if loop.ID != id || loop.Mode != "auto" || !agentLoopAtLimit(loop) {
+		if loop.ID != id || !agentLoopContinuesAutonomously(loop.Mode) || !agentLoopAtLimit(loop) {
 			continue
 		}
 		input.MaxIterations = loop.MaxIterations + 1
@@ -264,7 +283,7 @@ func (a *App) continueAgentLoop(ctx context.Context, id string) (agent.AgentLoop
 
 func (a *App) continueAppliedAutoLoop(ctx context.Context, proposalID string) (string, bool) {
 	for _, loop := range a.agent.ListAgentLoops(ctx) {
-		if loop.Mode != "auto" || loop.State != "waiting_approval" {
+		if !agentLoopContinuesAutonomously(loop.Mode) || loop.State != "waiting_approval" {
 			continue
 		}
 		for _, step := range loop.Steps {
@@ -296,6 +315,10 @@ func agentLoopAtLimit(loop agent.AgentLoop) bool {
 	return false
 }
 
+func agentLoopContinuesAutonomously(mode string) bool {
+	return mode == "auto" || mode == "developer"
+}
+
 func agentHelp() string {
 	return strings.Join([]string{
 		"Commands:",
@@ -312,10 +335,13 @@ func agentHelp() string {
 		":read <path>",
 		":loop <goal>",
 		":loop auto <goal>",
+		":loop developer <goal>",
 		":loop continue <id>",
 		":loop cancel <id>",
 		":mcp",
 		":mcp read <resource-id-or-uri>",
+		":mcp subscribe <resource-id-or-uri>",
+		":mcp unsubscribe <subscription-id>",
 		":mcp prompt <prompt-id> [json]",
 		":mcp call <tool-id> [json]",
 		":subagent [id] [query]",
@@ -340,6 +366,13 @@ func mcpResourceReadInput(value string) agent.MCPResourceReadInput {
 		return agent.MCPResourceReadInput{URI: value}
 	}
 	return agent.MCPResourceReadInput{ResourceID: value}
+}
+
+func mcpSubscribeInput(value string) agent.MCPSubscribeInput {
+	if looksLikeURI(value) {
+		return agent.MCPSubscribeInput{URI: value}
+	}
+	return agent.MCPSubscribeInput{ResourceID: value}
 }
 
 func looksLikeURI(value string) bool {
@@ -457,26 +490,32 @@ func formatReferences(items []agent.WorkspaceReference) string {
 	return strings.TrimSpace(b.String())
 }
 
-func formatMCP(servers []agent.MCPServer, tools []agent.MCPTool, resources []agent.MCPResource, prompts []agent.MCPPrompt) string {
-	if len(servers) == 0 && len(tools) == 0 && len(resources) == 0 && len(prompts) == 0 {
+func formatMCP(status agent.Status) string {
+	if len(status.MCPServers) == 0 && len(status.MCPTools) == 0 && len(status.MCPResources) == 0 && len(status.MCPPrompts) == 0 {
 		return "No MCP entries."
 	}
 	var b strings.Builder
-	for _, server := range servers {
+	for _, server := range status.MCPServers {
 		fmt.Fprintf(&b, "Server %s · %s", server.Name, server.State)
 		if server.Command != "" {
 			fmt.Fprintf(&b, " · %s", server.Command)
 		}
 		b.WriteByte('\n')
 	}
-	for _, tool := range tools {
+	for _, tool := range status.MCPTools {
 		fmt.Fprintf(&b, "Tool %s/%s · %s\n", tool.ServerName, tool.Name, tool.State)
 	}
-	for _, resource := range resources {
+	for _, resource := range status.MCPResources {
 		fmt.Fprintf(&b, "Resource %s/%s · %s\n", resource.ServerName, resource.Name, resource.URI)
 	}
-	for _, prompt := range prompts {
+	for _, prompt := range status.MCPPrompts {
 		fmt.Fprintf(&b, "Prompt %s/%s · %s\n", prompt.ServerName, prompt.Name, prompt.State)
+	}
+	for _, subscription := range status.MCPSubscriptions {
+		fmt.Fprintf(&b, "Subscription %s · %s · %s\n", subscription.ID, subscription.State, subscription.URI)
+	}
+	for _, event := range status.MCPEvents {
+		fmt.Fprintf(&b, "Event %s · %s · %s\n", event.Method, event.ServerID, event.URI)
 	}
 	return strings.TrimSpace(b.String())
 }
@@ -498,6 +537,14 @@ func formatMCPCall(call agent.MCPCall) string {
 		return fmt.Sprintf("MCP %s: %s", call.ToolID, call.State)
 	}
 	return fmt.Sprintf("MCP %s: %s\n\n```json\n%s\n```", call.ToolID, call.State, call.Output)
+}
+
+func formatMCPSubscription(subscription agent.MCPSubscription) string {
+	detail := subscription.URI
+	if subscription.Error != "" {
+		detail += " · " + subscription.Error
+	}
+	return fmt.Sprintf("MCP subscription %s: %s · %s", subscription.ID, subscription.State, detail)
 }
 
 func formatSubagents(items []agent.Subagent) string {

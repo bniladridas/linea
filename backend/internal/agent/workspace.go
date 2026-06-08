@@ -41,6 +41,13 @@ func WithWorkspaceRoot(root string) func(*Runtime) {
 	}
 }
 
+func WithDeveloperMode(enabled bool, workspaceTrust string) func(*Runtime) {
+	return func(r *Runtime) {
+		r.developerMode = enabled
+		r.workspaceTrust = strings.ToLower(strings.TrimSpace(workspaceTrust))
+	}
+}
+
 func WithEditPlanner(planner EditPlanner) func(*Runtime) {
 	return func(r *Runtime) {
 		r.editPlanner = planner
@@ -119,6 +126,9 @@ func (r *Runtime) ReadFile(ctx context.Context, name string) (FileResult, error)
 	if info.IsDir() {
 		return FileResult{}, errors.New("path is a directory")
 	}
+	if isSecretPath(displayPath) {
+		return FileResult{}, errors.New("secret file is filtered")
+	}
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return FileResult{}, err
@@ -131,7 +141,45 @@ func (r *Runtime) ReadFile(ctx context.Context, name string) (FileResult, error)
 	if !utf8.Valid(data) {
 		return FileResult{}, errors.New("file is not text")
 	}
-	return FileResult{Path: displayPath, Content: string(data), Size: info.Size(), Truncated: truncated}, nil
+	return FileResult{Path: displayPath, Content: redactSecrets(string(data)), Size: info.Size(), Truncated: truncated}, nil
+}
+
+func (r *Runtime) ReadDeveloperFile(ctx context.Context, name string) (FileResult, error) {
+	if !r.developerFullTrust() || !filepath.IsAbs(strings.TrimSpace(name)) {
+		return r.ReadFile(ctx, name)
+	}
+	fullPath, displayPath, err := trustedPath(name)
+	if err != nil {
+		return FileResult{}, err
+	}
+	select {
+	case <-ctx.Done():
+		return FileResult{}, ctx.Err()
+	default:
+	}
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return FileResult{}, err
+	}
+	if info.IsDir() {
+		return FileResult{}, errors.New("path is a directory")
+	}
+	if isSecretPath(displayPath) {
+		return FileResult{}, errors.New("secret file is filtered")
+	}
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return FileResult{}, err
+	}
+	truncated := false
+	if len(data) > maxReadBytes {
+		data = data[:maxReadBytes]
+		truncated = true
+	}
+	if !utf8.Valid(data) {
+		return FileResult{}, errors.New("file is not text")
+	}
+	return FileResult{Path: displayPath, Content: redactSecrets(string(data)), Size: info.Size(), Truncated: truncated}, nil
 }
 
 func (r *Runtime) SearchFiles(ctx context.Context, query string) ([]SearchResult, error) {
@@ -179,13 +227,16 @@ func (r *Runtime) SearchFiles(ctx context.Context, query string) ([]SearchResult
 		if relErr != nil {
 			return nil
 		}
+		if isSecretPath(relative) {
+			return nil
+		}
 		lines := strings.Split(string(data), "\n")
 		for index, line := range lines {
 			if strings.Contains(strings.ToLower(line), lowerQuery) {
 				results = append(results, SearchResult{
 					Path: filepath.ToSlash(relative),
 					Line: index + 1,
-					Text: strings.TrimSpace(line),
+					Text: redactSecrets(strings.TrimSpace(line)),
 				})
 				if len(results) >= maxSearchResult {
 					return filepath.SkipAll
@@ -206,6 +257,32 @@ func (r *Runtime) SearchFiles(ctx context.Context, query string) ([]SearchResult
 	return results, err
 }
 
+func (r *Runtime) developerFullTrust() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.developerMode && r.workspaceTrust == "full"
+}
+
+func trustedPath(name string) (string, string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", "", ErrPathOutsideRoot
+	}
+	path := name
+	if !filepath.IsAbs(path) {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return "", "", err
+		}
+		path = absolute
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", "", err
+	}
+	return resolved, resolved, nil
+}
+
 func (r *Runtime) workspacePath(name string) (string, string, error) {
 	return r.workspacePathForName(name, false)
 }
@@ -215,11 +292,22 @@ func (r *Runtime) workspacePathAllowMissing(name string) (string, string, error)
 }
 
 func (r *Runtime) workspacePathForName(name string, allowMissing bool) (string, string, error) {
+	name = strings.TrimSpace(name)
+	if r.developerFullTrust() && filepath.IsAbs(name) {
+		fullPath := name
+		resolvedPath, err := filepath.EvalSymlinks(fullPath)
+		if err != nil && (!allowMissing || !os.IsNotExist(err)) {
+			return "", "", err
+		}
+		if err == nil {
+			fullPath = resolvedPath
+		}
+		return fullPath, filepath.ToSlash(fullPath), nil
+	}
 	root, err := r.workspaceRootPath()
 	if err != nil {
 		return "", "", err
 	}
-	name = strings.TrimSpace(name)
 	if name == "" || filepath.IsAbs(name) {
 		return "", "", ErrPathOutsideRoot
 	}

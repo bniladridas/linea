@@ -13,6 +13,8 @@ import (
 
 type Runtime struct {
 	mu               sync.RWMutex
+	shutdownCtx      context.Context
+	shutdownCancel   context.CancelFunc
 	rulesPath        string
 	editPlanner      EditPlanner
 	traces           []Trace
@@ -23,11 +25,16 @@ type Runtime struct {
 	agentPreviews    []AgentPreview
 	appSessions      []AppSession
 	mcpCalls         []MCPCall
+	mcpSubscriptions []MCPSubscription
+	mcpEvents        []MCPEvent
+	mcpSessions      map[string]*mcpSession
 	editProposals    []EditProposal
 	commandApprovals []CommandApproval
 	commandChecks    []CommandCheck
 	commandRuns      []CommandRun
 	workspaceRoot    string
+	developerMode    bool
+	workspaceTrust   string
 	lspCommand       string
 	skillsDir        string
 	mcpConfigPath    string
@@ -65,6 +72,8 @@ type Status struct {
 	MCPResources     []MCPResource     `json:"mcpResources"`
 	MCPPrompts       []MCPPrompt       `json:"mcpPrompts"`
 	MCPCalls         []MCPCall         `json:"mcpCalls"`
+	MCPSubscriptions []MCPSubscription `json:"mcpSubscriptions"`
+	MCPEvents        []MCPEvent        `json:"mcpEvents"`
 	Boundaries       []string          `json:"boundaries"`
 	Next             []string          `json:"next"`
 	TraceEvents      []Trace           `json:"traceEvents"`
@@ -308,12 +317,40 @@ type MCPCall struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type MCPSubscription struct {
+	ID         string    `json:"id"`
+	ServerID   string    `json:"serverId"`
+	ServerName string    `json:"serverName"`
+	ResourceID string    `json:"resourceId,omitempty"`
+	URI        string    `json:"uri"`
+	State      string    `json:"state"`
+	Error      string    `json:"error,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+type MCPEvent struct {
+	ID             string    `json:"id"`
+	SubscriptionID string    `json:"subscriptionId,omitempty"`
+	ServerID       string    `json:"serverId"`
+	URI            string    `json:"uri,omitempty"`
+	Method         string    `json:"method"`
+	Output         string    `json:"output,omitempty"`
+	Error          string    `json:"error,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
 type MCPCallInput struct {
 	ToolID    string         `json:"toolId"`
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
 type MCPResourceReadInput struct {
+	ResourceID string `json:"resourceId,omitempty"`
+	URI        string `json:"uri,omitempty"`
+}
+
+type MCPSubscribeInput struct {
 	ResourceID string `json:"resourceId,omitempty"`
 	URI        string `json:"uri,omitempty"`
 }
@@ -394,7 +431,8 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 	if strings.TrimSpace(rulesPath) == "" {
 		rulesPath = "AGENTS.md"
 	}
-	runtime := &Runtime{rulesPath: rulesPath}
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	runtime := &Runtime{shutdownCtx: shutdownCtx, shutdownCancel: shutdownCancel, rulesPath: rulesPath, mcpSessions: map[string]*mcpSession{}}
 	for _, option := range options {
 		if option != nil {
 			option(runtime)
@@ -417,6 +455,8 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		MCPResources:     r.statusMCPResources(ctx),
 		MCPPrompts:       r.statusMCPPrompts(ctx),
 		MCPCalls:         r.statusMCPCalls(),
+		MCPSubscriptions: r.statusMCPSubscriptions(),
+		MCPEvents:        r.statusMCPEvents(),
 		Boundaries:       defaultBoundaries(),
 		Next:             defaultNext(),
 		TraceEvents:      r.statusTraces(),
@@ -765,6 +805,40 @@ func (r *Runtime) statusMCPCalls() []MCPCall {
 		return calls[:5]
 	}
 	return calls
+}
+
+func (r *Runtime) ListMCPSubscriptions(context.Context) []MCPSubscription {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.mcpSubscriptions) == 0 {
+		return []MCPSubscription{}
+	}
+	return append([]MCPSubscription(nil), r.mcpSubscriptions...)
+}
+
+func (r *Runtime) statusMCPSubscriptions() []MCPSubscription {
+	items := r.ListMCPSubscriptions(context.Background())
+	if len(items) > 5 {
+		return items[:5]
+	}
+	return items
+}
+
+func (r *Runtime) ListMCPEvents(context.Context) []MCPEvent {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.mcpEvents) == 0 {
+		return []MCPEvent{}
+	}
+	return append([]MCPEvent(nil), r.mcpEvents...)
+}
+
+func (r *Runtime) statusMCPEvents() []MCPEvent {
+	items := r.ListMCPEvents(context.Background())
+	if len(items) > 5 {
+		return items[:5]
+	}
+	return items
 }
 
 func (r *Runtime) statusAgentLoops() []AgentLoop {

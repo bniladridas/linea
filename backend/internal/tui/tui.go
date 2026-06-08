@@ -44,6 +44,8 @@ type AgentRuntime interface {
 	CallMCPTool(context.Context, agent.MCPCallInput) (agent.MCPCall, error)
 	ReadMCPResource(context.Context, agent.MCPResourceReadInput) (agent.MCPCall, error)
 	GetMCPPrompt(context.Context, agent.MCPPromptGetInput) (agent.MCPCall, error)
+	SubscribeMCPResource(context.Context, agent.MCPSubscribeInput) (agent.MCPSubscription, error)
+	UnsubscribeMCPResource(context.Context, string) (agent.MCPSubscription, error)
 	ListDiagnostics(context.Context) ([]agent.Diagnostic, error)
 	SearchFiles(context.Context, string) ([]agent.SearchResult, error)
 	ReadFile(context.Context, string) (agent.FileResult, error)
