@@ -8,6 +8,7 @@ build:
 
 test:
 	node scripts/client-api-route-check.mjs
+	node scripts/docs-link-check.mjs
 	cd frontend && npm run build
 	cd backend && go test ./...
 	cd backend && go vet ./...
