@@ -217,6 +217,12 @@ Continues a waiting loop after the needed input or approval exists.
 
 Cancels a waiting loop.
 
+`GET /api/agent/previews/{id}/{name...}`
+
+Serves a temporary agent preview file. The root path serves the preview entry file.
+
+Preview URLs are returned as `previewUrl` from completed temporary app loops. They are local, temporary, and may return a small unavailable page after the preview root is gone.
+
 `GET /api/agent/subagents`
 
 Returns bounded subagent roles.
@@ -793,6 +799,21 @@ propose edit README.md
 # Linea
 ```
 ````
+
+`POST /api/chat/temp`
+
+Streams a temporary chat response without saving a conversation. The request is `multipart/form-data` with the same `content` and optional repeated `files` fields as saved messages.
+
+Clients may send a `history` field containing a JSON array of prior temporary messages:
+
+```json
+[
+  {"role":"user","content":"Hello"},
+  {"role":"assistant","content":"Hi"}
+]
+```
+
+Temporary chat supports the same stream events as saved message creation.
 
 # Stream
 
