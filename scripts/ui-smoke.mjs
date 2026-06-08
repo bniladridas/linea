@@ -50,6 +50,9 @@ async function main() {
     if (!result.themePanelWorks) {
       throw new Error('Theme panel did not open from the sidebar footer.');
     }
+    if (!result.responseDetailsQuietByDefault) {
+      throw new Error('Response details are not quiet by default.');
+    }
     if (!result.footerPanelCloses) {
       throw new Error('Sidebar footer panels did not close on outside click.');
     }
@@ -442,6 +445,13 @@ async function runProbe() {
     expression: `Boolean(document.querySelector('.theme-panel'))`,
     returnByValue: true,
   });
+  const responseDetailsQuietByDefault = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const input = document.querySelector('.theme-panel input[type="checkbox"]');
+      return input?.checked === false;
+    })()`,
+    returnByValue: true,
+  });
   await send('Runtime.evaluate', {
     expression: `(() => {
       document.querySelector('.chat')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
@@ -558,6 +568,24 @@ async function runProbe() {
   let loadingObserved = null;
   let modelBadgeObserved = null;
   if (sendMessage) {
+    await send('Runtime.evaluate', {
+      expression: `(() => {
+        const themeButton = document.querySelectorAll('.system-button')[1];
+        if (!document.querySelector('.theme-panel')) {
+          themeButton?.click();
+        }
+        const labels = Array.from(document.querySelectorAll('.theme-panel label'));
+        const details = labels.find((label) => label.textContent.includes('Response details'));
+        const input = details?.querySelector('input[type="checkbox"]');
+        if (input && !input.checked) {
+          details.click();
+        }
+        document.querySelector('.chat')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        return Boolean(input);
+      })()`,
+      returnByValue: true,
+    });
+    await sleep(150);
     await send('Runtime.evaluate', {
       expression: `(() => {
         ${startSavedChatExpression()}
@@ -697,6 +725,7 @@ async function runProbe() {
     composerShortcutWorks: composerShortcutWorks.result?.result?.value === true,
     systemPanelWorks: systemPanelWorks.result?.result?.value === true,
     themePanelWorks: themePanelWorks.result?.result?.value === true,
+    responseDetailsQuietByDefault: responseDetailsQuietByDefault.result?.result?.value === true,
     footerPanelCloses:
       footerPanelCloses.result?.result?.value === true &&
       footerBlankCloses.result?.result?.value === true,
