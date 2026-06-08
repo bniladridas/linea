@@ -66,6 +66,14 @@ Skips prereleases.
 
 Can also be run by hand with a tag.
 
+`release-install-check.yml`
+
+Runs when the Homebrew formula changes on `main`.
+
+Checks the published formula install path with `make install-check`.
+
+Can also be run by hand.
+
 `pages.yml`
 
 Publishes the public site.
@@ -98,4 +106,5 @@ Marks inactive issues and pull requests.
 2. `release.yml` publishes the release assets.
 3. `formula-sha.yml` opens the formula SHA pull request.
 4. Merge the formula pull request.
-5. Run `make release-check`.
+5. `release-install-check.yml` checks the published formula install path.
+6. Run `make release-check` for a local end-to-end release check.

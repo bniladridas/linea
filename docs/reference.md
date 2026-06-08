@@ -148,7 +148,9 @@ The release workflow builds the frontend, builds the Apple Silicon binary, packa
 
 After a release, `formula-sha.yml` opens a pull request for `Formula/linea.rb`.
 
-Run `make release-check`.
+After the formula pull request is merged, `release-install-check.yml` runs `make install-check`.
+
+Run `make release-check` for a local end-to-end release check.
 
 UI checks need Chrome. Message checks need one working text model.
 
