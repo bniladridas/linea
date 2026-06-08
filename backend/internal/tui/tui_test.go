@@ -532,11 +532,14 @@ func TestRunHandlesAgentCommands(t *testing.T) {
 	output := out.String()
 	for _, want := range []string{
 		"Agent ready",
+		":new",
+		":attach <path>",
 		":symbols [query]",
 		":refs <identifier>",
 		":proposal approve <id>",
 		":proposal reject <id>",
 		":proposal apply <id>",
+		":quit",
 		"func Run",
 		"main.go:4 func main() { Run() }",
 		"No MCP entries",

@@ -297,10 +297,12 @@ func agentLoopAtLimit(loop agent.AgentLoop) bool {
 func agentHelp() string {
 	return strings.Join([]string{
 		"Commands:",
+		":new",
 		":agent status",
 		":rename <title>",
 		":share",
 		":delete confirm",
+		":attach <path>",
 		":diag",
 		":symbols [query]",
 		":refs <identifier>",
@@ -327,6 +329,7 @@ func agentHelp() string {
 		":proposal approve <id>",
 		":proposal reject <id>",
 		":proposal apply <id>",
+		":quit",
 	}, "\n")
 }
 
