@@ -12,6 +12,7 @@ coverage/
 *.log
 *.tmp
 .DS_Store
+.idea/
 
 frontend/dist/
 frontend/node_modules/
