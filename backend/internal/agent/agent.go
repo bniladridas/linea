@@ -1001,14 +1001,14 @@ func defaultSubagents() []Subagent {
 			ID:      "review",
 			Name:    "Review",
 			Purpose: "Inspect changes for bugs, regressions, and missing checks.",
-			State:   "planned",
+			State:   "ready",
 			Tools:   []string{"read_file", "search_files", "diagnostics"},
 		},
 		{
 			ID:      "search",
 			Name:    "Search",
 			Purpose: "Find local context and summarize relevant files.",
-			State:   "planned",
+			State:   "ready",
 			Tools:   []string{"read_file", "search_files"},
 		},
 		{
@@ -1022,7 +1022,7 @@ func defaultSubagents() []Subagent {
 			ID:      "docs",
 			Name:    "Docs",
 			Purpose: "Keep documentation aligned with behavior.",
-			State:   "planned",
+			State:   "ready",
 			Tools:   []string{"read_file", "search_files"},
 		},
 	}
