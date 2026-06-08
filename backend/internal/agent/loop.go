@@ -1322,7 +1322,51 @@ func (r *Runtime) runCheckedLoopCommand(ctx context.Context, loop AgentLoop, com
 			detail = err.Error()
 		}
 	}
-	return appendLoopStep(loop, "command_run", "Run command", "run_command", err, detail, command)
+	loop = appendLoopStep(loop, "command_run", "Run command", "run_command", err, detail, command)
+	if err != nil && loop.Mode == "developer" {
+		return r.runDeveloperFailureInspection(ctx, loop, command)
+	}
+	return loop
+}
+
+func (r *Runtime) runDeveloperFailureInspection(ctx context.Context, loop AgentLoop, failedCommand string) AgentLoop {
+	command, detail := r.inferDeveloperFailureInspection(ctx, failedCommand)
+	if command == "" {
+		return appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
+	}
+	loop = appendLoopStep(loop, "command_followup", "Inspect failure", "run_command", nil, detail, command)
+	reason, err := checkDeveloperCommand(command)
+	check := CommandCheck{
+		ID:        newTraceID(),
+		Command:   command,
+		Allowed:   err == nil,
+		Reason:    reason,
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	r.commandChecks = append([]CommandCheck{check}, r.commandChecks...)
+	if len(r.commandChecks) > 50 {
+		r.commandChecks = r.commandChecks[:50]
+	}
+	r.mu.Unlock()
+	loop = appendLoopStep(loop, "command_check", "Check inspection command", "run_command", err, reason, command)
+	if err != nil {
+		return appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
+	}
+	run, runErr := r.runCheckedCommand(ctx, command)
+	runDetail := commandRunDetail(run)
+	if runErr == nil && run.ExitCode != 0 {
+		runErr = fmt.Errorf("command exited with %d", run.ExitCode)
+	}
+	if runErr != nil {
+		if strings.TrimSpace(run.Output) != "" {
+			runDetail += " · " + runErr.Error()
+		} else {
+			runDetail = runErr.Error()
+		}
+	}
+	loop = appendLoopStep(loop, "command_run", "Run inspection command", "run_command", runErr, runDetail, command)
+	return appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
 }
 
 func (r *Runtime) inferLoopCommand(ctx context.Context, goal string) (string, string, bool) {
@@ -1410,6 +1454,35 @@ func (r *Runtime) inferDeveloperLoopCommand(ctx context.Context, goal string) (s
 		return "find . -maxdepth 2 -type f", "Inferred file listing for workspace inspection."
 	}
 	return "", ""
+}
+
+func (r *Runtime) inferDeveloperFailureInspection(ctx context.Context, failedCommand string) (string, string) {
+	root, err := r.workspaceRootPath()
+	if err != nil {
+		return "", ""
+	}
+	failedLower := strings.ToLower(strings.Join(strings.Fields(failedCommand), " "))
+	hasFile := func(name string) bool {
+		_, err := os.Stat(filepath.Join(root, name))
+		return err == nil
+	}
+	select {
+	case <-ctx.Done():
+		return "", ""
+	default:
+	}
+	switch {
+	case strings.HasPrefix(failedLower, "npm ") && hasFile("package.json"):
+		return "npm run", "Inspect available npm scripts after failed command."
+	case strings.HasPrefix(failedLower, "go ") && hasFile("go.mod"):
+		return "go env GOMOD", "Inspect Go module context after failed command."
+	case strings.HasPrefix(failedLower, "make ") && hasFile("Makefile"):
+		return "sed -n 1,160p Makefile", "Inspect Makefile after failed command."
+	}
+	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+		return "git status --short", "Inspect repository status after failed command."
+	}
+	return "find . -maxdepth 2 -type f", "Inspect nearby workspace files after failed command."
 }
 
 func commandRunDetail(run CommandRun) string {

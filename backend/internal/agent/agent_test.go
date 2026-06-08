@@ -332,6 +332,30 @@ func TestRuntimeDeveloperAgentLoopRunsNonDestructiveCommand(t *testing.T) {
 	}
 }
 
+func TestRuntimeDeveloperAgentLoopInspectsFailedCommand(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "README.md"), "notes")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run command",
+		Mode:    "developer",
+		Command: "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || !loopHasStep(loop, "command_followup", "completed") || !loopHasStep(loop, "retry", "waiting_input") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if !loopStepHasCommand(loop, "command_followup", "find . -maxdepth 2 -type f") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+	if !loopStepHasCommand(loop, "command_run", "find . -maxdepth 2 -type f") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+}
+
 func TestRuntimeDeveloperAgentLoopBlocksDestructiveCommand(t *testing.T) {
 	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
 
