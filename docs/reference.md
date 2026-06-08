@@ -34,6 +34,8 @@ LINEA_WORKSPACE_DIR=
 LINEA_MCP_CONFIG=
 LINEA_COMMAND_ALLOWLIST=
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
+BRAVE_SEARCH_API_KEY=
+SEARXNG_URL=
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash-lite
 SAMBANOVA_API_KEY=
@@ -63,6 +65,8 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_MCP_CONFIG` | Reads local MCP server and tool names from a JSON config. Empty means none. |
 | `LINEA_COMMAND_ALLOWLIST` | Comma-separated exact commands allowed for agent checks. Empty means none. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
+| `BRAVE_SEARCH_API_KEY` | Optional Brave Search API key. When set, Brave results are tried before free fallbacks. |
+| `SEARXNG_URL` | Optional self-hosted SearXNG base URL. When set, SearXNG results are tried before DuckDuckGo fallback. |
 | `GEMINI_API_KEY` | Gemini primary. |
 | `GEMINI_MODEL` | Gemini model. |
 | `SAMBANOVA_API_KEY` | SambaNova fallback. |

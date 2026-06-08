@@ -33,12 +33,14 @@ Returns storage, search, and provider state.
 ```json
 {
   "storage": "postgres",
-  "search": "duckduckgo",
+  "search": "DuckDuckGo + Wikipedia",
   "providers": [
     {"name":"Gemini","model":"gemini-2.5-flash-lite","enabled":true,"role":"primary"}
   ]
 }
 ```
+
+Search uses free no-key fallbacks by default: DuckDuckGo Instant Answer, DuckDuckGo HTML results, and Wikipedia. Research-shaped queries may also use OpenAlex and arXiv. When `SEARXNG_URL` is set, Linea tries that self-hosted SearXNG instance before DuckDuckGo. When `BRAVE_SEARCH_API_KEY` is set, Brave is tried first.
 
 `GET /api/agent`
 
