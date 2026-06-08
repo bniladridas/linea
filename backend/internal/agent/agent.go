@@ -21,6 +21,7 @@ type Runtime struct {
 	hookRuns         []HookRun
 	skillRuns        []SkillRun
 	subagentRuns     []SubagentRun
+	subagentPlans    []SubagentPlanRun
 	agentLoops       []AgentLoop
 	agentPreviews    []AgentPreview
 	appSessions      []AppSession
@@ -81,6 +82,7 @@ type Status struct {
 	HookRuns         []HookRun         `json:"hookRuns"`
 	SkillRuns        []SkillRun        `json:"skillRuns"`
 	SubagentRuns     []SubagentRun     `json:"subagentRuns"`
+	SubagentPlans    []SubagentPlanRun `json:"subagentPlans"`
 	AgentLoops       []AgentLoop       `json:"agentLoops"`
 	CommandApprovals []CommandApproval `json:"commandApprovals"`
 	CommandChecks    []CommandCheck    `json:"commandChecks"`
@@ -250,6 +252,22 @@ type SubagentRun struct {
 type SubagentRunInput struct {
 	Goal  string `json:"goal,omitempty"`
 	Query string `json:"query,omitempty"`
+}
+
+type SubagentPlanInput struct {
+	Goal        string   `json:"goal,omitempty"`
+	Query       string   `json:"query,omitempty"`
+	SubagentIDs []string `json:"subagentIds,omitempty"`
+}
+
+type SubagentPlanRun struct {
+	ID          string        `json:"id"`
+	Goal        string        `json:"goal"`
+	State       string        `json:"state"`
+	Summary     string        `json:"summary"`
+	SubagentIDs []string      `json:"subagentIds"`
+	Runs        []SubagentRun `json:"runs"`
+	CreatedAt   time.Time     `json:"createdAt"`
 }
 
 type WorkspaceSymbol struct {
@@ -467,6 +485,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		HookRuns:         r.statusHookRuns(),
 		SkillRuns:        r.statusSkillRuns(),
 		SubagentRuns:     r.statusSubagentRuns(),
+		SubagentPlans:    r.statusSubagentPlans(),
 		AgentLoops:       r.statusAgentLoops(),
 		CommandApprovals: r.statusCommandApprovals(),
 		CommandChecks:    r.statusCommandChecks(),
@@ -536,6 +555,14 @@ func (r *Runtime) RunSummary(context.Context) RunSummary {
 			updatedAt = run.CreatedAt
 		}
 		if run.State == "blocked" || run.State == "waiting_input" {
+			state = "attention"
+		}
+	}
+	for _, plan := range r.subagentPlans {
+		if plan.CreatedAt.After(updatedAt) {
+			updatedAt = plan.CreatedAt
+		}
+		if plan.State == "blocked" || plan.State == "attention" || plan.State == "waiting_input" {
 			state = "attention"
 		}
 	}

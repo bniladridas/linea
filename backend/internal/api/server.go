@@ -58,7 +58,9 @@ type AgentRuntime interface {
 	RunSummary(context.Context) agent.RunSummary
 	ListSubagents(context.Context) []agent.Subagent
 	ListSubagentRuns(context.Context) []agent.SubagentRun
+	ListSubagentPlans(context.Context) []agent.SubagentPlanRun
 	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
+	RunSubagentPlan(context.Context, agent.SubagentPlanInput) (agent.SubagentPlanRun, error)
 	ListMCPServers(context.Context) []agent.MCPServer
 	ListMCPTools(context.Context) []agent.MCPTool
 	ListMCPResources(context.Context) []agent.MCPResource
@@ -206,6 +208,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/runs", s.createAgentRun)
 	mux.HandleFunc("GET /api/agent/subagents", s.listAgentSubagents)
 	mux.HandleFunc("GET /api/agent/subagent-runs", s.listAgentSubagentRuns)
+	mux.HandleFunc("GET /api/agent/subagent-plans", s.listAgentSubagentPlans)
+	mux.HandleFunc("POST /api/agent/subagents/run", s.runAgentSubagentPlan)
 	mux.HandleFunc("POST /api/agent/subagents/{id}/run", s.runAgentSubagent)
 	mux.HandleFunc("GET /api/agent/mcp-servers", s.listAgentMCPServers)
 	mux.HandleFunc("GET /api/agent/mcp-tools", s.listAgentMCPTools)
@@ -333,6 +337,33 @@ func (s *Server) listAgentSubagentRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.agentRuntime.ListSubagentRuns(r.Context()))
+}
+
+func (s *Server) listAgentSubagentPlans(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.SubagentPlanRun{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListSubagentPlans(r.Context()))
+}
+
+func (s *Server) runAgentSubagentPlan(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent subagents are not available.")
+		return
+	}
+	var input agent.SubagentPlanInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	plan, err := s.agentRuntime.RunSubagentPlan(r.Context(), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.recordAgentTrace(r.Context(), "subagent plan", plan.State, strings.Join(plan.SubagentIDs, ","))
+	writeJSON(w, http.StatusCreated, plan)
 }
 
 func (s *Server) runAgentSubagent(w http.ResponseWriter, r *http.Request) {

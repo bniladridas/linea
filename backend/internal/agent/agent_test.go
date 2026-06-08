@@ -2257,6 +2257,53 @@ func TestRuntimeRunsBoundedSubagent(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunsBoundedSubagentPlan(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
+	writeTestFile(t, filepath.Join(root, "README.md"), "agent docs\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	plan, err := runtime.RunSubagentPlan(context.Background(), SubagentPlanInput{
+		Goal:  "review docs and search",
+		Query: "agent",
+	})
+	if err != nil {
+		t.Fatalf("RunSubagentPlan() error = %v", err)
+	}
+	if plan.State != "completed" || len(plan.Runs) != 3 {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if plan.SubagentIDs[0] != "review" || plan.SubagentIDs[1] != "docs" || plan.SubagentIDs[2] != "search" {
+		t.Fatalf("plan ids = %#v", plan.SubagentIDs)
+	}
+	runs := runtime.ListSubagentRuns(context.Background())
+	if len(runs) != 3 {
+		t.Fatalf("runs = %#v", runs)
+	}
+	status := runtime.Status(context.Background())
+	if len(status.SubagentPlans) != 1 || status.RunSummary.SubagentRuns != 3 {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestRuntimeSubagentPlanHonorsExplicitIDs(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	plan, err := runtime.RunSubagentPlan(context.Background(), SubagentPlanInput{
+		Goal:        "run selected helpers",
+		Query:       "agent",
+		SubagentIDs: []string{"search", "review", "search"},
+	})
+	if err != nil {
+		t.Fatalf("RunSubagentPlan() error = %v", err)
+	}
+	if len(plan.SubagentIDs) != 2 || plan.SubagentIDs[0] != "search" || plan.SubagentIDs[1] != "review" {
+		t.Fatalf("plan ids = %#v", plan.SubagentIDs)
+	}
+}
+
 func TestRuntimeListsWorkspaceSymbols(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nvar Foo, Bar int\ntype App struct{}\nfunc Run() {}\n")

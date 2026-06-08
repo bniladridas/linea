@@ -58,7 +58,9 @@ type AgentRuntime interface {
 	StartAgentLoop(context.Context, agent.AgentLoopInput) (agent.AgentLoop, error)
 	ContinueAgentLoop(context.Context, string, agent.AgentLoopContinueInput) (agent.AgentLoop, error)
 	CancelAgentLoop(context.Context, string) (agent.AgentLoop, error)
+	ListSubagentPlans(context.Context) []agent.SubagentPlanRun
 	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
+	RunSubagentPlan(context.Context, agent.SubagentPlanInput) (agent.SubagentPlanRun, error)
 	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)

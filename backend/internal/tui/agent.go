@@ -126,6 +126,15 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		return formatMCPCall(call), nil
 	case input == ":subagent":
 		return formatSubagents(a.agent.Status(ctx).Subagents), nil
+	case input == ":subagent plans":
+		return formatSubagentPlans(a.agent.ListSubagentPlans(ctx)), nil
+	case strings.HasPrefix(input, ":subagent plan "):
+		goal := strings.TrimSpace(strings.TrimPrefix(input, ":subagent plan "))
+		plan, err := a.agent.RunSubagentPlan(ctx, agent.SubagentPlanInput{Goal: goal, Query: goal})
+		if err != nil {
+			return "", err
+		}
+		return formatSubagentPlan(plan), nil
 	case strings.HasPrefix(input, ":subagent "):
 		id, query := splitIDAndRest(strings.TrimSpace(strings.TrimPrefix(input, ":subagent ")))
 		run, err := a.agent.RunSubagent(ctx, id, agent.SubagentRunInput{Goal: query, Query: query})
@@ -354,6 +363,8 @@ func agentHelp() string {
 		":mcp prompt <prompt-id> [json]",
 		":mcp call <tool-id> [json]",
 		":subagent [id] [query]",
+		":subagent plan <goal>",
+		":subagent plans",
 		":check <command>",
 		":approve <command>",
 		":run <command>",
@@ -631,6 +642,30 @@ func formatSubagents(items []agent.Subagent) string {
 	var b strings.Builder
 	for _, item := range items {
 		fmt.Fprintf(&b, "%s · %s · %s\n", item.ID, item.State, item.Purpose)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatSubagentPlan(plan agent.SubagentPlanRun) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Subagent plan %s: %s · %s", plan.ID, plan.State, plan.Summary)
+	for _, run := range plan.Runs {
+		fmt.Fprintf(&b, "\n%s: %s · %s", run.SubagentID, run.State, run.Summary)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatSubagentPlans(items []agent.SubagentPlanRun) string {
+	if len(items) == 0 {
+		return "No subagent plans."
+	}
+	var b strings.Builder
+	for index, item := range items {
+		if index >= 8 {
+			fmt.Fprintf(&b, "\n...%d more", len(items)-index)
+			break
+		}
+		fmt.Fprintf(&b, "%s · %s · %s\n", item.ID, item.State, item.Summary)
 	}
 	return strings.TrimSpace(b.String())
 }
