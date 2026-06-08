@@ -138,6 +138,8 @@ Vite runs at `http://localhost:5173`.
 | macOS app smoke | `make macos-check` |
 | macOS app UI | `make macos-ui-check` |
 
+Auto agent loops can gather workspace evidence, apply their own generated edit proposals after explicit auto activation, run inferred project checks from project files, and call MCP tools whose schemas have no required arguments. Guided loops and explicit command runs still stop at approval boundaries.
+
 # Client Docs
 
 API contract: [client-api.md](./client-api.md).

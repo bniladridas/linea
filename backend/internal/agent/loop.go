@@ -778,8 +778,10 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 		if plan, ok := planMCPAction(goalLower, tools, resources, prompts); ok {
 			loop = appendLoopStep(loop, "mcp_plan", plan.Title, plan.ToolID, nil, plan.Target, "")
 			if plan.Kind == "mcp_call" {
-				loop = appendLoopStep(loop, "mcp_boundary", "Review MCP tool", plan.ToolID, nil, "Run this MCP tool explicitly from System or TUI.", "")
-				return loop
+				if loop.Mode != "auto" || !selectedMCPToolAllowsEmptyArguments(plan.Target, tools) {
+					loop = appendLoopStep(loop, "mcp_boundary", "Review MCP tool", plan.ToolID, nil, "Run this MCP tool explicitly from System or TUI.", "")
+					return loop
+				}
 			}
 			result := r.executeMCPPlanStep(ctx, plan)
 			loop = appendLoopExecutionStep(loop, plan.Kind, plan.ExecutionTitle, plan.ToolID, result.Err, result.Detail, result.CreatedID)
@@ -2224,6 +2226,29 @@ func selectMCPToolForGoal(goal string, tools []MCPTool) string {
 		}
 	}
 	return ""
+}
+
+func selectedMCPToolAllowsEmptyArguments(toolID string, tools []MCPTool) bool {
+	for _, tool := range tools {
+		if tool.ID == toolID || tool.Name == toolID {
+			return mcpToolAllowsEmptyArguments(tool)
+		}
+	}
+	return false
+}
+
+func mcpToolAllowsEmptyArguments(tool MCPTool) bool {
+	schema := strings.TrimSpace(tool.InputSchema)
+	if schema == "" {
+		return true
+	}
+	var parsed struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal([]byte(schema), &parsed); err != nil {
+		return false
+	}
+	return len(parsed.Required) == 0
 }
 
 func mcpEntryMatchesGoal(goal string, values ...string) bool {
