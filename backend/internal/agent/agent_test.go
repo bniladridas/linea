@@ -188,7 +188,7 @@ func TestRuntimeListsBoundedSubagents(t *testing.T) {
 	if len(subagents) != 4 {
 		t.Fatalf("subagents = %#v", subagents)
 	}
-	if subagents[0].ID != "review" || subagents[0].State != "planned" {
+	if subagents[0].ID != "review" || subagents[0].State != "ready" {
 		t.Fatalf("first subagent = %#v", subagents[0])
 	}
 	for _, subagent := range subagents {
@@ -409,6 +409,55 @@ func TestRuntimeDeveloperAgentLoopBlocksCredentialReadCommand(t *testing.T) {
 	}
 	if loop.State != "attention" || !loopHasStep(loop, "command_check", "blocked") || loopHasStep(loop, "command_run", "completed") {
 		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeDeveloperAgentLoopBlocksBroadSystemCommands(t *testing.T) {
+	for _, command := range []string{
+		"brew install example",
+		"launchctl list",
+		"systemctl restart postgres",
+		"git push origin main",
+		"npm install -g typescript",
+		"pip install --user pytest",
+	} {
+		t.Run(command, func(t *testing.T) {
+			runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+			loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+				Goal:    "run command",
+				Mode:    "developer",
+				Command: command,
+			})
+			if err != nil {
+				t.Fatalf("StartAgentLoop() error = %v", err)
+			}
+			if loop.State != "attention" || !loopHasStep(loop, "command_check", "blocked") || loopHasStep(loop, "command_run", "completed") {
+				t.Fatalf("loop = %#v", loop)
+			}
+			checks := runtime.ListCommandChecks(context.Background())
+			if len(checks) == 0 || checks[0].Allowed || checks[0].Reason != "developer mode blocked destructive or system command" {
+				t.Fatalf("checks = %#v", checks)
+			}
+		})
+	}
+}
+
+func TestRuntimeDeveloperAgentLoopAllowsProjectScopedPackageCommands(t *testing.T) {
+	for _, command := range []string{
+		"npm install",
+		"npm run build",
+		"go mod download",
+		"git status --short",
+	} {
+		t.Run(command, func(t *testing.T) {
+			reason, err := checkDeveloperCommand(command)
+			if err != nil {
+				t.Fatalf("checkDeveloperCommand(%q) error = %v", command, err)
+			}
+			if reason != "developer mode" {
+				t.Fatalf("reason = %q", reason)
+			}
+		})
 	}
 }
 

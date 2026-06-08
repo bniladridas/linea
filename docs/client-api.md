@@ -64,7 +64,7 @@ Returns the local agent contract. It is read-only and does not start MCP servers
     {"id":"review_change","name":"Review change","state":"ready","command":"make test"}
   ],
   "subagents": [
-    {"id":"review","name":"Review","purpose":"Inspect changes for bugs, regressions, and missing checks.","state":"planned","tools":["read_file","search_files","diagnostics"]}
+    {"id":"review","name":"Review","purpose":"Inspect changes for bugs, regressions, and missing checks.","state":"ready","tools":["read_file","search_files","diagnostics"]}
   ],
   "mcpServers": [
     {"id":"docs","name":"docs","state":"ready","command":"node","args":["server.js"],"envKeys":["TOKEN"]}
@@ -188,7 +188,7 @@ Returns recent bounded agent loops.
 
 `POST /api/agent/loops`
 
-Starts a bounded local agent loop. Read-only workspace steps may run immediately. `mode` can be `guided`, `auto`, or `developer`; guided loops pause at edit, MCP tool, and command boundaries. Auto loops may gather workspace evidence, apply their own generated edit proposals when `autoApply` is true, rerun failed commands after auto-applied fixes until the loop iteration cap is reached, run inferred project checks from files such as `package.json`, `Makefile`, or `go.mod`, and call selected MCP tools. Developer loops keep the same bounded loop shape but may run non-destructive explicit commands without the static command allowlist, infer install/lint/format/inspection commands, show redacted command output in the timeline, and run one safe follow-up inspection command after a failed developer command. Destructive, system, and credential-read commands remain blocked. Set `LINEA_AGENT_DEVELOPER_MODE=1` and `LINEA_AGENT_WORKSPACE_TRUST=full` to let workspace APIs accept absolute paths. Secret files and secret-looking output are filtered by default. `tempWorkspace` creates or reuses a temporary app package outside the current workspace and returns `previewUrl` when a preview is available.
+Starts a bounded local agent loop. Read-only workspace steps may run immediately. `mode` can be `guided`, `auto`, or `developer`; guided loops pause at edit, MCP tool, and command boundaries. Auto loops may gather workspace evidence, apply their own generated edit proposals when `autoApply` is true, rerun failed commands after auto-applied fixes until the loop iteration cap is reached, run inferred project checks from files such as `package.json`, `Makefile`, or `go.mod`, and call selected MCP tools. Developer loops keep the same bounded loop shape but may run non-destructive explicit commands without the static command allowlist, infer install/lint/format/inspection commands, show redacted command output in the timeline, and run one safe follow-up inspection command after a failed developer command. Destructive, shell-wrapped, broad system, external-state, and credential-read commands remain blocked. Set `LINEA_AGENT_DEVELOPER_MODE=1` and `LINEA_AGENT_WORKSPACE_TRUST=full` to let workspace APIs accept absolute paths. Secret files and secret-looking output are filtered by default. `tempWorkspace` creates or reuses a temporary app package outside the current workspace and returns `previewUrl` when a preview is available.
 
 ```json
 {

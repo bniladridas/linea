@@ -1208,10 +1208,18 @@ func checkDeveloperCommand(command string) (string, error) {
 	switch name {
 	case "rm", "rmdir", "sudo", "su", "dd", "mkfs", "shutdown", "reboot", "halt":
 		blocked = true
+	case "brew", "apt", "apt-get", "yum", "dnf", "pacman", "apk", "systemctl", "service", "launchctl", "defaults", "kill", "killall", "pkill":
+		blocked = true
 	case "sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh":
 		blocked = true
 	case "python", "python3", "node", "ruby", "perl", "php", "osascript":
 		blocked = commandUsesInlineInterpreter(fields[1:])
+	case "git":
+		blocked = gitCommandModifiesExternalState(fields[1:])
+	case "npm", "pnpm", "yarn":
+		blocked = javascriptPackageCommandModifiesGlobalState(fields[1:])
+	case "pip", "pip3":
+		blocked = pythonPackageCommandModifiesGlobalState(fields[1:])
 	case "env", "printenv":
 		blocked = true
 	case "cat", "less", "more", "head", "tail", "grep", "rg":
@@ -1236,6 +1244,43 @@ func checkDeveloperCommand(command string) (string, error) {
 		return "developer mode blocked destructive or system command", errors.New("developer mode blocks destructive or system command")
 	}
 	return "developer mode", nil
+}
+
+func gitCommandModifiesExternalState(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch strings.ToLower(args[0]) {
+	case "push", "send-email":
+		return true
+	default:
+		return false
+	}
+}
+
+func javascriptPackageCommandModifiesGlobalState(args []string) bool {
+	for _, arg := range args {
+		switch strings.ToLower(arg) {
+		case "-g", "--global":
+			return true
+		}
+	}
+	return false
+}
+
+func pythonPackageCommandModifiesGlobalState(args []string) bool {
+	installSeen := false
+	for _, arg := range args {
+		lower := strings.ToLower(arg)
+		if lower == "install" {
+			installSeen = true
+			continue
+		}
+		if installSeen && (lower == "--user" || lower == "--break-system-packages") {
+			return true
+		}
+	}
+	return false
 }
 
 func commandUsesInlineInterpreter(args []string) bool {
