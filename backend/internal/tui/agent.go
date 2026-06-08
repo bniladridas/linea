@@ -324,6 +324,9 @@ func agentHelp() string {
 		":skill <id> [command]",
 		":proposal list",
 		":proposal create <path> <content>",
+		":proposal approve <id>",
+		":proposal reject <id>",
+		":proposal apply <id>",
 	}, "\n")
 }
 
