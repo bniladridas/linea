@@ -186,7 +186,7 @@ Returns recent bounded agent loops.
 
 `POST /api/agent/loops`
 
-Starts a bounded local agent loop. Read-only workspace steps may run immediately. `mode` can be `guided` or `auto`; guided loops pause at edit and command boundaries, while auto loops can run allowlisted checks. Set `autoApply` to let auto loops apply their own generated edit proposals. `tempWorkspace` creates or reuses a temporary app package outside the current workspace and returns `previewUrl` when a preview is available.
+Starts a bounded local agent loop. Read-only workspace steps may run immediately. `mode` can be `guided` or `auto`; guided loops pause at edit, MCP tool, and command boundaries. Auto loops may gather workspace evidence, apply their own generated edit proposals when `autoApply` is true, run inferred project checks from files such as `package.json`, `Makefile`, or `go.mod`, and call selected MCP tools only when the tool schema has no required arguments. `tempWorkspace` creates or reuses a temporary app package outside the current workspace and returns `previewUrl` when a preview is available.
 
 ```json
 {
@@ -326,7 +326,7 @@ Returns recent MCP tool, resource, and prompt calls.
 
 `POST /api/agent/mcp-calls`
 
-Calls a configured stdio MCP tool. Tools may be declared in config or discovered from `tools/list`.
+Calls a configured stdio MCP tool. Tools may be declared in config or discovered from `tools/list`. Agent auto loops can call a selected MCP tool without stopping only when its input schema has no required arguments; otherwise the loop stops at the MCP boundary for an explicit UI or TUI call.
 
 ```json
 {

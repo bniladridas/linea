@@ -944,6 +944,66 @@ func TestRuntimeAgentLoopPlansNamedMCPToolWithoutCalling(t *testing.T) {
 	}
 }
 
+func TestRuntimeAutoAgentLoopCallsEmptyArgumentMCPTool(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "tools": [{"name":"ping","description":"Ping","inputSchema":"{\"type\":\"object\"}"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "use mcp tool ping",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || !loopHasStep(loop, "mcp_call", "completed") || !loopHasStep(loop, "mcp_validate", "completed") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+	if loopHasStep(loop, "mcp_boundary", "completed") {
+		t.Fatalf("loop stopped at MCP boundary: %#v", loop.Steps)
+	}
+	calls := runtime.ListMCPCalls(context.Background())
+	if len(calls) != 1 || calls[0].ToolID != "docs/ping" || calls[0].State != "completed" {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestRuntimeAutoAgentLoopStopsBeforeMCPToolWithRequiredArguments(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "tools": [{"name":"echo","description":"Echo","inputSchema":"{\"type\":\"object\",\"required\":[\"message\"]}"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "use mcp tool echo",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopHasStep(loop, "mcp_boundary", "completed") || loopHasStep(loop, "mcp_call", "completed") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+	if calls := runtime.ListMCPCalls(context.Background()); len(calls) != 0 {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
 func TestRuntimeAgentLoopCreatesEditProposal(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "old\n")
