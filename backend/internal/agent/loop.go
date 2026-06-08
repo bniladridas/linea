@@ -1323,6 +1323,21 @@ func (r *Runtime) runCheckedLoopCommand(ctx context.Context, loop AgentLoop, com
 		}
 	}
 	loop = appendLoopStep(loop, "command_run", "Run command", "run_command", err, detail, command)
+	if err != nil && loop.Mode == "auto" && loop.AutoApply && r.WorkspaceEnabled() && shouldReadDiagnostics(strings.ToLower(loop.Goal)) {
+		if autoLoopLimitReached(loop) {
+			return appendAutoLimitStep(loop)
+		}
+		diagnostics, diagnosticsErr := r.ListDiagnostics(ctx)
+		loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", diagnosticsErr, fmt.Sprintf("%d diagnostic(s) after failed command", len(diagnostics)), "")
+		if diagnosticsErr == nil && len(diagnostics) > 0 {
+			return r.autoProposeEdit(ctx, loop, EditPlanRequest{
+				Goal:          loop.Goal,
+				Diagnostics:   diagnostics,
+				Command:       command,
+				CommandOutput: strings.TrimSpace(run.Output),
+			})
+		}
+	}
 	if err != nil && loop.Mode == "developer" {
 		return r.runDeveloperFailureInspection(ctx, loop, command)
 	}
