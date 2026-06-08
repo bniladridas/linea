@@ -2253,6 +2253,38 @@ func TestRuntimeUsesConfiguredLSPForDiagnosticsAndSymbols(t *testing.T) {
 
 }
 
+func TestRuntimeAutoDetectsGoplsWhenAvailable(t *testing.T) {
+	original := lspLookPath
+	t.Cleanup(func() { lspLookPath = original })
+	lspLookPath = func(command string) (string, error) {
+		if command != "gopls" {
+			return "", errors.New("unexpected command")
+		}
+		return "/usr/local/bin/gopls", nil
+	}
+
+	runtime := NewRuntime("")
+	if runtime.lspCommand != "/usr/local/bin/gopls" {
+		t.Fatalf("lsp command = %q", runtime.lspCommand)
+	}
+}
+
+func TestRuntimeExplicitLSPDisableSkipsAutoDetect(t *testing.T) {
+	original := lspLookPath
+	t.Cleanup(func() { lspLookPath = original })
+	lspLookPath = func(command string) (string, error) {
+		if command != "gopls" {
+			return "", errors.New("unexpected command")
+		}
+		return "/usr/local/bin/gopls", nil
+	}
+
+	runtime := NewRuntime("", WithLSPCommand("off"))
+	if runtime.lspCommand != "off" || runtime.lspConfigured() {
+		t.Fatalf("lsp command = %q configured=%v", runtime.lspCommand, runtime.lspConfigured())
+	}
+}
+
 func TestRuntimeListsWorkspaceReferences(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\n// Run in a comment should not count.\nfunc Run() {}\nfunc main() { Run() }\nvar _ = \"Run\"\n")

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -71,6 +72,20 @@ func runFakeTUIMCPServer() {
 						"name":        "README",
 						"description": "Project README",
 						"mimeType":    "text/markdown",
+					}},
+				},
+			})
+		case "resources/read":
+			params, _ := message["params"].(map[string]any)
+			uri, _ := params["uri"].(string)
+			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result": map[string]any{
+					"contents": []map[string]any{{
+						"uri":      uri,
+						"mimeType": "text/markdown",
+						"text":     "# README\n",
 					}},
 				},
 			})
@@ -650,6 +665,69 @@ func TestRunMCPSubscribesToResource(t *testing.T) {
 	if !strings.Contains(output, "MCP subscription") || !strings.Contains(output, "active") {
 		t.Fatalf("output = %q", output)
 	}
+}
+
+func TestRunMCPListsCallsSubscriptionsAndEvents(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(configPath, []byte(`{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_TUI_MCP_SERVER":"1"},
+      "resources": [{"uri":"docs://readme","name":"README"}]
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+
+	if _, err := app.runAgentCommand(context.Background(), ":mcp read docs://readme"); err != nil {
+		t.Fatalf("read command error = %v", err)
+	}
+	if _, err := app.runAgentCommand(context.Background(), ":mcp subscribe docs://readme"); err != nil {
+		t.Fatalf("subscribe command error = %v", err)
+	}
+	waitForTUIMCPEvent(t, runtime, "docs://readme")
+
+	calls, err := app.runAgentCommand(context.Background(), ":mcp calls")
+	if err != nil {
+		t.Fatalf("calls command error = %v", err)
+	}
+	if !strings.Contains(calls, "resource:docs://readme") || !strings.Contains(calls, "completed") {
+		t.Fatalf("calls = %q", calls)
+	}
+
+	subscriptions, err := app.runAgentCommand(context.Background(), ":mcp subscriptions")
+	if err != nil {
+		t.Fatalf("subscriptions command error = %v", err)
+	}
+	if !strings.Contains(subscriptions, "active") || !strings.Contains(subscriptions, "docs://readme") {
+		t.Fatalf("subscriptions = %q", subscriptions)
+	}
+
+	events, err := app.runAgentCommand(context.Background(), ":mcp events")
+	if err != nil {
+		t.Fatalf("events command error = %v", err)
+	}
+	if !strings.Contains(events, "notifications/resources/updated") || !strings.Contains(events, "docs://readme") {
+		t.Fatalf("events = %q", events)
+	}
+}
+
+func waitForTUIMCPEvent(t *testing.T, runtime *agent.Runtime, uri string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, event := range runtime.ListMCPEvents(context.Background()) {
+			if event.URI == uri {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for MCP event %s", uri)
 }
 
 func TestRunSkillUsesDefaultCommandApproval(t *testing.T) {
