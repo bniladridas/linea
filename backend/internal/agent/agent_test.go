@@ -923,6 +923,63 @@ func TestRuntimeAutoAgentLoopRerunsCommandAfterAutoAppliedFix(t *testing.T) {
 	}
 }
 
+func TestRuntimeAutoAgentLoopRepeatsAutoFixUntilCommandPasses(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc ok() {}\n")
+	writeTestFile(t, filepath.Join(root, "check"), `#!/bin/sh
+count=0
+if [ -f .check-count ]; then
+  count=$(cat .check-count)
+fi
+count=$((count + 1))
+printf "%s" "$count" > .check-count
+if [ "$count" -lt 3 ]; then
+  printf "package main\nfunc broken( {\n" > broken.go
+  exit 1
+fi
+exit 0
+`)
+	if err := os.Chmod(filepath.Join(root, "check"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	planner := &fakeEditPlanner{
+		plans: []EditPlan{
+			{Path: "broken.go", Content: "package main\nfunc fixedOnce() {}\n", Summary: "First fix"},
+			{Path: "broken.go", Content: "package main\nfunc fixedTwice() {}\n", Summary: "Second fix"},
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"./check"}), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "fix tests",
+		Mode:      "auto",
+		AutoApply: true,
+		Command:   "./check",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" {
+		t.Fatalf("loop = %#v", loop)
+	}
+	commandRuns := 0
+	editProposals := 0
+	for _, step := range loop.Steps {
+		if step.Kind == "command_run" && step.Command == "./check" {
+			commandRuns++
+		}
+		if step.Kind == "edit_proposal" {
+			editProposals++
+		}
+	}
+	if commandRuns != 3 || editProposals != 2 {
+		t.Fatalf("command runs = %d, edit proposals = %d, steps = %#v", commandRuns, editProposals, loop.Steps)
+	}
+	if len(planner.requests) != 2 {
+		t.Fatalf("planner requests = %#v", planner.requests)
+	}
+}
+
 func TestRuntimeAutoAgentLoopRejectsPlannerPathOutsideDiagnostics(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
@@ -3977,12 +4034,16 @@ esac
 
 type fakeEditPlanner struct {
 	plan     EditPlan
+	plans    []EditPlan
 	err      error
 	requests []EditPlanRequest
 }
 
 func (f *fakeEditPlanner) PlanEdit(_ context.Context, request EditPlanRequest) (EditPlan, error) {
 	f.requests = append(f.requests, request)
+	if len(f.plans) >= len(f.requests) {
+		return f.plans[len(f.requests)-1], f.err
+	}
 	return f.plan, f.err
 }
 
