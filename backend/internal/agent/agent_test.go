@@ -593,6 +593,43 @@ func TestRuntimeAutoAgentLoopContinuesFromAppliedProposalToInferredCheck(t *test
 	}
 }
 
+func TestRuntimeAutoAgentLoopCanApplyGeneratedProposal(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "broken.go",
+			Content: "package main\nfunc fixed() {}\n",
+			Summary: "Fix parse error",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "fix diagnostics and run tests",
+		Mode:      "auto",
+		AutoApply: true,
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || !loop.AutoApply || !loopHasStep(loop, "edit_review", "completed") || !loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "broken.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "package main\nfunc fixed() {}\n" {
+		t.Fatalf("content = %q", content)
+	}
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Status != "applied" {
+		t.Fatalf("proposals = %#v", proposals)
+	}
+}
+
 func TestRuntimeAutoAgentLoopProposesEditAfterFailedCheckDiagnostics(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc ok() {}\n")

@@ -50,6 +50,7 @@ func (r *Runtime) StartAgentLoop(ctx context.Context, input AgentLoopInput) (Age
 		Mode:          mode,
 		State:         "running",
 		MaxIterations: normalizeAgentLoopIterations(mode, input.MaxIterations),
+		AutoApply:     input.AutoApply,
 		SessionID:     strings.TrimSpace(input.SessionID),
 		CreatedAt:     now,
 		UpdatedAt:     now,
@@ -66,6 +67,7 @@ func (r *Runtime) StartAgentLoop(ctx context.Context, input AgentLoopInput) (Age
 			loop.Mode = "auto"
 			loop.MaxIterations = normalizeAgentLoopIterations(loop.Mode, input.MaxIterations)
 		}
+		loop.AutoApply = loop.AutoApply || input.AutoApply
 		loop = r.runTempAppLoop(ctx, loop)
 	} else {
 		loop = r.runLoopSteps(ctx, loop, input)
@@ -565,6 +567,9 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 			loop.MaxIterations = nextMax
 		}
 	}
+	if loop.Mode == "auto" && input.AutoApply {
+		loop.AutoApply = true
+	}
 	if loop.Mode == "auto" && input.MaxIterations == 0 && autoLoopLimitReached(loop) && hasExplicitLoopContinueInput(input) {
 		loop.MaxIterations = normalizeAgentLoopIterations(loop.Mode, loop.MaxIterations+1)
 	}
@@ -624,6 +629,7 @@ func (r *Runtime) ContinueAgentLoop(ctx context.Context, id string, input AgentL
 			Goal:            loop.Goal,
 			Mode:            loop.Mode,
 			MaxIterations:   firstNonZero(input.MaxIterations, loop.MaxIterations),
+			AutoApply:       loop.AutoApply || input.AutoApply,
 			TempWorkspace:   loop.WorkspaceRoot != "",
 			Command:         input.Command,
 			Query:           input.Query,
@@ -1286,6 +1292,9 @@ func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request E
 	loop = appendLoopStep(loop, "edit_proposal", "Create edit proposal", "edit_file", err, detail, "")
 	if createdID != "" {
 		loop.Steps[len(loop.Steps)-1].CreatedID = createdID
+		if loop.Mode == "auto" && loop.AutoApply {
+			return r.autoApplyGeneratedEditProposal(ctx, loop, createdID)
+		}
 		loop.Steps = append(loop.Steps, AgentLoopStep{
 			ID:        newTraceID(),
 			Kind:      "edit_review",
@@ -1297,6 +1306,37 @@ func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request E
 		})
 		loop.State = "waiting_approval"
 	}
+	return loop
+}
+
+func (r *Runtime) autoApplyGeneratedEditProposal(ctx context.Context, loop AgentLoop, proposalID string) AgentLoop {
+	proposal, err := r.ReviewEditProposal(ctx, proposalID, EditProposalReviewInput{
+		Status: "approved",
+		Detail: "Approved by auto loop.",
+	})
+	if err == nil {
+		proposal, err = r.ApplyEditProposal(ctx, proposalID)
+	}
+	step := AgentLoopStep{
+		ID:        newTraceID(),
+		Kind:      "edit_review",
+		Title:     "Apply edit proposal",
+		ToolID:    "edit_file",
+		CreatedID: proposalID,
+	}
+	if err != nil {
+		step.State = "blocked"
+		step.Detail = err.Error()
+		loop.State = "attention"
+	} else {
+		step.State = "completed"
+		step.Detail = "Proposal applied."
+		loop.State = "running"
+		if proposal.Path != "" {
+			step.Detail = "Applied " + proposal.Path + "."
+		}
+	}
+	loop.Steps = append(loop.Steps, step)
 	return loop
 }
 

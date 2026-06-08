@@ -237,15 +237,17 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 
 func (a *App) startAgentLoop(ctx context.Context, value string) (agent.AgentLoop, error) {
 	mode := ""
+	autoApply := false
 	goal := strings.TrimSpace(value)
 	if rest, ok := strings.CutPrefix(goal, "auto "); ok {
 		mode = "auto"
+		autoApply = true
 		goal = strings.TrimSpace(rest)
 	} else if rest, ok := strings.CutPrefix(goal, "guided "); ok {
 		mode = "guided"
 		goal = strings.TrimSpace(rest)
 	}
-	return a.agent.StartAgentLoop(ctx, agent.AgentLoopInput{Goal: goal, Mode: mode})
+	return a.agent.StartAgentLoop(ctx, agent.AgentLoopInput{Goal: goal, Mode: mode, AutoApply: autoApply})
 }
 
 func (a *App) continueAgentLoop(ctx context.Context, id string) (agent.AgentLoop, error) {

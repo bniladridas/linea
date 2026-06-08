@@ -1592,6 +1592,7 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 	input := agent.AgentLoopInput{Goal: goal}
 	if strings.HasPrefix(lowerFirstLine, "agent auto ") || strings.HasPrefix(lowerFirstLine, ":loop auto ") {
 		input.Mode = "auto"
+		input.AutoApply = true
 	}
 	if shouldStartTempAppLoopFromChat(strings.ToLower(goal)) {
 		input.Mode = "auto"
