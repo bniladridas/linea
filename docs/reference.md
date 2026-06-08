@@ -118,10 +118,13 @@ Vite runs at `http://localhost:5173`.
 | Check | Command |
 | --- | --- |
 | Setup | `linea -check` |
+| Local setup | `make check` |
+| Local tests | `make test` |
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
 | Server | `linea -check-server http://127.0.0.1:8080` |
 | Terminal chat | `linea -tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp read <resource-id-or-uri>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, `:quit`) |
+| Terminal smoke | `make tui-check` |
 | Terminal picker | Number or title search |
 | Hand-rolled TUI | `linea -tui-beta` |
 | Agent status | `linea -agent-status` |
@@ -132,6 +135,7 @@ Vite runs at `http://localhost:5173`.
 | UI agent review | `make ui-check-agent` with `LINEA_WORKSPACE_DIR` enabled. Set `LINEA_AGENT_REVIEW_FILE` when needed. |
 | Models | `make model-check` |
 | macOS package | `make macos-package` |
+| macOS app smoke | `make macos-check` |
 | macOS app UI | `make macos-ui-check` |
 
 # Client Docs
