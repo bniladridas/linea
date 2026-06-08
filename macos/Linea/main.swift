@@ -130,6 +130,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         forMainFrameOnly: true
       )
     )
+    config.userContentController.addUserScript(
+      WKUserScript(
+        source: previewReturnScript(homeURL: url.appendingPathComponent("").absoluteString),
+        injectionTime: .atDocumentEnd,
+        forMainFrameOnly: true
+      )
+    )
     let webView = WKWebView(frame: .zero, configuration: config)
     webView.navigationDelegate = self
     webView.uiDelegate = self
@@ -177,6 +184,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     self.webView = webView
     self.window = window
     NSApp.activate(ignoringOtherApps: true)
+  }
+
+  private func previewReturnScript(homeURL: String) -> String {
+    let home = javascriptStringLiteral(homeURL)
+    return """
+    (() => {
+      if (!location.pathname.startsWith('/api/agent/previews/')) return;
+      if (document.getElementById('linea-preview-back')) return;
+
+      const style = document.createElement('style');
+      style.textContent = `
+        #linea-preview-back {
+          position: fixed;
+          top: 12px;
+          right: 12px;
+          z-index: 2147483647;
+          height: 28px;
+          padding: 0 10px;
+          border: 1px solid rgba(0, 0, 0, 0.12);
+          border-radius: 999px;
+          background: rgba(248, 248, 245, 0.82);
+          color: #252522;
+          box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+          font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          opacity: 0.72;
+          cursor: pointer;
+          -webkit-backdrop-filter: saturate(1.2) blur(14px);
+          backdrop-filter: saturate(1.2) blur(14px);
+        }
+        #linea-preview-back:hover,
+        #linea-preview-back:focus-visible {
+          opacity: 1;
+        }
+        @media (prefers-color-scheme: dark) {
+          #linea-preview-back {
+            border-color: rgba(255, 255, 255, 0.14);
+            background: rgba(20, 20, 20, 0.78);
+            color: #eeeeee;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+          }
+        }
+      `;
+
+      const button = document.createElement('button');
+      button.id = 'linea-preview-back';
+      button.type = 'button';
+      button.textContent = 'Back';
+      button.setAttribute('aria-label', 'Back to Linea');
+      button.addEventListener('click', () => {
+        if (history.length > 1) {
+          history.back();
+        } else {
+          location.href = \(home);
+        }
+      });
+
+      document.head.appendChild(style);
+      document.body.appendChild(button);
+    })();
+    """
+  }
+
+  private func javascriptStringLiteral(_ value: String) -> String {
+    guard
+      let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
+      let encoded = String(data: data, encoding: .utf8)
+    else {
+      return "\"\""
+    }
+    return String(encoded.dropFirst().dropLast())
   }
 
   func webView(
