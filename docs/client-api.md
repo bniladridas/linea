@@ -223,7 +223,7 @@ Cancels a waiting loop.
 
 Serves a temporary agent preview file. The root path serves the preview entry file.
 
-Preview URLs are returned as `previewUrl` from completed temporary app loops. They are local, temporary, and may return a small unavailable page after the preview root is gone.
+Preview URLs are returned as `previewUrl` from completed temporary app loops. Linea stores preview snapshots in `LINEA_PREVIEW_CACHE_DIR` or the user cache directory so recent previews can recover across restarts. They may still return a small unavailable page after the cached snapshot is removed.
 
 `GET /api/agent/subagents`
 

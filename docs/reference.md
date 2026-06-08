@@ -56,6 +56,7 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_RULES_FILE` | Agent rules file. |
 | `LINEA_AGENT_DEVELOPER_MODE` | Enables full-trust developer workspace behavior when set to `1`. Developer loops can still run bounded non-destructive commands without this flag. |
 | `LINEA_AGENT_WORKSPACE_TRUST` | Set to `full` with `LINEA_AGENT_DEVELOPER_MODE=1` to let workspace APIs accept absolute paths. |
+| `LINEA_PREVIEW_CACHE_DIR` | Stores generated preview snapshots. Empty uses the user cache directory. |
 | `LINEA_SKILLS_DIR` | Reads markdown skills from this directory. Empty means planned skills only. |
 | `LINEA_WORKSPACE_DIR` | Enables read-only agent workspace tools. Empty means off. |
 | `LINEA_LSP_COMMAND` | Uses an LSP command such as `gopls` for Go diagnostics, symbols, and references. Empty means local parser fallback. |

@@ -131,13 +131,14 @@ func (r *Runtime) runTempAppLoop(ctx context.Context, loop AgentLoop) AgentLoop 
 	}
 	loop = appendLoopStep(loop, "app_build", "Build preview", "workspace", nil, "ok", "")
 
-	snapshotRoot, err := snapshotPreviewBuild(session.Root)
+	previewID := loop.ID
+	snapshotRoot, err := snapshotPreviewBuild(session.Root, previewID)
 	if err != nil {
 		restoreTempAppSource(session.Root, previousApp, hadPreviousApp)
 		return appendLoopStep(loop, "preview", "Create preview", "workspace", err, "dist", "")
 	}
 	r.saveAppSession(session)
-	preview := r.registerAgentPreview(loop.ID, session.ID, snapshotRoot, "index.html")
+	preview := r.registerAgentPreview(previewID, loop.ID, session.ID, snapshotRoot, "index.html")
 	loop.PreviewURL = preview.URL
 	loop = appendLoopStep(loop, "preview", "Create preview", "workspace", nil, preview.URL, "")
 
@@ -233,11 +234,21 @@ func (r *Runtime) planTempAppContent(ctx context.Context, goal string, current s
 	return tempDefaultAppJSX(), nil
 }
 
-func snapshotPreviewBuild(root string) (string, error) {
+func snapshotPreviewBuild(root string, previewID string) (string, error) {
 	source := filepath.Join(root, "dist")
-	target, err := os.MkdirTemp("", "linea-preview-*")
-	if err != nil {
-		return "", err
+	target := ""
+	if safeID := safePreviewID(previewID); safeID != "" {
+		if cacheRoot, err := previewCacheRoot(); err == nil {
+			target = filepath.Join(cacheRoot, safeID)
+			_ = os.RemoveAll(target)
+		}
+	}
+	if target == "" {
+		var err error
+		target, err = os.MkdirTemp("", "linea-preview-*")
+		if err != nil {
+			return "", err
+		}
 	}
 	if err := copyDir(source, target); err != nil {
 		return "", err

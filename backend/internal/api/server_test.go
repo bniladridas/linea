@@ -658,6 +658,7 @@ func TestParseAgentLoopChatCommandDeveloperModeCanAutoApply(t *testing.T) {
 
 func TestCreateMessageCanStartTempReactAppLoopFromChat(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("LINEA_PREVIEW_CACHE_DIR", t.TempDir())
 	appStore := store.NewMemoryStore()
 	conversation, err := appStore.CreateConversation(context.Background(), "Test")
 	if err != nil {
@@ -741,6 +742,19 @@ func TestCreateMessageCanStartTempReactAppLoopFromChat(t *testing.T) {
 	restartedServer.ServeHTTP(recoveredPreviewRes, httptest.NewRequest(http.MethodGet, loops[0].PreviewURL, nil))
 	if recoveredPreviewRes.Code != http.StatusOK || !strings.Contains(recoveredPreviewRes.Body.String(), "./assets/app.js") {
 		t.Fatalf("recovered preview response = %d %q", recoveredPreviewRes.Code, recoveredPreviewRes.Body.String())
+	}
+
+	if err := os.RemoveAll(loops[0].WorkspaceRoot); err != nil {
+		t.Fatalf("remove temp workspace: %v", err)
+	}
+	cacheRecoveredRuntime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	cacheRecoveredServer := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, cacheRecoveredRuntime).Handler()
+	cacheRecoveredPreviewRes := httptest.NewRecorder()
+	cacheRecoveredServer.ServeHTTP(cacheRecoveredPreviewRes, httptest.NewRequest(http.MethodGet, loops[0].PreviewURL, nil))
+	if cacheRecoveredPreviewRes.Code != http.StatusOK || !strings.Contains(cacheRecoveredPreviewRes.Body.String(), "./assets/app.js") {
+		t.Fatalf("cache recovered preview response = %d %q", cacheRecoveredPreviewRes.Code, cacheRecoveredPreviewRes.Body.String())
 	}
 }
 
