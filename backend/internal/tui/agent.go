@@ -78,6 +78,12 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		status.MCPResources = a.agent.ListMCPResources(ctx)
 		status.MCPPrompts = a.agent.ListMCPPrompts(ctx)
 		return formatMCP(status), nil
+	case input == ":mcp calls":
+		return formatMCPCalls(a.agent.ListMCPCalls(ctx)), nil
+	case input == ":mcp subscriptions":
+		return formatMCPSubscriptions(a.agent.ListMCPSubscriptions(ctx)), nil
+	case input == ":mcp events":
+		return formatMCPEvents(a.agent.ListMCPEvents(ctx)), nil
 	case strings.HasPrefix(input, ":mcp read "):
 		call, err := a.agent.ReadMCPResource(ctx, mcpResourceReadInput(strings.TrimSpace(strings.TrimPrefix(input, ":mcp read "))))
 		if err != nil {
@@ -339,6 +345,9 @@ func agentHelp() string {
 		":loop continue <id>",
 		":loop cancel <id>",
 		":mcp",
+		":mcp calls",
+		":mcp subscriptions",
+		":mcp events",
 		":mcp read <resource-id-or-uri>",
 		":mcp subscribe <resource-id-or-uri>",
 		":mcp unsubscribe <subscription-id>",
@@ -539,12 +548,80 @@ func formatMCPCall(call agent.MCPCall) string {
 	return fmt.Sprintf("MCP %s: %s\n\n```json\n%s\n```", call.ToolID, call.State, call.Output)
 }
 
+func formatMCPCalls(calls []agent.MCPCall) string {
+	if len(calls) == 0 {
+		return "No MCP calls."
+	}
+	var b strings.Builder
+	for index, call := range calls {
+		if index >= 8 {
+			fmt.Fprintf(&b, "\n...%d more", len(calls)-index)
+			break
+		}
+		detail := call.Output
+		if call.Error != "" {
+			detail = call.Error
+		}
+		if detail != "" {
+			detail = " · " + singleLine(detail, 120)
+		}
+		fmt.Fprintf(&b, "%s · %s · %s%s\n", call.ID, call.ToolID, call.State, detail)
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func formatMCPSubscription(subscription agent.MCPSubscription) string {
 	detail := subscription.URI
 	if subscription.Error != "" {
 		detail += " · " + subscription.Error
 	}
 	return fmt.Sprintf("MCP subscription %s: %s · %s", subscription.ID, subscription.State, detail)
+}
+
+func formatMCPSubscriptions(subscriptions []agent.MCPSubscription) string {
+	if len(subscriptions) == 0 {
+		return "No MCP subscriptions."
+	}
+	var b strings.Builder
+	for index, subscription := range subscriptions {
+		if index >= 8 {
+			fmt.Fprintf(&b, "\n...%d more", len(subscriptions)-index)
+			break
+		}
+		detail := subscription.URI
+		if subscription.Error != "" {
+			detail += " · " + subscription.Error
+		}
+		fmt.Fprintf(&b, "%s · %s · %s\n", subscription.ID, subscription.State, detail)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatMCPEvents(events []agent.MCPEvent) string {
+	if len(events) == 0 {
+		return "No MCP events."
+	}
+	var b strings.Builder
+	for index, event := range events {
+		if index >= 8 {
+			fmt.Fprintf(&b, "\n...%d more", len(events)-index)
+			break
+		}
+		detail := event.URI
+		if detail == "" {
+			detail = singleLine(event.Output, 120)
+		}
+		fmt.Fprintf(&b, "%s · %s · %s\n", event.Method, event.ServerID, detail)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func singleLine(value string, limit int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if limit > 0 && len(value) > limit {
+		return value[:limit-1] + "..."
+	}
+	return value
 }
 
 func formatSubagents(items []agent.Subagent) string {

@@ -608,7 +608,7 @@ Updates the workspace root for the running server. Existing edit proposals are c
 
 `GET /api/agent/workspace/diagnostics`
 
-Returns local workspace diagnostics. When `LINEA_LSP_COMMAND` is set, Linea tries that LSP command first; otherwise it uses the local Go parser fallback.
+Returns local workspace diagnostics. Linea tries `LINEA_LSP_COMMAND` first when set, auto-detects `gopls` when available, and otherwise uses the local Go parser fallback. Set `LINEA_LSP_COMMAND=off` to force the fallback.
 
 ```json
 [
@@ -624,7 +624,7 @@ Returns local workspace diagnostics. When `LINEA_LSP_COMMAND` is set, Linea trie
 
 `GET /api/agent/workspace/symbols?q=Run`
 
-Returns Go symbols from `LINEA_WORKSPACE_DIR`. When `LINEA_LSP_COMMAND` is set, Linea tries that LSP command first; otherwise it uses the local parser fallback.
+Returns Go symbols from `LINEA_WORKSPACE_DIR`. Linea tries `LINEA_LSP_COMMAND` first when set, auto-detects `gopls` when available, and otherwise uses the local parser fallback. Set `LINEA_LSP_COMMAND=off` to force the fallback.
 
 ```json
 [
@@ -639,7 +639,7 @@ Returns Go symbols from `LINEA_WORKSPACE_DIR`. When `LINEA_LSP_COMMAND` is set, 
 
 `GET /api/agent/workspace/references?q=Run`
 
-Returns Go identifier references from `LINEA_WORKSPACE_DIR`. When `LINEA_LSP_COMMAND` is set, Linea asks that LSP command for each matching identifier position; otherwise it uses the local scanner fallback.
+Returns Go identifier references from `LINEA_WORKSPACE_DIR`. Linea tries `LINEA_LSP_COMMAND` first when set, auto-detects `gopls` when available, and otherwise uses the local scanner fallback. Set `LINEA_LSP_COMMAND=off` to force the fallback.
 
 ```json
 [
@@ -815,7 +815,7 @@ Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
 
-Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, and `:proposal apply <id>`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
+Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp calls`, `:mcp subscriptions`, `:mcp events`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, and `:quit`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

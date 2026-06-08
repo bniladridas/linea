@@ -20,12 +20,21 @@ const lspTimeout = 10 * time.Second
 var (
 	errLSPUnavailable = errors.New("lsp unavailable")
 	lspLocationRE     = regexp.MustCompile(`^(.+?):(\d+):(\d+)(?:[-:]\d+(?::\d+)?)?:?\s*(.*)$`)
+	lspLookPath       = exec.LookPath
 )
 
 func WithLSPCommand(command string) func(*Runtime) {
 	return func(r *Runtime) {
 		r.lspCommand = strings.TrimSpace(command)
 	}
+}
+
+func defaultLSPCommand() string {
+	path, err := lspLookPath("gopls")
+	if err != nil {
+		return ""
+	}
+	return path
 }
 
 func (r *Runtime) listDiagnosticsWithLSP(ctx context.Context, root string) ([]Diagnostic, bool) {
@@ -102,7 +111,7 @@ func (r *Runtime) runLSP(ctx context.Context, root string, args ...string) ([]by
 	if !r.lspConfigured() {
 		return nil, errLSPUnavailable
 	}
-	if _, err := exec.LookPath(command); err != nil && !filepath.IsAbs(command) {
+	if _, err := lspLookPath(command); err != nil && !filepath.IsAbs(command) {
 		return nil, errLSPUnavailable
 	}
 	runCtx, cancel := context.WithTimeout(ctx, lspTimeout)

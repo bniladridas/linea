@@ -438,6 +438,9 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 			option(runtime)
 		}
 	}
+	if strings.TrimSpace(runtime.lspCommand) == "" {
+		runtime.lspCommand = defaultLSPCommand()
+	}
 	return runtime
 }
 
