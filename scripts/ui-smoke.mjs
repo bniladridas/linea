@@ -318,7 +318,9 @@ async function runProbe() {
   if (checkAgentReview) {
     await send('Runtime.evaluate', {
       expression: `(() => {
-        const details = Array.from(document.querySelectorAll('button')).find((button) => button.textContent.includes('Details'));
+        const details =
+          document.querySelector('button[data-tooltip="Details"], button[aria-label="Details"]') ??
+          Array.from(document.querySelectorAll('button')).find((button) => button.textContent.includes('Details'));
         details?.click();
         return Boolean(details);
       })()`,
