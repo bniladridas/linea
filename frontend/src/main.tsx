@@ -4693,7 +4693,7 @@ function loadUIPrefs(): UIPrefs {
         ? parsed.showResponseDetails
         : hasLegacyResponsePrefs
           ? parsed.showModelBadge !== false || parsed.showSleepAlert !== false || parsed.showReactions !== false
-          : true;
+          : false;
     return {
       showComposerShimmer: true,
       showScrollCue: true,
@@ -4703,7 +4703,7 @@ function loadUIPrefs(): UIPrefs {
     };
   } catch {
     return {
-      showResponseDetails: true,
+      showResponseDetails: false,
       showComposerShimmer: true,
       showScrollCue: true,
       theme: 'system',
