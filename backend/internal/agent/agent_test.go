@@ -349,10 +349,10 @@ func TestRuntimeAutoAgentLoopUsesSearchSubagent(t *testing.T) {
 	}
 }
 
-func TestRuntimeAutoAgentLoopInfersAllowedCheckCommand(t *testing.T) {
+func TestRuntimeAutoAgentLoopRunsInferredProjectCheckCommand(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
-	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"make test"}))
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
 
 	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
 		Goal: "fix and test the project",
@@ -368,12 +368,16 @@ func TestRuntimeAutoAgentLoopInfersAllowedCheckCommand(t *testing.T) {
 	if len(approvals) != 1 || approvals[0].Command != "make test" || approvals[0].State != "approved" {
 		t.Fatalf("approvals = %#v", approvals)
 	}
+	checks := runtime.ListCommandChecks(context.Background())
+	if len(checks) != 1 || checks[0].Command != "make test" || !checks[0].Allowed || checks[0].Reason != "inferred project check" {
+		t.Fatalf("checks = %#v", checks)
+	}
 }
 
-func TestRuntimeAutoAgentLoopInfersAllowedPackageBuildCommand(t *testing.T) {
+func TestRuntimeAutoAgentLoopRunsInferredPackageBuildCommand(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"build":"printf ok","test":"vitest"}}`)
-	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"npm run build"}))
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
 
 	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
 		Goal: "fix the React frontend build",
@@ -387,20 +391,27 @@ func TestRuntimeAutoAgentLoopInfersAllowedPackageBuildCommand(t *testing.T) {
 	}
 }
 
-func TestRuntimeAutoAgentLoopDoesNotInferUnallowedPackageCommand(t *testing.T) {
+func TestRuntimeAutoAgentLoopStillBlocksExplicitUnallowedCommand(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"build":"vite build","test":"vitest"}}`)
-	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"go vet ./..."}))
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
 
 	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
-		Goal: "fix the React frontend build",
-		Mode: "auto",
+		Goal:    "run command",
+		Mode:    "auto",
+		Command: "printf ok",
 	})
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
 	}
-	if loopHasStep(loop, "command_infer", "completed") {
+	if loop.State != "attention" {
 		t.Fatalf("loop = %#v", loop)
+	}
+	if loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	checks := runtime.ListCommandChecks(context.Background())
+	if len(checks) != 1 || checks[0].Allowed {
+		t.Fatalf("checks = %#v", checks)
 	}
 }
 
