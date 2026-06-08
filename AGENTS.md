@@ -24,11 +24,17 @@ Current target:
 
 * Apple Silicon Macs (M-series)
 * Homebrew distribution
+* Local web application
+* Terminal (TUI)
+* Native macOS application (.dmg)
 
 Active post-MVP targets:
 
-* Terminal (TUI)
-* Native macOS application (.dmg)
+* Agentic delivery
+* macOS app polish
+
+Later targets:
+
 * Android application
 
 New targets should reuse the existing backend and core application logic.
@@ -42,6 +48,8 @@ Interface:
 * Local web application
 * Browser-based chat interface
 * Served by the Go backend
+* Terminal interface
+* Native macOS wrapper
 
 Installation:
 
@@ -125,21 +133,21 @@ Initial scope:
 * Edit proposals
 * Bounded agent loops
 * Workspace search, file read, diagnostics, and symbols
-* Optional LSP-backed diagnostics, symbols, and references
+* Optional LSP-backed diagnostics, symbols, and references with local fallback
 * TUI agent commands
-* Local MCP status and configured tool calls
+* Local MCP status, configured tool calls, resources, prompts, and subscriptions
 * Bounded subagent runs
 * Model and provider status
 * Better fallback handling
 * macOS app polish
+* Explicit opt-in developer loops for broader non-destructive local work
 
 Later scope:
 
-* Deeper LSP integration
 * Android app
 * Optional sync
-* Broader MCP flows
 * Deeper subagent orchestration
+* Background autonomous jobs
 
 ## Non-goals
 
@@ -153,8 +161,8 @@ Unless explicitly requested:
 * Cloud synchronization
 * User accounts
 * Background autonomous jobs
-* Broad system access
-* Unbounded tool execution
+* Broad system access outside explicit full-trust developer mode
+* Unbounded tool execution outside explicit developer mode
 
 Subagents are allowed only when the single-agent loop is reliable and the task benefits from isolation.
 
@@ -178,9 +186,16 @@ Loop modes:
 * Auto loops may use diagnostics, command output, and file reads as evidence.
 * Auto loops may create and apply bounded edit proposals.
 * Auto loops may infer and run allowlisted check commands from project files.
+* Auto loops may rerun failed checks after auto-applied fixes until the loop iteration cap is reached.
+* Developer loops are opt-in and visibly separate from normal loops.
+* Developer loops may run non-destructive local commands without the static allowlist.
+* Developer loops may infer install, build, lint, format, test, and inspection commands from project files.
+* Developer loops may use command output, diagnostics, file reads, and generated edit proposals in a bounded fix/retry cycle.
+* Full-trust workspace access is opt-in through `LINEA_AGENT_DEVELOPER_MODE=1` and `LINEA_AGENT_WORKSPACE_TRUST=full`.
 * Generated app previews should use temporary package sessions unless the user asks to edit the current project.
 * Temporary app sessions should run their checks inside the temp package before showing a preview.
-* Auto loops must stop before destructive actions, broad system access, or commands outside the allowlist.
+* Normal auto loops must stop before destructive actions, broad system access, or commands outside the allowlist.
+* Developer loops must still stop before destructive actions, credential reads, secret exposure, privilege escalation, billing/payment actions, or commands that intentionally modify broad system state.
 
 Rules:
 
@@ -196,6 +211,7 @@ Tools:
 * Search files
 * Edit files
 * Run approved commands
+* Run non-destructive developer commands in developer mode
 * Read diagnostics
 
 Edit proposals:
@@ -221,13 +237,16 @@ Skills:
 
 MCP:
 
-* Use configured stdio MCP tools only when they give clear value.
+* Use configured stdio MCP tools, resources, prompts, and subscriptions only when they give clear value.
 * Prefer local MCP servers first.
 * Keep permissions narrow.
+* Infer simple MCP arguments only when the goal and schema make them clear.
+* Stop at the MCP boundary when required arguments cannot be inferred safely.
 
 LSP:
 
-* Use LSP for diagnostics, symbols, references, and code navigation when it preserves the existing user-facing contract.
+* Use configured LSP, or auto-detected `gopls`, for diagnostics, symbols, references, and code navigation when it preserves the existing user-facing contract.
+* Keep local parser/search fallbacks available.
 * Do not make core behavior depend on one editor.
 
 Subagents:
@@ -235,6 +254,7 @@ Subagents:
 * Use subagents for review, search, testing, or docs.
 * Keep subagents bounded.
 * Merge results through the main agent.
+* Do not use subagents as background autonomous workers.
 
 ## Design Principles
 
@@ -348,6 +368,8 @@ Otherwise:
 * complete obvious follow-up work
 * leave the repository in a better state than you found it
 
+Developer-mode work may continue through inspect, edit, build, test, diagnose, and retry cycles until the bounded loop succeeds or reaches a clear safety, permission, or iteration boundary.
+
 ## Success Criteria
 
 Linea should continue to allow a user to:
@@ -369,4 +391,5 @@ Post-MVP success means Linea can also:
 * Show when a fallback is used
 * Recover clearly when a local model is not running
 * Run small local tasks with explicit tool boundaries
+* Run opt-in developer loops for bounded non-destructive local coding work
 * Keep user-visible behavior simple
