@@ -1,6 +1,20 @@
 import Cocoa
 import WebKit
 
+final class WindowDragRegionView: NSView {
+  override var mouseDownCanMoveWindow: Bool {
+    true
+  }
+
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+    true
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    window?.performDrag(with: event)
+  }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
   private var process: Process?
   private var window: NSWindow?
@@ -66,6 +80,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     decisionHandler(.cancel)
   }
 
+  func webView(
+    _ webView: WKWebView,
+    createWebViewWith configuration: WKWebViewConfiguration,
+    for navigationAction: WKNavigationAction,
+    windowFeatures: WKWindowFeatures
+  ) -> WKWebView? {
+    guard navigationAction.targetFrame == nil, let url = navigationAction.request.url else {
+      return nil
+    }
+
+    if url.scheme == baseURL?.scheme, url.host == baseURL?.host, url.port == baseURL?.port {
+      webView.load(URLRequest(url: url))
+    } else {
+      NSWorkspace.shared.open(url)
+    }
+    return nil
+  }
+
   private func startServer() throws -> (process: Process, url: URL) {
     guard let serverPath = Bundle.main.path(forResource: "linea", ofType: nil) else {
       throw LineaError.message("Bundled server was not found.")
@@ -101,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let webView = WKWebView(frame: .zero, configuration: config)
     webView.navigationDelegate = self
     webView.uiDelegate = self
-    webView.allowsBackForwardNavigationGestures = false
+    webView.allowsBackForwardNavigationGestures = true
     webView.wantsLayer = true
     webView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     webView.load(URLRequest(url: url.appendingPathComponent("")))
@@ -119,7 +151,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     window.isReleasedWhenClosed = false
     window.setFrameAutosaveName("main-window")
     window.titlebarAppearsTransparent = true
-    window.contentView = webView
+    let contentView = NSView()
+    contentView.addSubview(webView)
+    webView.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+      webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+      webView.topAnchor.constraint(equalTo: contentView.topAnchor),
+      webView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+    ])
+
+    let dragRegion = WindowDragRegionView()
+    dragRegion.translatesAutoresizingMaskIntoConstraints = false
+    contentView.addSubview(dragRegion)
+    NSLayoutConstraint.activate([
+      dragRegion.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+      dragRegion.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+      dragRegion.topAnchor.constraint(equalTo: contentView.topAnchor),
+      dragRegion.heightAnchor.constraint(equalToConstant: 8),
+    ])
+
+    window.contentView = contentView
     window.center()
     window.makeKeyAndOrderFront(nil)
     self.webView = webView
@@ -284,6 +336,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let viewMenu = NSMenu(title: "View")
     viewMenu.addItem(
       NSMenuItem(
+        title: "Back",
+        action: #selector(goBack(_:)),
+        keyEquivalent: "["
+      )
+    )
+    viewMenu.addItem(
+      NSMenuItem(
+        title: "Forward",
+        action: #selector(goForward(_:)),
+        keyEquivalent: "]"
+      )
+    )
+    viewMenu.addItem(.separator())
+    viewMenu.addItem(
+      NSMenuItem(
         title: "Reload",
         action: #selector(reloadPage(_:)),
         keyEquivalent: "r"
@@ -323,6 +390,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
   @objc private func reloadPage(_ sender: Any?) {
     webView?.reload()
+  }
+
+  @objc private func goBack(_ sender: Any?) {
+    guard let webView, webView.canGoBack else {
+      return
+    }
+    webView.goBack()
+  }
+
+  @objc private func goForward(_ sender: Any?) {
+    guard let webView, webView.canGoForward else {
+      return
+    }
+    webView.goForward()
   }
 
   private func openLog() throws -> FileHandle {

@@ -29,6 +29,9 @@ textarea {
 }
 
 .shell {
+  --content-gutter: 28px;
+  --content-width: 980px;
+
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
   height: 100vh;
@@ -103,8 +106,8 @@ textarea {
 
 .brand h1 {
   color: #e8e8e8;
-  font-size: 17px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 560;
   line-height: 1.2;
 }
 
@@ -273,23 +276,22 @@ textarea {
 }
 
 .system-details-button {
-  display: inline-flex;
-  align-items: center;
+  display: grid;
+  width: 28px;
+  height: 28px;
   justify-self: start;
-  gap: 6px;
-  min-height: 28px;
+  place-items: center;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   background: transparent;
   color: #cfcfcf;
   cursor: pointer;
-  padding: 0 6px 0 22px;
-  font-size: 11px;
-  font-weight: 560;
+  padding: 0;
 }
 
 .system-details-button:hover,
 .system-details-button:focus-visible {
+  background: #1d1d1d;
   color: #eeeeee;
 }
 
@@ -301,6 +303,17 @@ textarea {
   border-radius: 10px;
   background: #111111;
   padding: 8px;
+}
+
+.theme-panel-title {
+  margin: 5px 4px 1px;
+  color: #777777;
+  font-size: 10.5px;
+  font-weight: 560;
+}
+
+.theme-panel-title:first-child {
+  margin-top: 0;
 }
 
 .settings-panel {
@@ -828,7 +841,7 @@ textarea {
   gap: 16px;
   min-height: 0;
   overflow-y: auto;
-  padding: 32px 28px 132px;
+  padding: 20px max(var(--content-gutter), calc((100% - var(--content-width)) / 2)) 132px;
   scrollbar-color: transparent transparent;
 }
 
@@ -1326,7 +1339,7 @@ textarea {
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(0, 0, 0, 0.42);
+  background: rgba(0, 0, 0, 0.32);
   padding: 20px;
 }
 
@@ -1395,15 +1408,15 @@ textarea {
 
 .details-dialog {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   width: min(820px, calc(100vw - 40px));
   max-height: min(720px, calc(100vh - 40px));
   overflow: auto;
   border: 1px solid #181818;
-  border-radius: 14px;
+  border-radius: 10px;
   background: #121212;
-  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.34);
-  padding: 16px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
+  padding: 12px;
 }
 
 .details-header {
@@ -1411,6 +1424,7 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  padding: 0 2px 2px;
 }
 
 .details-header strong,
@@ -1419,28 +1433,29 @@ textarea {
 .details-list-header span {
   margin: 0;
   color: #eeeeee;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 560;
 }
 
 .details-header p,
 .details-list p {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   color: #9a9a9a;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.45;
 }
 
 .details-close {
-  min-height: 30px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   background: transparent;
   color: #cfcfcf;
   cursor: pointer;
-  padding: 0 8px;
-  font-size: 12px;
-  font-weight: 560;
+  padding: 0;
 }
 
 .details-close:hover,
@@ -1452,17 +1467,17 @@ textarea {
 .details-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .details-section,
 .details-list {
   display: grid;
   min-width: 0;
-  gap: 6px;
+  gap: 5px;
   border: 1px solid #171717;
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 8px;
+  padding: 8px;
 }
 
 .details-list-header {
@@ -2268,7 +2283,7 @@ textarea {
   bottom: 0;
   left: 0;
   background: transparent;
-  padding: 0 28px 24px;
+  padding: 0 max(var(--content-gutter), calc((100% - var(--content-width)) / 2)) 24px;
   pointer-events: none;
 }
 
@@ -2613,6 +2628,8 @@ textarea:focus {
   .chat-header,
   .messages,
   .composer {
+    --content-gutter: 16px;
+
     padding-inline: 16px;
   }
 
@@ -2686,15 +2703,19 @@ textarea:focus {
 }
 
 :root.linea-macos-shell .sidebar {
-  padding-top: 48px;
+  padding-top: 32px;
 }
 
 :root.linea-macos-shell .chat-header {
-  padding-top: 40px;
+  padding-top: 12px;
+}
+
+:root.linea-macos-shell .shell.sidebar-collapsed .chat-header {
+  padding-left: 96px;
 }
 
 :root.linea-macos-shell .sources-panel {
-  padding-top: 46px;
+  padding-top: 32px;
 }
 
 :root[data-theme="light"] body {
@@ -2858,6 +2879,10 @@ textarea:focus {
 :root[data-theme="light"] .workspace-search button,
 :root[data-theme="light"] .agent-command-form input,
 :root[data-theme="light"] .agent-command-form button,
+:root[data-theme="light"] .agent-manual-form input,
+:root[data-theme="light"] .agent-manual-form select,
+:root[data-theme="light"] .agent-manual-form textarea,
+:root[data-theme="light"] .agent-manual-form button,
 :root[data-theme="light"] .agent-loop-form input,
 :root[data-theme="light"] .agent-loop-form textarea,
 :root[data-theme="light"] .agent-loop-form button,
@@ -2895,6 +2920,11 @@ textarea:focus {
 :root[data-theme="light"] .agent-command-form input:focus,
 :root[data-theme="light"] .agent-command-form button:hover:not(:disabled),
 :root[data-theme="light"] .agent-command-form button:focus-visible:not(:disabled),
+:root[data-theme="light"] .agent-manual-form input:focus,
+:root[data-theme="light"] .agent-manual-form select:focus,
+:root[data-theme="light"] .agent-manual-form textarea:focus,
+:root[data-theme="light"] .agent-manual-form button:hover:not(:disabled),
+:root[data-theme="light"] .agent-manual-form button:focus-visible:not(:disabled),
 :root[data-theme="light"] .agent-loop-form input:focus,
 :root[data-theme="light"] .agent-loop-form textarea:focus,
 :root[data-theme="light"] .agent-loop-form button:hover:not(:disabled),
@@ -3014,7 +3044,12 @@ textarea:focus {
 
 :root[data-theme="light"] .system-details-button:hover,
 :root[data-theme="light"] .system-details-button:focus-visible {
+  background: #ecece7;
   color: #252522;
+}
+
+:root[data-theme="light"] .theme-panel-title {
+  color: #777771;
 }
 
 :root[data-theme="light"] .conversation:hover,

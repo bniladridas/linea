@@ -26,9 +26,37 @@ func (r *Runtime) registerAgentPreview(loopID string, sessionID string, root str
 		URL:       "/api/agent/previews/",
 		CreatedAt: time.Now().UTC(),
 	}
+	return r.saveAgentPreview(preview)
+}
+
+func (r *Runtime) saveAgentPreview(preview AgentPreview) AgentPreview {
+	preview.ID = strings.TrimSpace(preview.ID)
+	if preview.ID == "" {
+		preview.ID = newTraceID()
+	}
+	preview.Entry = strings.TrimSpace(preview.Entry)
+	if preview.Entry == "" {
+		preview.Entry = "index.html"
+	}
+	preview.SessionID = strings.TrimSpace(preview.SessionID)
+	if preview.CreatedAt.IsZero() {
+		preview.CreatedAt = time.Now().UTC()
+	}
+	preview.URL = "/api/agent/previews/"
 	preview.URL += preview.ID + "/"
 
 	r.mu.Lock()
+	for index, current := range r.agentPreviews {
+		if current.ID == preview.ID {
+			replacedRoot := current.Root
+			r.agentPreviews[index] = preview
+			r.mu.Unlock()
+			if strings.TrimSpace(replacedRoot) != "" && replacedRoot != preview.Root {
+				_ = os.RemoveAll(replacedRoot)
+			}
+			return preview
+		}
+	}
 	r.agentPreviews = append([]AgentPreview{preview}, r.agentPreviews...)
 	evicted := []AgentPreview{}
 	if len(r.agentPreviews) > maxAgentPreviewItems {
@@ -42,6 +70,30 @@ func (r *Runtime) registerAgentPreview(loopID string, sessionID string, root str
 		}
 	}
 	return preview
+}
+
+func (r *Runtime) RecoverAgentPreview(previewID string, sessionID string, root string) bool {
+	previewID = strings.TrimSpace(previewID)
+	sessionID = strings.TrimSpace(sessionID)
+	root = strings.TrimSpace(root)
+	if previewID == "" || root == "" {
+		return false
+	}
+	if !isRecoverableAppSessionRoot(root) {
+		return false
+	}
+	snapshotRoot, err := snapshotPreviewBuild(root)
+	if err != nil {
+		return false
+	}
+	r.saveAppSession(AppSession{ID: sessionID, Root: root})
+	r.saveAgentPreview(AgentPreview{
+		ID:        previewID,
+		SessionID: sessionID,
+		Root:      snapshotRoot,
+		Entry:     "index.html",
+	})
+	return true
 }
 
 func (r *Runtime) HasAppSession(sessionID string) bool {
