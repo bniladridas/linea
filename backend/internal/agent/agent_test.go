@@ -879,6 +879,50 @@ func TestRuntimeAutoAgentLoopProposesEditAfterFailedCheckDiagnostics(t *testing.
 	}
 }
 
+func TestRuntimeAutoAgentLoopRerunsCommandAfterAutoAppliedFix(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc ok() {}\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "broken.go",
+			Content: "package main\nfunc fixed() {}\n",
+			Summary: "Fix parse error",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"false"}), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:      "fix tests",
+		Mode:      "auto",
+		AutoApply: true,
+		Command:   "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if _, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "false", State: "approved"}); err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+
+	continued, err := runtime.ContinueAgentLoop(context.Background(), loop.ID, AgentLoopContinueInput{AutoApply: true})
+	if err != nil {
+		t.Fatalf("ContinueAgentLoop() error = %v", err)
+	}
+	if continued.State != "attention" || !loopHasStep(continued, "edit_review", "completed") || !loopHasStep(continued, "command_retry", "completed") {
+		t.Fatalf("continued = %#v", continued)
+	}
+	count := 0
+	for _, step := range continued.Steps {
+		if step.Kind == "command_run" && step.Command == "false" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("command run count = %d, steps = %#v", count, continued.Steps)
+	}
+}
+
 func TestRuntimeAutoAgentLoopRejectsPlannerPathOutsideDiagnostics(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")

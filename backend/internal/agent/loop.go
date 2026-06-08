@@ -1626,7 +1626,11 @@ func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request E
 	if createdID != "" {
 		loop.Steps[len(loop.Steps)-1].CreatedID = createdID
 		if isAutonomousAgentLoopMode(loop.Mode) && loop.AutoApply {
-			return r.autoApplyGeneratedEditProposal(ctx, loop, createdID)
+			command := request.Command
+			if strings.TrimSpace(command) == "" {
+				command = lastFailedLoopCommand(loop)
+			}
+			return r.autoApplyGeneratedEditProposal(ctx, loop, createdID, command)
 		}
 		loop.Steps = append(loop.Steps, AgentLoopStep{
 			ID:        newTraceID(),
@@ -1642,7 +1646,7 @@ func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request E
 	return loop
 }
 
-func (r *Runtime) autoApplyGeneratedEditProposal(ctx context.Context, loop AgentLoop, proposalID string) AgentLoop {
+func (r *Runtime) autoApplyGeneratedEditProposal(ctx context.Context, loop AgentLoop, proposalID string, command string) AgentLoop {
 	proposal, err := r.ReviewEditProposal(ctx, proposalID, EditProposalReviewInput{
 		Status: "approved",
 		Detail: "Approved by auto loop.",
@@ -1670,7 +1674,25 @@ func (r *Runtime) autoApplyGeneratedEditProposal(ctx context.Context, loop Agent
 		}
 	}
 	loop.Steps = append(loop.Steps, step)
+	command = strings.Join(strings.Fields(command), " ")
+	if step.State == "completed" && command != "" {
+		if autoLoopLimitReached(loop) {
+			return appendAutoLimitStep(loop)
+		}
+		loop = appendLoopStep(loop, "command_retry", "Retry command", "run_command", nil, "Retrying after auto-applied edit.", command)
+		return r.runCheckedLoopCommand(ctx, loop, command)
+	}
 	return loop
+}
+
+func lastFailedLoopCommand(loop AgentLoop) string {
+	for index := len(loop.Steps) - 1; index >= 0; index-- {
+		step := loop.Steps[index]
+		if step.Kind == "command_run" && step.State == "blocked" && strings.TrimSpace(step.Command) != "" {
+			return step.Command
+		}
+	}
+	return ""
 }
 
 func (r *Runtime) autoEditContextFiles(ctx context.Context, diagnostics []Diagnostic) ([]FileResult, error) {
