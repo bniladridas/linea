@@ -855,10 +855,14 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 afterEditBoundary:
 	command := strings.Join(strings.Fields(input.Command), " ")
 	if command == "" && loop.Mode == "auto" && mentionsCommand(goalLower) {
-		inferred, detail := r.inferLoopCommand(ctx, loop.Goal)
+		inferred, detail, projectCheck := r.inferLoopCommand(ctx, loop.Goal)
 		if inferred != "" {
 			command = inferred
 			loop = appendLoopStep(loop, "command_infer", "Choose check command", "run_command", nil, detail, command)
+			if projectCheck {
+				loop = r.runInferredProjectCommand(ctx, loop, command)
+				return loop
+			}
 		}
 	}
 	if command != "" {
@@ -866,6 +870,9 @@ afterEditBoundary:
 		detail := "blocked"
 		if err == nil {
 			detail = check.Reason
+		}
+		if err == nil && !check.Allowed {
+			err = errors.New("command is not in allowlist")
 		}
 		loop = appendLoopStep(loop, "command_check", "Check command", "run_command", err, detail, command)
 		if err == nil && check.Allowed {
@@ -1113,17 +1120,75 @@ func appendAutoLimitStep(loop AgentLoop) AgentLoop {
 	return loop
 }
 
-func (r *Runtime) inferLoopCommand(ctx context.Context, goal string) (string, string) {
+func (r *Runtime) runInferredProjectCommand(ctx context.Context, loop AgentLoop, command string) AgentLoop {
+	check := CommandCheck{
+		ID:        newTraceID(),
+		Command:   command,
+		Allowed:   true,
+		Reason:    "inferred project check",
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	r.commandChecks = append([]CommandCheck{check}, r.commandChecks...)
+	if len(r.commandChecks) > 50 {
+		r.commandChecks = r.commandChecks[:50]
+	}
+	r.mu.Unlock()
+	loop.Steps = append(loop.Steps, AgentLoopStep{
+		ID:      newTraceID(),
+		Kind:    "command_check",
+		Title:   "Check command",
+		State:   "completed",
+		Detail:  check.Reason,
+		ToolID:  "run_command",
+		Command: command,
+	})
+	approval := CommandApproval{
+		ID:        newTraceID(),
+		Command:   command,
+		State:     "approved",
+		Detail:    "Auto loop approved inferred project check.",
+		CreatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	r.commandApprovals = append([]CommandApproval{approval}, r.commandApprovals...)
+	if len(r.commandApprovals) > 50 {
+		r.commandApprovals = r.commandApprovals[:50]
+	}
+	r.mu.Unlock()
+	loop.Steps = append(loop.Steps, AgentLoopStep{
+		ID:        newTraceID(),
+		Kind:      "command_approval",
+		Title:     "Approve command",
+		State:     "completed",
+		Detail:    "Auto loop approved inferred project check.",
+		ToolID:    "run_command",
+		Command:   command,
+		CreatedID: approval.ID,
+	})
+	run, err := r.runCheckedCommand(ctx, command)
+	detail := fmt.Sprintf("exit %d", run.ExitCode)
+	if err == nil && run.ExitCode != 0 {
+		err = fmt.Errorf("command exited with %d", run.ExitCode)
+	}
+	if err != nil {
+		detail = err.Error()
+	}
+	loop = appendLoopStep(loop, "command_run", "Run command", "run_command", err, detail, command)
+	return loop
+}
+
+func (r *Runtime) inferLoopCommand(ctx context.Context, goal string) (string, string, bool) {
 	if strings.TrimSpace(goal) == "" {
-		return "", ""
+		return "", "", false
 	}
 	root, err := r.workspaceRootPath()
 	if err != nil {
-		return "", ""
+		return "", "", false
 	}
 	goalLower := strings.ToLower(goal)
 	if command, detail := r.inferPackageCommand(ctx, root, goalLower); command != "" {
-		return command, detail
+		return command, detail, true
 	}
 	candidates := []struct {
 		command string
@@ -1141,22 +1206,22 @@ func (r *Runtime) inferLoopCommand(ctx context.Context, goal string) (string, st
 	for _, candidate := range candidates {
 		select {
 		case <-ctx.Done():
-			return "", ""
+			return "", "", false
 		default:
 		}
-		if !r.commandAllowed(candidate.command) || !goalMatchesCommandTerms(goalLower, candidate.terms) {
+		if !goalMatchesCommandTerms(goalLower, candidate.terms) {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(root, candidate.file)); err == nil {
-			return candidate.command, fmt.Sprintf("Inferred from %s and goal.", candidate.file)
+			return candidate.command, fmt.Sprintf("Inferred from %s and goal.", candidate.file), true
 		}
 	}
 	for _, command := range r.allowedCommands() {
 		if goalMatchesCommand(command, goalLower) {
-			return command, "Inferred from command allowlist and goal."
+			return command, "Inferred from command allowlist and goal.", false
 		}
 	}
-	return "", ""
+	return "", "", false
 }
 
 func (r *Runtime) inferPackageCommand(ctx context.Context, root string, goal string) (string, string) {
@@ -1180,9 +1245,7 @@ func (r *Runtime) inferPackageCommand(ctx context.Context, root string, goal str
 			continue
 		}
 		for _, command := range packageScriptCommands(script) {
-			if r.commandAllowed(command) {
-				return command, fmt.Sprintf("Inferred from package.json script %q.", script)
-			}
+			return command, fmt.Sprintf("Inferred from package.json script %q.", script)
 		}
 	}
 	return "", ""

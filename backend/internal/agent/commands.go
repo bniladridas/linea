@@ -104,11 +104,15 @@ func (r *Runtime) RunCommand(ctx context.Context, input CommandCheckInput) (Comm
 	if !check.Allowed {
 		return CommandRun{}, errors.New("command is not in allowlist")
 	}
+	return r.runCheckedCommand(ctx, check.Command)
+}
+
+func (r *Runtime) runCheckedCommand(ctx context.Context, command string) (CommandRun, error) {
 	root, err := r.workspaceRootPath()
 	if err != nil {
 		return CommandRun{}, err
 	}
-	args := strings.Fields(check.Command)
+	args := strings.Fields(command)
 	if len(args) == 0 {
 		return CommandRun{}, errors.New("Command is required.")
 	}
@@ -139,7 +143,7 @@ func (r *Runtime) RunCommand(ctx context.Context, input CommandCheckInput) (Comm
 	}
 	run := CommandRun{
 		ID:        newTraceID(),
-		Command:   check.Command,
+		Command:   command,
 		ExitCode:  exitCode,
 		Output:    content,
 		Truncated: truncated,
