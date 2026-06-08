@@ -135,14 +135,14 @@ func main() {
 		}
 	}()
 	if *runTUIBeta {
-		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).WithAgentRuntime(agentRuntime).RunBeta(ctx); err != nil {
+		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(newSearchClient(cfg)).WithAgentRuntime(agentRuntime).RunBeta(ctx); err != nil {
 			slog.Error("hand-rolled tui", "error", err)
 			os.Exit(1)
 		}
 		return
 	}
 	if *runTUI {
-		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(search.NewClient()).WithAgentRuntime(agentRuntime).Run(ctx); err != nil {
+		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(newSearchClient(cfg)).WithAgentRuntime(agentRuntime).Run(ctx); err != nil {
 			slog.Error("tui", "error", err)
 			os.Exit(1)
 		}
@@ -150,7 +150,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, search.NewClient(), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
+		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, newSearchClient(cfg), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -417,13 +417,20 @@ func providerStatuses(ctx context.Context, cfg config.Config, settings api.Setti
 func appStatus(ctx context.Context, cfg config.Config, settings api.Settings) api.Status {
 	status := api.Status{
 		Storage:   "PostgreSQL",
-		Search:    "DuckDuckGo",
+		Search:    search.ProviderName(cfg.BraveSearchAPIKey, cfg.SearXNGURL),
 		Providers: providerStatuses(ctx, cfg, settings),
 	}
 	if cfg.DatabaseURL == "" {
 		status.Storage = "Memory"
 	}
 	return status
+}
+
+func newSearchClient(cfg config.Config) *search.Client {
+	return search.NewClient(
+		search.WithBraveAPIKey(cfg.BraveSearchAPIKey),
+		search.WithSearXNGURL(cfg.SearXNGURL),
+	)
 }
 
 func configuredProviderStatus(name, model, role string, routeEnabled, configured bool) api.ProviderStatus {

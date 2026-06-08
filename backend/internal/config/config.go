@@ -26,6 +26,8 @@ type Config struct {
 	CerebrasBaseURL       string
 	CerebrasEnabled       bool
 	CerebrasModel         string
+	BraveSearchAPIKey     string
+	SearXNGURL            string
 	OllamaBaseURL         string
 	OllamaModel           string
 	OllamaFallback        bool
@@ -55,6 +57,8 @@ func Load() Config {
 		CerebrasBaseURL:       env("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"),
 		CerebrasEnabled:       envBool("CEREBRAS_ENABLED", true),
 		CerebrasModel:         env("CEREBRAS_MODEL", "gpt-oss-120b"),
+		BraveSearchAPIKey:     os.Getenv("BRAVE_SEARCH_API_KEY"),
+		SearXNGURL:            os.Getenv("SEARXNG_URL"),
 		OllamaBaseURL:         env("OLLAMA_BASE_URL", "http://localhost:11434"),
 		OllamaModel:           env("OLLAMA_MODEL", "qwen2.5-coder:1.5b"),
 		OllamaFallback:        envBool("OLLAMA_FALLBACK", true),

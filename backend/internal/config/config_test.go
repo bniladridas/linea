@@ -40,6 +40,8 @@ func TestLoadReadsAgentRulesPath(t *testing.T) {
 	t.Setenv("LINEA_LSP_COMMAND", "gopls")
 	t.Setenv("LINEA_MCP_CONFIG", "mcp.json")
 	t.Setenv("LINEA_COMMAND_ALLOWLIST", "make test, go test ./... ")
+	t.Setenv("BRAVE_SEARCH_API_KEY", "brave")
+	t.Setenv("SEARXNG_URL", "http://127.0.0.1:8888")
 
 	cfg := Load()
 
@@ -66,5 +68,11 @@ func TestLoadReadsAgentRulesPath(t *testing.T) {
 	}
 	if len(cfg.AgentCommandAllowlist) != 2 || cfg.AgentCommandAllowlist[0] != "make test" || cfg.AgentCommandAllowlist[1] != "go test ./..." {
 		t.Fatalf("AgentCommandAllowlist = %#v", cfg.AgentCommandAllowlist)
+	}
+	if cfg.BraveSearchAPIKey != "brave" {
+		t.Fatalf("BraveSearchAPIKey = %q, want brave", cfg.BraveSearchAPIKey)
+	}
+	if cfg.SearXNGURL != "http://127.0.0.1:8888" {
+		t.Fatalf("SearXNGURL = %q, want local url", cfg.SearXNGURL)
 	}
 }
