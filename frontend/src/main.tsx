@@ -450,6 +450,7 @@ function App() {
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const chatModeRef = useRef<'saved' | 'temporary'>(chatMode);
+  const autoOpenedSourcesRef = useRef<Record<string, boolean>>({});
   const [hasScrollableMessages, setHasScrollableMessages] = useState(false);
   const [isAtMessageEnd, setIsAtMessageEnd] = useState(true);
   const [composerHeight, setComposerHeight] = useState(108);
@@ -1569,6 +1570,7 @@ function App() {
       if (!streamConversationId) {
         throw new Error('No active conversation.');
       }
+      autoOpenedSourcesRef.current[streamConversationId] = false;
       setConversationSearchResults(streamConversationId, []);
 
       await streamMessage(isTemporaryChat ? '/api/chat/temp' : `/api/conversations/${streamConversationId}/messages`, form, {
@@ -1577,6 +1579,10 @@ function App() {
         },
         onSearch: (result) => {
           appendConversationSearchResult(streamConversationId, result);
+          if (!autoOpenedSourcesRef.current[streamConversationId]) {
+            autoOpenedSourcesRef.current[streamConversationId] = true;
+            setAreSourcesVisible(true);
+          }
         },
         onProvider: (provider) => {
           assistantProvider = provider;
@@ -2080,6 +2086,7 @@ function App() {
       </section>
 
       {showSources && <SourcesPanel results={activeSearchResults} />}
+
       {isSystemDetailsOpen && (
         <SystemDetailsDialog
           status={systemStatus}

@@ -632,14 +632,37 @@ async function runProbe() {
     });
     await sleep(3500);
     await send('Runtime.evaluate', {
+      expression: `document.querySelector('button[aria-label="Hide sources"]')?.click()`,
+      returnByValue: true,
+    });
+    await sleep(300);
+    const sourcesHidden = await send('Runtime.evaluate', {
+      expression: `!document.querySelector('.sources-panel')`,
+      returnByValue: true,
+    });
+    await send('Runtime.evaluate', {
       expression: `document.querySelector('button[aria-label="Show sources"]')?.click()`,
       returnByValue: true,
     });
     await sleep(300);
     sourcesObserved = await send('Runtime.evaluate', {
-      expression: `Boolean(document.querySelector('.sources-panel .source-card'))`,
+      expression: `(() => {
+        const sourceCard = document.querySelector('.sources-panel .source-card');
+        const assistantMessages = Array.from(document.querySelectorAll('.message.assistant'));
+        const overflowingLink = assistantMessages.some((message) => {
+          const messageRect = message.getBoundingClientRect();
+          return Array.from(message.querySelectorAll('.message-content a')).some((link) => {
+            const linkRect = link.getBoundingClientRect();
+            return linkRect.right > messageRect.right + 1 || linkRect.left < messageRect.left - 1;
+          });
+        });
+        return { hasSource: Boolean(sourceCard), hiddenWorks: ${JSON.stringify(false)}, linksFit: !overflowingLink };
+      })()`,
       returnByValue: true,
     });
+    if (sourcesObserved.result?.result?.value) {
+      sourcesObserved.result.result.value.hiddenWorks = sourcesHidden.result?.result?.value === true;
+    }
   }
 
   let attachmentObserved = null;
@@ -742,7 +765,11 @@ async function runProbe() {
     mobileDetail: JSON.stringify(mobileObserved?.result?.result?.value ?? {}),
     loadingWorks: !sendMessage || loadingObserved?.result?.result?.value === true,
     modelBadgeWorks: !sendMessage || modelBadgeObserved?.result?.result?.value === true,
-    sourcesWork: !checkSearchSources || sourcesObserved?.result?.result?.value === true,
+    sourcesWork:
+      !checkSearchSources ||
+      (sourcesObserved?.result?.result?.value?.hasSource === true &&
+        sourcesObserved?.result?.result?.value?.hiddenWorks === true &&
+        sourcesObserved?.result?.result?.value?.linksFit === true),
     attachmentWorks: !checkAttachment || attachmentObserved?.result?.result?.value === true,
     agentReviewWorks: !checkAgentReview || agentReviewObserved?.result?.result?.value?.ok === true,
     agentReviewDetail: JSON.stringify(agentReviewObserved?.result?.result?.value ?? {}),
