@@ -154,6 +154,7 @@ type AgentLoop struct {
 	Mode          string          `json:"mode"`
 	State         string          `json:"state"`
 	MaxIterations int             `json:"maxIterations,omitempty"`
+	AutoApply     bool            `json:"autoApply,omitempty"`
 	SessionID     string          `json:"sessionId,omitempty"`
 	WorkspaceRoot string          `json:"workspaceRoot,omitempty"`
 	PreviewURL    string          `json:"previewUrl,omitempty"`
@@ -178,6 +179,7 @@ type AgentLoopInput struct {
 	Goal            string `json:"goal"`
 	Mode            string `json:"mode,omitempty"`
 	MaxIterations   int    `json:"maxIterations,omitempty"`
+	AutoApply       bool   `json:"autoApply,omitempty"`
 	TempWorkspace   bool   `json:"tempWorkspace,omitempty"`
 	SessionID       string `json:"sessionId,omitempty"`
 	Command         string `json:"command,omitempty"`
@@ -190,6 +192,7 @@ type AgentLoopInput struct {
 type AgentLoopContinueInput struct {
 	Command         string `json:"command,omitempty"`
 	MaxIterations   int    `json:"maxIterations,omitempty"`
+	AutoApply       bool   `json:"autoApply,omitempty"`
 	Query           string `json:"query,omitempty"`
 	FilePath        string `json:"filePath,omitempty"`
 	ProposalPath    string `json:"proposalPath,omitempty"`

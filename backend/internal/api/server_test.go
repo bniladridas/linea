@@ -518,6 +518,21 @@ func TestCreateMessageCanStartColonAgentLoopFromChat(t *testing.T) {
 	}
 }
 
+func TestParseAgentLoopChatCommandAutoModeCanAutoApply(t *testing.T) {
+	for _, command := range []string{
+		":loop auto fix diagnostics",
+		"agent auto fix diagnostics",
+	} {
+		input, ok, err := parseAgentLoopChatCommand(command)
+		if err != nil {
+			t.Fatalf("parseAgentLoopChatCommand(%q) error = %v", command, err)
+		}
+		if !ok || input.Goal != "fix diagnostics" || input.Mode != "auto" || !input.AutoApply {
+			t.Fatalf("input = %#v, ok = %v", input, ok)
+		}
+	}
+}
+
 func TestCreateMessageCanStartTempReactAppLoopFromChat(t *testing.T) {
 	root := t.TempDir()
 	appStore := store.NewMemoryStore()

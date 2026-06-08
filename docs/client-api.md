@@ -186,13 +186,14 @@ Returns recent bounded agent loops.
 
 `POST /api/agent/loops`
 
-Starts a bounded local agent loop. Read-only workspace steps may run immediately. `mode` can be `guided` or `auto`; guided loops pause at edit and command boundaries, while auto loops may apply generated proposals and run allowlisted checks. `tempWorkspace` creates or reuses a temporary app package outside the current workspace and returns `previewUrl` when a preview is available.
+Starts a bounded local agent loop. Read-only workspace steps may run immediately. `mode` can be `guided` or `auto`; guided loops pause at edit and command boundaries, while auto loops can run allowlisted checks. Set `autoApply` to let auto loops apply their own generated edit proposals. `tempWorkspace` creates or reuses a temporary app package outside the current workspace and returns `previewUrl` when a preview is available.
 
 ```json
 {
   "goal": "check diagnostics and run tests",
   "mode": "auto",
   "maxIterations": 5,
+  "autoApply": true,
   "tempWorkspace": false,
   "sessionId": "conversation-id",
   "query": "diagnostic",
@@ -207,6 +208,7 @@ Continues a waiting loop after the needed input or approval exists.
 
 ```json
 {
+  "autoApply": true,
   "query": "diagnostic",
   "filePath": "README.md",
   "command": "make test"

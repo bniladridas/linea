@@ -695,6 +695,42 @@ func TestRunAgentCommandStartsAutoLoop(t *testing.T) {
 	}
 }
 
+func TestRunAgentCommandStartsAutoApplyLoop(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("test:\n\tprintf ok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "broken.go"), []byte("package main\nfunc broken( {\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	planner := &fakeTUIEditPlanner{
+		plan: agent.EditPlan{
+			Path:    "broken.go",
+			Content: "package main\nfunc fixed() {}\n",
+			Summary: "Fix parse error",
+		},
+	}
+	runtime := agent.NewRuntime(
+		"",
+		agent.WithWorkspaceRoot(root),
+		agent.WithCommandAllowlist([]string{"make test"}),
+		agent.WithEditPlanner(planner),
+	)
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+
+	output, err := app.runAgentCommand(context.Background(), ":loop auto fix diagnostics and run tests")
+	if err != nil {
+		t.Fatalf("runAgentCommand() error = %v", err)
+	}
+	if !strings.Contains(output, "Auto loop completed") || !strings.Contains(output, "Apply edit proposal") || !strings.Contains(output, "make test") {
+		t.Fatalf("output = %q", output)
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || !loops[0].AutoApply || loops[0].State != "completed" {
+		t.Fatalf("loops = %#v", loops)
+	}
+}
+
 func TestRunAgentCommandStopsAutoLoopAtProposalReview(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("old\n"), 0o600); err != nil {

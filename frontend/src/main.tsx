@@ -321,6 +321,7 @@ type AgentLoopRequest = {
   goal: string;
   mode?: 'guided' | 'auto';
   maxIterations?: number;
+  autoApply?: boolean;
   command?: string;
   query?: string;
   filePath?: string;
@@ -2832,6 +2833,7 @@ function SystemDetailsDialog({
       goal,
       mode: loopModeInput,
       maxIterations: loopModeInput === 'auto' ? 5 : undefined,
+      autoApply: loopModeInput === 'auto' ? true : undefined,
       command: loopCommandInput.trim() || undefined,
       query: loopQueryInput.trim() || undefined,
       filePath: loopFileInput.trim() || undefined,
