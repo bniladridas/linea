@@ -594,6 +594,16 @@ func TestCreateMessageCanStartTempReactAppLoopFromChat(t *testing.T) {
 	if originalAppRes.Code != http.StatusOK || !strings.Contains(originalAppRes.Body.String(), `React.createElement("h1", null, "hi")`) {
 		t.Fatalf("original app response changed = %d %q", originalAppRes.Code, originalAppRes.Body.String())
 	}
+
+	restartedRuntime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	restartedServer := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, restartedRuntime).Handler()
+	recoveredPreviewRes := httptest.NewRecorder()
+	restartedServer.ServeHTTP(recoveredPreviewRes, httptest.NewRequest(http.MethodGet, loops[0].PreviewURL, nil))
+	if recoveredPreviewRes.Code != http.StatusOK || !strings.Contains(recoveredPreviewRes.Body.String(), "./assets/app.js") {
+		t.Fatalf("recovered preview response = %d %q", recoveredPreviewRes.Code, recoveredPreviewRes.Body.String())
+	}
 }
 
 func TestCreateMessageDoesNotStartTempReactAppLoopForQuestions(t *testing.T) {

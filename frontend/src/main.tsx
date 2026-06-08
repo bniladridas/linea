@@ -35,6 +35,7 @@ import {
   Smile,
   Trash2,
   Sun,
+  X,
 } from 'lucide-react';
 import './styles.css';
 
@@ -361,9 +362,7 @@ type StreamChunk = {
 };
 
 type UIPrefs = {
-  showModelBadge: boolean;
-  showSleepAlert: boolean;
-  showReactions: boolean;
+  showResponseDetails: boolean;
   showComposerShimmer: boolean;
   showScrollCue: boolean;
   theme: ThemeChoice;
@@ -1634,8 +1633,7 @@ function App() {
 
           <div className="new-chat-group" aria-label="Create chat">
             <button
-              className="new-chat has-tooltip"
-              data-tooltip="New chat"
+              className="new-chat"
               type="button"
               onPointerDown={() => setAreTooltipsSuppressed(true)}
               onClick={(event) => {
@@ -1895,7 +1893,7 @@ function App() {
                             <PenLine size={14} strokeWidth={ICON_STROKE} />
                           </button>
                         )}
-                        {message.role === 'assistant' && (
+                        {message.role === 'assistant' && uiPrefs.showResponseDetails && (
                           <div className="response-tools">
                             <ResponseMeta
                               prefs={uiPrefs}
@@ -1906,17 +1904,15 @@ function App() {
                               }
                               sleepingProviders={systemStatus?.providers.filter((provider) => provider.state === 'sleeping') ?? []}
                             />
-                            {uiPrefs.showReactions && (
-                              <FeedbackRow
-                                selected={messageFeedback[key]}
-                                onSelect={(feedback) =>
-                                  setMessageFeedback((current) => ({
-                                    ...current,
-                                    [key]: current[key] === feedback ? '' : feedback,
-                                  }))
-                                }
-                              />
-                            )}
+                            <FeedbackRow
+                              selected={messageFeedback[key]}
+                              onSelect={(feedback) =>
+                                setMessageFeedback((current) => ({
+                                  ...current,
+                                  [key]: current[key] === feedback ? '' : feedback,
+                                }))
+                              }
+                            />
                           </div>
                         )}
                       </>
@@ -2523,8 +2519,13 @@ function SystemPanel({
           {disabledProviders.map((provider) => provider.name).join(', ')} off
         </div>
       )}
-      <button className="system-details-button has-tooltip tooltip-above" data-tooltip="Details" type="button" onClick={onOpenDetails}>
-        Details
+      <button
+        aria-label="System details"
+        className="system-details-button has-tooltip tooltip-above"
+        data-tooltip="Details"
+        type="button"
+        onClick={onOpenDetails}
+      >
         <ListChecks size={12} strokeWidth={ICON_STROKE} />
       </button>
     </div>
@@ -2964,8 +2965,8 @@ function SystemDetailsDialog({
             <strong>System</strong>
             <p>Local status and agent checks.</p>
           </div>
-          <button className="details-close" type="button" onClick={onClose}>
-            Close
+          <button aria-label="Close system details" className="details-close" type="button" onClick={onClose}>
+            <X size={14} strokeWidth={ICON_STROKE} />
           </button>
         </div>
 
@@ -4112,6 +4113,7 @@ function ThemePanel({
 }) {
   return (
     <div className="theme-panel" aria-label="Theme settings">
+      <span className="theme-panel-title">Theme</span>
       <button
         aria-label={`System theme, currently ${systemTheme}`}
         className={prefs.theme === 'system' ? 'active' : ''}
@@ -4137,33 +4139,17 @@ function ThemePanel({
         <Sun size={13} strokeWidth={ICON_STROKE} />
         White
       </button>
+      <span className="theme-panel-title">Output</span>
       <label>
         <input
-          checked={prefs.showModelBadge}
+          checked={prefs.showResponseDetails}
           type="checkbox"
-          onChange={(event) => onChange((current) => ({ ...current, showModelBadge: event.target.checked }))}
+          onChange={(event) => onChange((current) => ({ ...current, showResponseDetails: event.target.checked }))}
         />
-        <CheckBoxMark checked={prefs.showModelBadge} />
-        Model badge
+        <CheckBoxMark checked={prefs.showResponseDetails} />
+        Response details
       </label>
-      <label>
-        <input
-          checked={prefs.showSleepAlert}
-          type="checkbox"
-          onChange={(event) => onChange((current) => ({ ...current, showSleepAlert: event.target.checked }))}
-        />
-        <CheckBoxMark checked={prefs.showSleepAlert} />
-        Fallback status
-      </label>
-      <label>
-        <input
-          checked={prefs.showReactions}
-          type="checkbox"
-          onChange={(event) => onChange((current) => ({ ...current, showReactions: event.target.checked }))}
-        />
-        <CheckBoxMark checked={prefs.showReactions} />
-        Reactions
-      </label>
+      <span className="theme-panel-title">Comfort</span>
       <label>
         <input
           checked={prefs.showComposerShimmer}
@@ -4292,18 +4278,18 @@ function ResponseMeta({
 }) {
   const sleepingNames = sleepingProviders.map((item) => item.name).join(', ');
   const sleepingDetail = sleepingProviders.map((item) => item.detail || item.message || `${item.name} sleeping`).join(', ');
-  if (!prefs.showModelBadge && (!prefs.showSleepAlert || sleepingProviders.length === 0)) {
+  if (!prefs.showResponseDetails) {
     return null;
   }
   return (
     <div className="response-meta">
-      {prefs.showModelBadge && provider && (
+      {provider && (
         <span className="model-badge has-tooltip tooltip-above" data-tooltip={`${provider.name} ${provider.model}`}>
           <BadgeHelp size={13} strokeWidth={ICON_STROKE} />
           {provider.model}
         </span>
       )}
-      {prefs.showSleepAlert && sleepingProviders.length > 0 && (
+      {sleepingProviders.length > 0 && (
         <span className="sleep-alert has-tooltip tooltip-above" data-tooltip={sleepingDetail || `${sleepingNames} sleeping`}>
           <BellOff size={13} strokeWidth={ICON_STROKE} />
         </span>
@@ -4698,20 +4684,26 @@ function loadUIPrefs(): UIPrefs {
   try {
     const value = window.localStorage.getItem(UI_PREFS_STORAGE_KEY);
     const parsed = value ? JSON.parse(value) : {};
+    const hasLegacyResponsePrefs =
+      typeof parsed.showModelBadge === 'boolean' ||
+      typeof parsed.showSleepAlert === 'boolean' ||
+      typeof parsed.showReactions === 'boolean';
+    const showResponseDetails =
+      typeof parsed.showResponseDetails === 'boolean'
+        ? parsed.showResponseDetails
+        : hasLegacyResponsePrefs
+          ? parsed.showModelBadge !== false || parsed.showSleepAlert !== false || parsed.showReactions !== false
+          : true;
     return {
-      showModelBadge: true,
-      showSleepAlert: true,
-      showReactions: true,
       showComposerShimmer: true,
       showScrollCue: true,
       ...parsed,
+      showResponseDetails,
       theme: isThemeChoice(parsed.theme) ? parsed.theme : 'system',
     };
   } catch {
     return {
-      showModelBadge: true,
-      showSleepAlert: true,
-      showReactions: true,
+      showResponseDetails: true,
       showComposerShimmer: true,
       showScrollCue: true,
       theme: 'system',
@@ -4720,7 +4712,15 @@ function loadUIPrefs(): UIPrefs {
 }
 
 function saveUIPrefs(prefs: UIPrefs) {
-  window.localStorage.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+  window.localStorage.setItem(
+    UI_PREFS_STORAGE_KEY,
+    JSON.stringify({
+      showResponseDetails: prefs.showResponseDetails,
+      showComposerShimmer: prefs.showComposerShimmer,
+      showScrollCue: prefs.showScrollCue,
+      theme: prefs.theme,
+    }),
+  );
 }
 
 function isThemeChoice(value: unknown): value is ThemeChoice {

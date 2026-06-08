@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"mime"
@@ -80,6 +81,7 @@ type AgentRuntime interface {
 	PreviewFile(context.Context, string, string) (agent.PreviewFile, error)
 	HasAppSession(string) bool
 	RecoverAppSession(string, string) bool
+	RecoverAgentPreview(string, string, string) bool
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
 	ListCommandChecks(context.Context) []agent.CommandCheck
@@ -602,12 +604,18 @@ func (s *Server) cancelAgentLoop(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) readAgentPreview(w http.ResponseWriter, r *http.Request) {
 	if s.agentRuntime == nil {
-		writeError(w, http.StatusNotFound, "Agent previews are not available.")
+		writeAgentPreviewError(w, "Agent previews are not available.")
 		return
 	}
-	file, err := s.agentRuntime.PreviewFile(r.Context(), r.PathValue("id"), r.PathValue("name"))
+	previewID := r.PathValue("id")
+	file, err := s.agentRuntime.PreviewFile(r.Context(), previewID, r.PathValue("name"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		if recoverAgentPreviewFromStore(r.Context(), s.store, s.agentRuntime, previewID) {
+			file, err = s.agentRuntime.PreviewFile(r.Context(), previewID, r.PathValue("name"))
+		}
+	}
+	if err != nil {
+		writeAgentPreviewError(w, err.Error())
 		return
 	}
 	if strings.TrimSpace(file.ContentType) != "" {
@@ -618,6 +626,41 @@ func (s *Server) readAgentPreview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(file.Content)
+}
+
+func writeAgentPreviewError(w http.ResponseWriter, message string) {
+	applyAgentPreviewSecurityHeaders(w)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = fmt.Fprintf(w, `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview unavailable</title>
+<style>
+body{margin:0;background:#f8f8f5;color:#252522;font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{display:grid;min-height:100vh;place-items:center;padding:24px}
+section{width:min(420px,100%%);border:1px solid #e4e4df;border-radius:10px;background:#fff;padding:18px}
+h1{margin:0 0 8px;font-size:16px;font-weight:560}
+p{margin:0 0 14px;color:#686862;line-height:1.45}
+button{height:32px;border:0;border-radius:8px;background:#efefeb;color:#252522;padding:0 12px;font:inherit;cursor:pointer}
+button:hover{background:#e7e7e2}
+@media (prefers-color-scheme: dark){body{background:#0c0c0c;color:#eeeeee}section{border-color:#222;background:#121212}p{color:#a8a8a8}button{background:#1d1d1d;color:#eeeeee}button:hover{background:#252525}}
+</style>
+</head>
+<body>
+<main>
+<section>
+<h1>Preview unavailable</h1>
+<p>%s</p>
+<button onclick="history.back()">Back</button>
+</section>
+</main>
+</body>
+</html>`, html.EscapeString(message))
 }
 
 func applyAgentPreviewSecurityHeaders(w http.ResponseWriter) {
@@ -1617,18 +1660,55 @@ func recoverAppSessionFromMessages(runtime AgentRuntime, conversationID string, 
 		if message.Role != "assistant" {
 			continue
 		}
-		for _, line := range strings.Split(message.Content, "\n") {
-			line = strings.TrimSpace(line)
-			if !strings.HasPrefix(line, "Workspace: ") {
+		if root := workspaceRootFromMessage(message.Content); root != "" && runtime.RecoverAppSession(conversationID, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func recoverAgentPreviewFromStore(ctx context.Context, appStore store.Store, runtime AgentRuntime, previewID string) bool {
+	previewID = strings.TrimSpace(previewID)
+	if previewID == "" {
+		return false
+	}
+	conversations, err := appStore.ListConversations(ctx)
+	if err != nil {
+		slog.Error("list conversations for preview recovery", "error", err)
+		return false
+	}
+	target := "/api/agent/previews/" + previewID + "/"
+	for _, conversation := range conversations {
+		messages, err := appStore.ListMessages(ctx, conversation.ID)
+		if err != nil {
+			continue
+		}
+		for index := len(messages) - 1; index >= 0; index-- {
+			message := messages[index]
+			if message.Role != "assistant" || !strings.Contains(message.Content, target) {
 				continue
 			}
-			root := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "Workspace: "), "."))
-			if runtime.RecoverAppSession(conversationID, root) {
+			root := workspaceRootFromMessage(message.Content)
+			if root == "" {
+				continue
+			}
+			if runtime.RecoverAgentPreview(previewID, conversation.ID, root) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func workspaceRootFromMessage(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Workspace: ") {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "Workspace: "), "."))
+	}
+	return ""
 }
 
 func shouldEditTempAppFromChat(text string) bool {
