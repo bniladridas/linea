@@ -1237,6 +1237,50 @@ func TestAgentSubagentRunEndpoint(t *testing.T) {
 	}
 }
 
+func TestAgentSubagentPlanEndpoints(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
+	writeAPITestFile(t, filepath.Join(root, "README.md"), "agent docs\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/subagents/run", strings.NewReader(`{"goal":"review docs and search","query":"agent"}`))
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var plan agent.SubagentPlanRun
+	if err := json.NewDecoder(res.Body).Decode(&plan); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if plan.State != "completed" || len(plan.Runs) != 3 {
+		t.Fatalf("plan = %#v", plan)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/agent/subagent-plans", nil)
+	listRes := httptest.NewRecorder()
+	server.ServeHTTP(listRes, listReq)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", listRes.Code, http.StatusOK, listRes.Body.String())
+	}
+	var plans []agent.SubagentPlanRun
+	if err := json.NewDecoder(listRes.Body).Decode(&plans); err != nil {
+		t.Fatalf("Decode list error = %v", err)
+	}
+	if len(plans) != 1 || plans[0].ID != plan.ID {
+		t.Fatalf("plans = %#v", plans)
+	}
+	traces := runtime.ListTraces(context.Background())
+	if len(traces) != 1 || traces[0].Event != "subagent plan" {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
 func TestAgentMCPServersEndpoint(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
 	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"},"tools":[{"name":"search_docs","description":"Search docs"}]}}}`)

@@ -254,6 +254,22 @@ Runs a bounded subagent inspection. It may read workspace diagnostics or search 
 }
 ```
 
+`POST /api/agent/subagents/run`
+
+Runs a bounded subagent plan. Linea selects up to three relevant subagents from the goal and query, or uses `subagentIds` when provided. Child runs are recorded in the normal subagent run history.
+
+```json
+{
+  "goal": "review docs and search workspace",
+  "query": "agent",
+  "subagentIds": ["review", "docs", "search"]
+}
+```
+
+`GET /api/agent/subagent-plans`
+
+Returns recent bounded subagent plan runs.
+
 `GET /api/agent/subagent-runs`
 
 Returns recent subagent runs.
@@ -815,7 +831,7 @@ Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
 
-Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp calls`, `:mcp subscriptions`, `:mcp events`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, and `:quit`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
+Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp calls`, `:mcp subscriptions`, `:mcp events`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:subagent plan <goal>`, `:subagent plans`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, and `:quit`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

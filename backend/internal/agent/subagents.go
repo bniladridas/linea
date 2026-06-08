@@ -8,7 +8,11 @@ import (
 	"time"
 )
 
-const maxSubagentRuns = 50
+const (
+	maxSubagentRuns         = 50
+	maxSubagentPlanRuns     = 30
+	maxSubagentPlanChildren = 3
+)
 
 func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input SubagentRunInput) (SubagentRun, error) {
 	subagent, ok := findSubagent(subagentID)
@@ -67,6 +71,122 @@ func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input Suba
 		r.subagentRuns = r.subagentRuns[:maxSubagentRuns]
 	}
 	return run, nil
+}
+
+func (r *Runtime) ListSubagentPlans(context.Context) []SubagentPlanRun {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.subagentPlans) == 0 {
+		return []SubagentPlanRun{}
+	}
+	return append([]SubagentPlanRun(nil), r.subagentPlans...)
+}
+
+func (r *Runtime) RunSubagentPlan(ctx context.Context, input SubagentPlanInput) (SubagentPlanRun, error) {
+	ids, err := selectSubagentPlan(input)
+	if err != nil {
+		return SubagentPlanRun{}, err
+	}
+	runs := make([]SubagentRun, 0, len(ids))
+	state := "completed"
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		run, runErr := r.RunSubagent(ctx, id, SubagentRunInput{Goal: input.Goal, Query: input.Query})
+		if runErr != nil {
+			return SubagentPlanRun{}, runErr
+		}
+		runs = append(runs, run)
+		parts = append(parts, fmt.Sprintf("%s %s", run.SubagentID, run.State))
+		if run.State == "blocked" {
+			state = "blocked"
+		} else if state == "completed" && (run.State == "waiting_input" || run.State == "attention") {
+			state = "attention"
+		}
+	}
+	goal := strings.TrimSpace(input.Goal)
+	if goal == "" {
+		goal = strings.TrimSpace(input.Query)
+	}
+	if goal == "" {
+		goal = "Run subagent plan"
+	}
+	plan := SubagentPlanRun{
+		ID:          newTraceID(),
+		Goal:        trimRunes(goal, 240),
+		State:       state,
+		Summary:     trimRunes(fmt.Sprintf("Ran %d subagent(s): %s.", len(runs), strings.Join(parts, "; ")), 240),
+		SubagentIDs: ids,
+		Runs:        runs,
+		CreatedAt:   time.Now().UTC(),
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.subagentPlans = append([]SubagentPlanRun{plan}, r.subagentPlans...)
+	if len(r.subagentPlans) > maxSubagentPlanRuns {
+		r.subagentPlans = r.subagentPlans[:maxSubagentPlanRuns]
+	}
+	return plan, nil
+}
+
+func (r *Runtime) statusSubagentPlans() []SubagentPlanRun {
+	items := r.ListSubagentPlans(context.Background())
+	if len(items) > 5 {
+		return items[:5]
+	}
+	return items
+}
+
+func selectSubagentPlan(input SubagentPlanInput) ([]string, error) {
+	seen := map[string]bool{}
+	ids := []string{}
+	add := func(id string) error {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return nil
+		}
+		if _, ok := findSubagent(id); !ok {
+			return errors.New("Unknown subagent ID.")
+		}
+		if len(ids) >= maxSubagentPlanChildren {
+			return nil
+		}
+		seen[id] = true
+		ids = append(ids, id)
+		return nil
+	}
+	for _, id := range input.SubagentIDs {
+		if err := add(id); err != nil {
+			return nil, err
+		}
+	}
+	if len(ids) > 0 {
+		return ids, nil
+	}
+	goal := strings.ToLower(strings.TrimSpace(input.Goal + " " + input.Query))
+	if goal == "" {
+		return nil, errors.New("Subagent plan goal or query is required.")
+	}
+	if strings.Contains(goal, "review") || strings.Contains(goal, "diagnostic") || strings.Contains(goal, "fix") || strings.Contains(goal, "test") || strings.Contains(goal, "check") {
+		if err := add("review"); err != nil {
+			return nil, err
+		}
+	}
+	if strings.Contains(goal, "doc") || strings.Contains(goal, "readme") {
+		if err := add("docs"); err != nil {
+			return nil, err
+		}
+	}
+	if input.Query != "" || strings.Contains(goal, "search") || strings.Contains(goal, "find") || strings.Contains(goal, "context") {
+		if err := add("search"); err != nil {
+			return nil, err
+		}
+	}
+	if len(ids) == 0 {
+		if err := add("review"); err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
 }
 
 func findSubagent(id string) (Subagent, bool) {
