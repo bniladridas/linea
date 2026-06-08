@@ -25,6 +25,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+retry_hdiutil() {
+  local attempt
+  for attempt in 1 2 3; do
+    if hdiutil "$@"; then
+      return 0
+    fi
+    if [[ "$attempt" == "3" ]]; then
+      return 1
+    fi
+    sleep "$attempt"
+  done
+}
+
 rm -rf "$APP_DIR" "$DMG_ROOT" "$DMG_PATH" "$RW_DMG_PATH" "$ICONSET"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$DMG_ROOT"
 
@@ -101,7 +114,7 @@ fi
 ditto --rsrc --extattr "$APP_DIR" "$DMG_ROOT/Linea.app"
 SetFile -a B "$DMG_ROOT/Linea.app" 2>/dev/null || true
 ln -s /Applications "$DMG_ROOT/Applications"
-hdiutil create -volname "Linea" -srcfolder "$DMG_ROOT" -ov -format UDRW "$RW_DMG_PATH" >/dev/null
+retry_hdiutil create -volname "Linea" -srcfolder "$DMG_ROOT" -ov -format UDRW "$RW_DMG_PATH" >/dev/null
 
 MOUNT_DIR="$(mktemp -d "$DIST_DIR/linea-dmg.XXXXXX")"
 hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse >/dev/null
@@ -133,7 +146,7 @@ fi
 hdiutil detach "$MOUNT_DIR" >/dev/null
 rm -rf "$MOUNT_DIR"
 MOUNT_DIR=""
-hdiutil convert "$RW_DMG_PATH" -ov -format UDZO -o "$DMG_PATH" >/dev/null
+retry_hdiutil convert "$RW_DMG_PATH" -ov -format UDZO -o "$DMG_PATH" >/dev/null
 rm -rf "$DMG_ROOT" "$RW_DMG_PATH" "$ICONSET"
 
 echo "$APP_DIR"
