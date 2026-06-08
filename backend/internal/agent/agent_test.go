@@ -328,6 +328,33 @@ func TestRuntimeAutoAgentLoopPlansEditFromDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRuntimeAutoAgentLoopGathersEvidenceForBroadFix(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+	planner := &fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "broken.go",
+			Content: "package main\nfunc fixed() {}\n",
+			Summary: "Fix parse error",
+		},
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(planner))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "fix the project",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "diagnostics", "completed") || !loopHasStep(loop, "edit_review", "waiting_approval") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if len(planner.requests) != 1 || len(planner.requests[0].Diagnostics) != 1 || len(planner.requests[0].Files) != 1 {
+		t.Fatalf("planner requests = %#v", planner.requests)
+	}
+}
+
 func TestRuntimeAutoAgentLoopUsesSearchSubagent(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")

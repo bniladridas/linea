@@ -717,7 +717,7 @@ func (r *Runtime) replaceAgentLoop(loop AgentLoop) {
 func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentLoopInput) AgentLoop {
 	goalLower := strings.ToLower(loop.Goal)
 	if r.WorkspaceEnabled() {
-		if shouldReadDiagnostics(goalLower) {
+		if shouldReadDiagnostics(goalLower) || shouldGatherAutoEvidence(goalLower, loop.Mode) {
 			diagnostics, err := r.ListDiagnostics(ctx)
 			loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", err, fmt.Sprintf("%d diagnostic(s)", len(diagnostics)), "")
 			if loop.Mode == "auto" {
@@ -2317,6 +2317,16 @@ func loopSummary(loop AgentLoop) string {
 
 func shouldReadDiagnostics(goal string) bool {
 	return strings.Contains(goal, "diagnostic") || strings.Contains(goal, "error") || strings.Contains(goal, "test") || strings.Contains(goal, "build")
+}
+
+func shouldGatherAutoEvidence(goal string, mode string) bool {
+	if mode != "auto" {
+		return false
+	}
+	return strings.Contains(goal, "fix") ||
+		strings.Contains(goal, "repair") ||
+		strings.Contains(goal, "refactor") ||
+		strings.Contains(goal, "improve")
 }
 
 func shouldUseWorkspace(goal string) bool {
