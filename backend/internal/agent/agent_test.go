@@ -3786,7 +3786,7 @@ func TestRegisterAgentPreviewRemovesEvictedRoots(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("ok"), 0o600); err != nil {
 			t.Fatalf("write preview: %v", err)
 		}
-		runtime.registerAgentPreview("loop", "session", root, "index.html")
+		runtime.registerAgentPreview("preview-"+strconv.Itoa(index), "loop", "session", root, "index.html")
 	}
 	if _, err := os.Stat(evictedRoot); !os.IsNotExist(err) {
 		t.Fatalf("evicted root still exists, err = %v", err)

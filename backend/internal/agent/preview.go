@@ -16,9 +16,9 @@ const (
 	maxAppSessionItems   = 25
 )
 
-func (r *Runtime) registerAgentPreview(loopID string, sessionID string, root string, entry string) AgentPreview {
+func (r *Runtime) registerAgentPreview(id string, loopID string, sessionID string, root string, entry string) AgentPreview {
 	preview := AgentPreview{
-		ID:        newTraceID(),
+		ID:        safePreviewID(id),
 		LoopID:    loopID,
 		SessionID: strings.TrimSpace(sessionID),
 		Root:      root,
@@ -79,10 +79,22 @@ func (r *Runtime) RecoverAgentPreview(previewID string, sessionID string, root s
 	if previewID == "" || root == "" {
 		return false
 	}
+	if cachedRoot, ok := cachedPreviewRoot(previewID); ok {
+		r.saveAgentPreview(AgentPreview{
+			ID:        previewID,
+			SessionID: sessionID,
+			Root:      cachedRoot,
+			Entry:     "index.html",
+		})
+		if isRecoverableAppSessionRoot(root) {
+			r.saveAppSession(AppSession{ID: sessionID, Root: root})
+		}
+		return true
+	}
 	if !isRecoverableAppSessionRoot(root) {
 		return false
 	}
-	snapshotRoot, err := snapshotPreviewBuild(root)
+	snapshotRoot, err := snapshotPreviewBuild(root, previewID)
 	if err != nil {
 		return false
 	}
@@ -94,6 +106,52 @@ func (r *Runtime) RecoverAgentPreview(previewID string, sessionID string, root s
 		Entry:     "index.html",
 	})
 	return true
+}
+
+func previewCacheRoot() (string, error) {
+	root := strings.TrimSpace(os.Getenv("LINEA_PREVIEW_CACHE_DIR"))
+	if root == "" {
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			cacheDir = os.TempDir()
+		}
+		root = filepath.Join(cacheDir, "linea", "previews")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func cachedPreviewRoot(previewID string) (string, bool) {
+	safeID := safePreviewID(previewID)
+	if safeID == "" {
+		return "", false
+	}
+	cacheRoot, err := previewCacheRoot()
+	if err != nil {
+		return "", false
+	}
+	root := filepath.Join(cacheRoot, safeID)
+	info, err := os.Stat(filepath.Join(root, "index.html"))
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	return root, true
+}
+
+func safePreviewID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	for _, char := range id {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '-' || char == '_' {
+			continue
+		}
+		return ""
+	}
+	return id
 }
 
 func (r *Runtime) HasAppSession(sessionID string) bool {
