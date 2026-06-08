@@ -7,6 +7,7 @@ build:
 	cd backend && go build -o ../bin/linea ./cmd/server
 
 test:
+	node scripts/client-api-route-check.mjs
 	cd frontend && npm run build
 	cd backend && go test ./...
 	cd backend && go vet ./...
