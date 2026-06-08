@@ -135,7 +135,7 @@ func (r *Runtime) runCheckedCommand(ctx context.Context, command string) (Comman
 	if runCtx.Err() == context.DeadlineExceeded {
 		exitCode = 124
 	}
-	content := output.String()
+	content := redactSecrets(output.String())
 	truncated := false
 	if len(content) > maxCommandOutput {
 		content = content[:maxCommandOutput]

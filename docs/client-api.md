@@ -186,7 +186,7 @@ Returns recent bounded agent loops.
 
 `POST /api/agent/loops`
 
-Starts a bounded local agent loop. Read-only workspace steps may run immediately. `mode` can be `guided` or `auto`; guided loops pause at edit, MCP tool, and command boundaries. Auto loops may gather workspace evidence, apply their own generated edit proposals when `autoApply` is true, run inferred project checks from files such as `package.json`, `Makefile`, or `go.mod`, and call selected MCP tools only when the tool schema has no required arguments. `tempWorkspace` creates or reuses a temporary app package outside the current workspace and returns `previewUrl` when a preview is available.
+Starts a bounded local agent loop. Read-only workspace steps may run immediately. `mode` can be `guided`, `auto`, or `developer`; guided loops pause at edit, MCP tool, and command boundaries. Auto loops may gather workspace evidence, apply their own generated edit proposals when `autoApply` is true, run inferred project checks from files such as `package.json`, `Makefile`, or `go.mod`, and call selected MCP tools. Developer loops keep the same bounded loop shape but may run non-destructive explicit commands without the static command allowlist, infer install/lint/format/inspection commands, and show redacted command output in the timeline. Destructive, system, and credential-read commands remain blocked. Set `LINEA_AGENT_DEVELOPER_MODE=1` and `LINEA_AGENT_WORKSPACE_TRUST=full` to let workspace APIs accept absolute paths. Secret files and secret-looking output are filtered by default. `tempWorkspace` creates or reuses a temporary app package outside the current workspace and returns `previewUrl` when a preview is available.
 
 ```json
 {
@@ -324,9 +324,31 @@ Gets a configured or discovered stdio MCP prompt.
 
 Returns recent MCP tool, resource, and prompt calls.
 
+`GET /api/agent/mcp-subscriptions`
+
+Returns active and recently closed persistent MCP resource subscriptions.
+
+`GET /api/agent/mcp-events`
+
+Returns recent MCP subscription notifications.
+
 `POST /api/agent/mcp-calls`
 
-Calls a configured stdio MCP tool. Tools may be declared in config or discovered from `tools/list`. Agent auto loops can call a selected MCP tool without stopping only when its input schema has no required arguments; otherwise the loop stops at the MCP boundary for an explicit UI or TUI call.
+Calls a configured stdio MCP tool. Tools may be declared in config or discovered from `tools/list`. Agent auto and developer loops can call selected MCP tools, infer simple required arguments from the user goal, and run multi-action MCP plans when the goal asks for all or multi-step MCP work. If arguments cannot be inferred, the loop stops at the MCP boundary for an explicit UI or TUI call.
+
+`POST /api/agent/mcp-resources/subscribe`
+
+Starts a persistent stdio MCP session for the resource server and sends `resources/subscribe`.
+
+```json
+{
+  "resourceId": "docs/README"
+}
+```
+
+`POST /api/agent/mcp-subscriptions/{id}/unsubscribe`
+
+Sends `resources/unsubscribe`, marks the subscription inactive, and stops the persistent MCP session when no active subscriptions remain for that server.
 
 ```json
 {
@@ -791,7 +813,7 @@ Image input uses Gemini.
 
 Messages whose first line is `propose edit <path>`, `propose change <path>`, or `create proposal <path>` create an edit proposal instead of calling a model.
 
-Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp read <resource-id-or-uri>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, and `:proposal apply <id>`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
+Terminal clients can use the same agent surface with explicit commands such as `:help`, `:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, and `:proposal apply <id>`. The TUI picker accepts a number or title search, and long transcripts scroll with the terminal viewport keys.
 
 The remaining message body is the proposed full file content. Fenced content is accepted.
 

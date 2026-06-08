@@ -164,6 +164,27 @@ type AgentStatus = {
     truncated: boolean;
     createdAt: string;
   }>;
+  mcpSubscriptions?: Array<{
+    id: string;
+    serverId: string;
+    serverName: string;
+    resourceId?: string;
+    uri: string;
+    state: string;
+    error?: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  mcpEvents?: Array<{
+    id: string;
+    subscriptionId?: string;
+    serverId: string;
+    uri?: string;
+    method: string;
+    output?: string;
+    error?: string;
+    createdAt: string;
+  }>;
   runSummary?: {
     state: string;
     traceEvents: number;
@@ -223,7 +244,7 @@ type AgentStatus = {
   agentLoops?: Array<{
     id: string;
     goal: string;
-    mode?: 'guided' | 'auto';
+    mode?: AgentLoopMode;
     maxIterations?: number;
     state: string;
     workspaceRoot?: string;
@@ -319,7 +340,7 @@ type AgentActivity = {
 
 type AgentLoopRequest = {
   goal: string;
-  mode?: 'guided' | 'auto';
+  mode?: AgentLoopMode;
   maxIterations?: number;
   autoApply?: boolean;
   command?: string;
@@ -328,6 +349,8 @@ type AgentLoopRequest = {
   proposalPath?: string;
   proposalContent?: string;
 };
+
+type AgentLoopMode = 'guided' | 'auto' | 'developer';
 
 type ProviderStatus = {
   name: string;
@@ -1009,6 +1032,55 @@ function App() {
     }
   }
 
+  async function subscribeAgentMCPResource(resourceId: string) {
+    const activityId = recordAgentActivity({
+      kind: 'mcp',
+      label: 'Subscribe resource',
+      state: 'running',
+      params: resourceId,
+    });
+    try {
+      const subscription = await request<{ state: string; uri?: string; error?: string }>('/api/agent/mcp-resources/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resourceId }),
+      });
+      await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: subscription.state === 'failed' ? 'failed' : 'completed',
+        result: subscription.error || subscription.uri || subscription.state,
+      });
+    } catch (mcpError) {
+      const message = mcpError instanceof Error ? mcpError.message : 'Could not subscribe MCP resource.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
+    }
+  }
+
+  async function unsubscribeAgentMCPResource(subscriptionId: string) {
+    const activityId = recordAgentActivity({
+      kind: 'mcp',
+      label: 'Unsubscribe resource',
+      state: 'running',
+      params: subscriptionId,
+    });
+    try {
+      const subscription = await request<{ state: string; uri?: string; error?: string }>(
+        `/api/agent/mcp-subscriptions/${encodeURIComponent(subscriptionId)}/unsubscribe`,
+        { method: 'POST' },
+      );
+      await refreshAgentDetails();
+      updateAgentActivity(activityId, {
+        state: subscription.state === 'failed' ? 'failed' : 'completed',
+        result: subscription.error || subscription.uri || subscription.state,
+      });
+    } catch (mcpError) {
+      const message = mcpError instanceof Error ? mcpError.message : 'Could not unsubscribe MCP resource.';
+      updateAgentActivity(activityId, { state: 'failed', result: message });
+      setError(message);
+    }
+  }
+
   async function getAgentMCPPrompt(promptId: string, args: Record<string, unknown>) {
     const activityId = recordAgentActivity({
       kind: 'mcp',
@@ -1124,7 +1196,7 @@ function App() {
     const normalized = normalizeCommand(command);
     const loop = (status.agentLoops ?? []).find(
       (item) =>
-        item.mode === 'auto' &&
+        isAutonomousLoopMode(item.mode) &&
         item.state === 'waiting_approval' &&
         item.steps.some(
           (step) =>
@@ -1141,7 +1213,7 @@ function App() {
   function continueAppliedAutoLoops(status: AgentStatus, proposalId: string) {
     const loop = (status.agentLoops ?? []).find(
       (item) =>
-        item.mode === 'auto' &&
+        isAutonomousLoopMode(item.mode) &&
         item.state === 'waiting_approval' &&
         item.steps.some(
           (step) =>
@@ -2028,6 +2100,8 @@ function App() {
           onRunSubagent={(subagentId, query) => void runAgentSubagent(subagentId, query)}
           onCallMCPTool={(toolId, args) => void callAgentMCPTool(toolId, args)}
           onReadMCPResource={(resourceId) => void readAgentMCPResource(resourceId)}
+          onSubscribeMCPResource={(resourceId) => void subscribeAgentMCPResource(resourceId)}
+          onUnsubscribeMCPResource={(subscriptionId) => void unsubscribeAgentMCPResource(subscriptionId)}
           onGetMCPPrompt={(promptId, args) => void getAgentMCPPrompt(promptId, args)}
           onSaveRun={() => void saveAgentRunSnapshot()}
           onCreateTrace={(input) => void createAgentTrace(input)}
@@ -2552,6 +2626,8 @@ function SystemDetailsDialog({
   onRunSubagent,
   onCallMCPTool,
   onReadMCPResource,
+  onSubscribeMCPResource,
+  onUnsubscribeMCPResource,
   onGetMCPPrompt,
   onSaveRun,
   onStartLoop,
@@ -2580,6 +2656,8 @@ function SystemDetailsDialog({
   onRunSubagent: (subagentId: string, query: string) => void;
   onCallMCPTool: (toolId: string, args: Record<string, unknown>) => void;
   onReadMCPResource: (resourceId: string) => void;
+  onSubscribeMCPResource: (resourceId: string) => void;
+  onUnsubscribeMCPResource: (subscriptionId: string) => void;
   onGetMCPPrompt: (promptId: string, args: Record<string, unknown>) => void;
   onSaveRun: () => void;
   onStartLoop: (input: AgentLoopRequest) => void;
@@ -2598,7 +2676,7 @@ function SystemDetailsDialog({
   const [loopCommandInput, setLoopCommandInput] = useState('');
   const [loopProposalPathInput, setLoopProposalPathInput] = useState('');
   const [loopProposalContentInput, setLoopProposalContentInput] = useState('');
-  const [loopModeInput, setLoopModeInput] = useState<'guided' | 'auto'>('guided');
+  const [loopModeInput, setLoopModeInput] = useState<AgentLoopMode>('guided');
   const [hookCommandInput, setHookCommandInput] = useState('');
   const [hookRunHookId, setHookRunHookId] = useState(agentStatus?.hooks?.[0]?.id ?? '');
   const [hookRunState, setHookRunState] = useState('completed');
@@ -2832,8 +2910,8 @@ function SystemDetailsDialog({
     onStartLoop({
       goal,
       mode: loopModeInput,
-      maxIterations: loopModeInput === 'auto' ? 5 : undefined,
-      autoApply: loopModeInput === 'auto' ? true : undefined,
+      maxIterations: isAutonomousLoopMode(loopModeInput) ? 5 : undefined,
+      autoApply: isAutonomousLoopMode(loopModeInput) ? true : undefined,
       command: loopCommandInput.trim() || undefined,
       query: loopQueryInput.trim() || undefined,
       filePath: loopFileInput.trim() || undefined,
@@ -3001,6 +3079,8 @@ function SystemDetailsDialog({
             <DetailLine label="Tools" value={String(agentStatus?.mcpTools?.length ?? 0)} />
             <DetailLine label="Resources" value={String(agentStatus?.mcpResources?.length ?? 0)} />
             <DetailLine label="Prompts" value={String(agentStatus?.mcpPrompts?.length ?? 0)} />
+            <DetailLine label="Subscriptions" value={String(agentStatus?.mcpSubscriptions?.length ?? 0)} />
+            <DetailLine label="Events" value={String(agentStatus?.mcpEvents?.length ?? 0)} />
           </DetailsSection>
         </div>
 
@@ -3063,6 +3143,13 @@ function SystemDetailsDialog({
                 onClick={() => setLoopModeInput('auto')}
               >
                 Auto
+              </button>
+              <button
+                className={loopModeInput === 'developer' ? 'active' : ''}
+                type="button"
+                onClick={() => setLoopModeInput('developer')}
+              >
+                Developer
               </button>
             </div>
             <input
@@ -3325,6 +3412,9 @@ function SystemDetailsDialog({
             <button disabled={!mcpResourceId} type="submit">
               Read
             </button>
+            <button disabled={!mcpResourceId} type="button" onClick={() => onSubscribeMCPResource(mcpResourceId)}>
+              Subscribe
+            </button>
           </form>
           <form className="agent-mcp-form" onSubmit={submitMCPPromptGet}>
             <select
@@ -3422,6 +3512,29 @@ function SystemDetailsDialog({
                 <div>
                   <strong>{call.name || call.toolId}</strong>
                   <span>{call.state}{call.error ? ` · ${call.error}` : ''}</span>
+                </div>
+              </div>
+            ))}
+            {(agentStatus?.mcpSubscriptions ?? []).slice(0, 3).map((subscription) => (
+              <div className="agent-card" key={subscription.id}>
+                <div>
+                  <strong>{subscription.uri}</strong>
+                  <span>{subscription.state}{subscription.error ? ` · ${subscription.error}` : ''}</span>
+                </div>
+                <button
+                  disabled={subscription.state !== 'active'}
+                  type="button"
+                  onClick={() => onUnsubscribeMCPResource(subscription.id)}
+                >
+                  Unsubscribe
+                </button>
+              </div>
+            ))}
+            {(agentStatus?.mcpEvents ?? []).slice(0, 3).map((event) => (
+              <div className="agent-card read-only" key={event.id}>
+                <div>
+                  <strong>{event.method}</strong>
+                  <span>{event.uri || event.serverId}{event.error ? ` · ${event.error}` : ''}</span>
                 </div>
               </div>
             ))}
@@ -4771,6 +4884,10 @@ function formatConversationShare(conversation: Conversation, messages: Message[]
 
 function normalizeCommand(value: string) {
   return value.trim().replace(/\s+/g, ' ');
+}
+
+function isAutonomousLoopMode(mode?: string) {
+  return mode === 'auto' || mode === 'developer';
 }
 
 function findApprovedCommandApproval(

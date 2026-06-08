@@ -54,6 +54,8 @@ WEB_ORIGIN=http://localhost:5173
 | Name | Use |
 | --- | --- |
 | `LINEA_RULES_FILE` | Agent rules file. |
+| `LINEA_AGENT_DEVELOPER_MODE` | Enables full-trust developer workspace behavior when set to `1`. Developer loops can still run bounded non-destructive commands without this flag. |
+| `LINEA_AGENT_WORKSPACE_TRUST` | Set to `full` with `LINEA_AGENT_DEVELOPER_MODE=1` to let workspace APIs accept absolute paths. |
 | `LINEA_SKILLS_DIR` | Reads markdown skills from this directory. Empty means planned skills only. |
 | `LINEA_WORKSPACE_DIR` | Enables read-only agent workspace tools. Empty means off. |
 | `LINEA_LSP_COMMAND` | Uses an LSP command such as `gopls` for Go diagnostics, symbols, and references. Empty means local parser fallback. |
@@ -123,12 +125,13 @@ Vite runs at `http://localhost:5173`.
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
 | Server | `linea -check-server http://127.0.0.1:8080` |
-| Terminal chat | `linea -tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp read <resource-id-or-uri>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, `:quit`) |
+| Terminal chat | `linea -tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:approve <command>`, `:run <command>`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, `:quit`) |
 | Terminal smoke | `make tui-check` |
 | Terminal picker | Number or title search |
 | Hand-rolled TUI | `linea -tui-beta` |
 | Agent status | `linea -agent-status` |
 | Agent API | `make agent-check` |
+| Agent autonomy | `make agent-autonomy-check` |
 | Agent API memory | `make agent-check-memory` |
 | UI | `make ui-check` |
 | UI with message | `make ui-check-full` |
@@ -138,7 +141,7 @@ Vite runs at `http://localhost:5173`.
 | macOS app smoke | `make macos-check` |
 | macOS app UI | `make macos-ui-check` |
 
-Auto agent loops can gather workspace evidence, apply their own generated edit proposals after explicit auto activation, run inferred project checks from project files, and call MCP tools whose schemas have no required arguments. Guided loops and explicit command runs still stop at approval boundaries.
+Auto agent loops can gather workspace evidence, apply their own generated edit proposals after explicit auto activation, run inferred project checks from project files, infer simple MCP arguments, and run multi-action MCP plans. Developer loops can also run non-destructive explicit commands without the static allowlist and infer install, lint, format, and inspection commands. MCP subscriptions keep configured stdio servers alive, record resource notifications, and shut down when the last subscription for a server is removed. With `LINEA_AGENT_DEVELOPER_MODE=1` and `LINEA_AGENT_WORKSPACE_TRUST=full`, workspace tools accept absolute paths. Secret files and secret-looking output are filtered by default. Guided loops and explicit command runs still stop at approval boundaries.
 
 # Client Docs
 
@@ -180,7 +183,11 @@ UI checks need Chrome. Message checks need one working text model.
 | `GET` | `/api/agent/mcp-prompts` |
 | `POST` | `/api/agent/mcp-prompts/get` |
 | `GET` | `/api/agent/mcp-calls` |
+| `GET` | `/api/agent/mcp-subscriptions` |
+| `GET` | `/api/agent/mcp-events` |
 | `POST` | `/api/agent/mcp-calls` |
+| `POST` | `/api/agent/mcp-resources/subscribe` |
+| `POST` | `/api/agent/mcp-subscriptions/{id}/unsubscribe` |
 | `GET` | `/api/agent/traces` |
 | `POST` | `/api/agent/traces` |
 | `GET` | `/api/agent/hook-runs` |

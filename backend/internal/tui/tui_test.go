@@ -74,6 +74,26 @@ func runFakeTUIMCPServer() {
 					}},
 				},
 			})
+		case "resources/subscribe":
+			params, _ := message["params"].(map[string]any)
+			uri, _ := params["uri"].(string)
+			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result":  map[string]any{},
+			})
+			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"method":  "notifications/resources/updated",
+				"params":  map[string]any{"uri": uri},
+			})
+		case "resources/unsubscribe":
+			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result":  map[string]any{},
+			})
+			return
 		case "prompts/list":
 			_ = writeTUITestMCPMessage(os.Stdout, map[string]any{
 				"jsonrpc": "2.0",
@@ -607,6 +627,31 @@ func TestRunMCPDiscoversToolsResourcesAndPrompts(t *testing.T) {
 	}
 }
 
+func TestRunMCPSubscribesToResource(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(configPath, []byte(`{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_TUI_MCP_SERVER":"1"},
+      "resources": [{"uri":"docs://readme","name":"README"}]
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+
+	output, err := app.runAgentCommand(context.Background(), ":mcp subscribe docs://readme")
+	if err != nil {
+		t.Fatalf("runAgentCommand() error = %v", err)
+	}
+	if !strings.Contains(output, "MCP subscription") || !strings.Contains(output, "active") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
 func TestRunSkillUsesDefaultCommandApproval(t *testing.T) {
 	workspace := t.TempDir()
 	skillsDir := t.TempDir()
@@ -692,6 +737,23 @@ func TestRunAgentCommandStartsAutoLoop(t *testing.T) {
 	}
 	if !strings.Contains(output, "Auto loop completed") || !strings.Contains(output, "Run command") || !strings.Contains(output, "make test") {
 		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestRunAgentCommandStartsDeveloperLoop(t *testing.T) {
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()))
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(""), &strings.Builder{}).WithAgentRuntime(runtime)
+
+	output, err := app.runAgentCommand(context.Background(), ":loop developer inspect workspace")
+	if err != nil {
+		t.Fatalf("runAgentCommand() error = %v", err)
+	}
+	if !strings.Contains(output, "Developer loop completed") {
+		t.Fatalf("output = %q", output)
+	}
+	loops := runtime.ListAgentLoops(context.Background())
+	if len(loops) != 1 || loops[0].Mode != "developer" || !loops[0].AutoApply {
+		t.Fatalf("loops = %#v", loops)
 	}
 }
 

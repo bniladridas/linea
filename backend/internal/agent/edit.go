@@ -82,6 +82,9 @@ func (r *Runtime) ProposeEdit(ctx context.Context, input EditProposalInput) (Edi
 	if err != nil {
 		return EditProposal{}, err
 	}
+	if isSecretPath(displayPath) {
+		return EditProposal{}, errors.New("secret file is filtered")
+	}
 	select {
 	case <-ctx.Done():
 		return EditProposal{}, ctx.Err()
@@ -175,6 +178,9 @@ func (r *Runtime) ApplyEditProposal(ctx context.Context, id string) (EditProposa
 	fullPath, displayPath, err := r.workspacePathAllowMissing(proposal.Path)
 	if err != nil {
 		return EditProposal{}, err
+	}
+	if isSecretPath(displayPath) {
+		return EditProposal{}, errors.New("secret file is filtered")
 	}
 	select {
 	case <-ctx.Done():

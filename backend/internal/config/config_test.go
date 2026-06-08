@@ -35,6 +35,8 @@ func TestLoadReadsAgentRulesPath(t *testing.T) {
 	t.Setenv("LINEA_RULES_FILE", "docs/rules.md")
 	t.Setenv("LINEA_SKILLS_DIR", "docs/skills")
 	t.Setenv("LINEA_WORKSPACE_DIR", "/tmp/linea")
+	t.Setenv("LINEA_AGENT_DEVELOPER_MODE", "1")
+	t.Setenv("LINEA_AGENT_WORKSPACE_TRUST", "full")
 	t.Setenv("LINEA_LSP_COMMAND", "gopls")
 	t.Setenv("LINEA_MCP_CONFIG", "mcp.json")
 	t.Setenv("LINEA_COMMAND_ALLOWLIST", "make test, go test ./... ")
@@ -49,6 +51,12 @@ func TestLoadReadsAgentRulesPath(t *testing.T) {
 	}
 	if cfg.AgentWorkspaceDir != "/tmp/linea" {
 		t.Fatalf("AgentWorkspaceDir = %q, want /tmp/linea", cfg.AgentWorkspaceDir)
+	}
+	if !cfg.AgentDeveloperMode {
+		t.Fatal("AgentDeveloperMode = false, want true")
+	}
+	if cfg.AgentWorkspaceTrust != "full" {
+		t.Fatalf("AgentWorkspaceTrust = %q, want full", cfg.AgentWorkspaceTrust)
 	}
 	if cfg.AgentLSPCommand != "gopls" {
 		t.Fatalf("AgentLSPCommand = %q, want gopls", cfg.AgentLSPCommand)

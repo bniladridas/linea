@@ -116,6 +116,26 @@ func runFakeMCPServer() {
 				},
 			})
 			return
+		case "resources/subscribe":
+			params, _ := message["params"].(map[string]any)
+			uri, _ := params["uri"].(string)
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result":  map[string]any{},
+			})
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"method":  "notifications/resources/updated",
+				"params":  map[string]any{"uri": uri, "message": "resource updated"},
+			})
+		case "resources/unsubscribe":
+			_ = writeMCPMessage(os.Stdout, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"result":  map[string]any{},
+			})
+			return
 		case "prompts/list":
 			_ = writeMCPMessage(os.Stdout, map[string]any{
 				"jsonrpc": "2.0",
@@ -285,6 +305,133 @@ func TestRuntimeStartsAutoAgentLoop(t *testing.T) {
 	}
 	if loop.Steps[len(loop.Steps)-1].Detail != "Command completed successfully." {
 		t.Fatalf("last step = %#v", loop.Steps[len(loop.Steps)-1])
+	}
+}
+
+func TestRuntimeDeveloperAgentLoopRunsNonDestructiveCommand(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:          "run command",
+		Mode:          "developer",
+		MaxIterations: 2,
+		Command:       "printf ok",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.Mode != "developer" || loop.MaxIterations != 2 {
+		t.Fatalf("loop mode = %q, max = %d", loop.Mode, loop.MaxIterations)
+	}
+	if loop.State != "completed" || !loopHasStep(loop, "command_check", "completed") || !loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	checks := runtime.ListCommandChecks(context.Background())
+	if len(checks) == 0 || !checks[0].Allowed || checks[0].Reason != "developer mode" {
+		t.Fatalf("checks = %#v", checks)
+	}
+}
+
+func TestRuntimeDeveloperAgentLoopBlocksDestructiveCommand(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run command",
+		Mode:    "developer",
+		Command: "rm -rf .",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || !loopHasStep(loop, "command_check", "blocked") || loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	checks := runtime.ListCommandChecks(context.Background())
+	if len(checks) == 0 || checks[0].Allowed || checks[0].Reason != "developer mode blocked destructive or system command" {
+		t.Fatalf("checks = %#v", checks)
+	}
+}
+
+func TestRuntimeDeveloperAgentLoopBlocksShellWrappedCommand(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run command",
+		Mode:    "developer",
+		Command: "sh -c rm -rf .",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || !loopHasStep(loop, "command_check", "blocked") || loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	checks := runtime.ListCommandChecks(context.Background())
+	if len(checks) == 0 || checks[0].Allowed || checks[0].Reason != "developer mode blocked destructive or system command" {
+		t.Fatalf("checks = %#v", checks)
+	}
+}
+
+func TestRuntimeDeveloperAgentLoopBlocksCredentialReadCommand(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "read env",
+		Mode:    "developer",
+		Command: "cat .env",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "attention" || !loopHasStep(loop, "command_check", "blocked") || loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+}
+
+func TestRuntimeDeveloperAgentLoopInfersInstallCommand(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{}}`)
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "install dependencies",
+		Mode: "developer",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopHasStep(loop, "command_infer", "completed") || !loopHasStep(loop, "command_run", "completed") {
+		t.Fatalf("loop = %#v", loop)
+	}
+	if !loopStepHasCommand(loop, "command_run", "npm install") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeCommandOutputRedactsSecretsInTimeline(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "printf"), "#!/bin/sh\nprintf 'API_KEY=secret-value\\n'\n")
+	if err := os.Chmod(filepath.Join(root, "printf"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run command",
+		Mode:    "developer",
+		Command: "./printf",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	runs := runtime.ListCommandRuns(context.Background())
+	if len(runs) == 0 || strings.Contains(runs[0].Output, "secret-value") || !strings.Contains(runs[0].Output, "[redacted]") {
+		t.Fatalf("runs = %#v", runs)
+	}
+	for _, step := range loop.Steps {
+		if strings.Contains(step.Detail, "secret-value") {
+			t.Fatalf("step leaked secret = %#v", step)
+		}
 	}
 }
 
@@ -976,14 +1123,152 @@ func TestRuntimeAutoAgentLoopCallsEmptyArgumentMCPTool(t *testing.T) {
 	}
 }
 
-func TestRuntimeAutoAgentLoopStopsBeforeMCPToolWithRequiredArguments(t *testing.T) {
+func TestRuntimeMCPResourceSubscriptionRecordsEvents(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
 	writeTestFile(t, configPath, `{
   "mcpServers": {
     "docs": {
       "command": "`+os.Args[0]+`",
       "env": {"LINEA_FAKE_MCP_SERVER":"1"},
-      "tools": [{"name":"echo","description":"Echo","inputSchema":"{\"type\":\"object\",\"required\":[\"message\"]}"}]
+      "resources": [{"uri":"docs://readme","name":"README","description":"Readme"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	subscription, err := runtime.SubscribeMCPResource(context.Background(), MCPSubscribeInput{URI: "docs://readme"})
+	if err != nil {
+		t.Fatalf("SubscribeMCPResource() error = %v", err)
+	}
+	if subscription.State != "active" || subscription.URI != "docs://readme" {
+		t.Fatalf("subscription = %#v", subscription)
+	}
+	var events []MCPEvent
+	for attempt := 0; attempt < 20; attempt++ {
+		events = runtime.ListMCPEvents(context.Background())
+		if len(events) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(events) == 0 || events[0].SubscriptionID != subscription.ID || events[0].Method != "notifications/resources/updated" {
+		t.Fatalf("events = %#v", events)
+	}
+	inactive, err := runtime.UnsubscribeMCPResource(context.Background(), subscription.ID)
+	if err != nil {
+		t.Fatalf("UnsubscribeMCPResource() error = %v", err)
+	}
+	if inactive.State != "inactive" {
+		t.Fatalf("inactive = %#v", inactive)
+	}
+}
+
+func TestRuntimeMCPSubscriptionSurvivesCanceledRequestContext(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "resources": [{"uri":"docs://readme","name":"README","description":"Readme"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+	ctx, cancel := context.WithCancel(context.Background())
+
+	subscription, err := runtime.SubscribeMCPResource(ctx, MCPSubscribeInput{URI: "docs://readme"})
+	if err != nil {
+		t.Fatalf("SubscribeMCPResource() error = %v", err)
+	}
+	cancel()
+	if subscription.State != "active" {
+		t.Fatalf("subscription = %#v", subscription)
+	}
+	time.Sleep(100 * time.Millisecond)
+	runtime.mu.RLock()
+	session := runtime.mcpSessions[subscription.ServerID]
+	closed := session == nil || session.isClosed()
+	runtime.mu.RUnlock()
+	if closed {
+		t.Fatalf("persistent MCP session closed after request context cancellation")
+	}
+	if _, err := runtime.UnsubscribeMCPResource(context.Background(), subscription.ID); err != nil {
+		t.Fatalf("UnsubscribeMCPResource() error = %v", err)
+	}
+}
+
+func TestRuntimeShutdownStopsActiveMCPSessions(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "resources": [{"uri":"docs://readme","name":"README","description":"Readme"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	subscription, err := runtime.SubscribeMCPResource(context.Background(), MCPSubscribeInput{URI: "docs://readme"})
+	if err != nil {
+		t.Fatalf("SubscribeMCPResource() error = %v", err)
+	}
+	if subscription.State != "active" {
+		t.Fatalf("subscription = %#v", subscription)
+	}
+	if len(runtime.mcpSessions) != 1 {
+		t.Fatalf("mcpSessions = %#v", runtime.mcpSessions)
+	}
+	if err := runtime.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	if len(runtime.mcpSessions) != 0 {
+		t.Fatalf("mcpSessions = %#v", runtime.mcpSessions)
+	}
+	subscriptions := runtime.ListMCPSubscriptions(context.Background())
+	if len(subscriptions) != 1 || subscriptions[0].State != "inactive" {
+		t.Fatalf("subscriptions = %#v", subscriptions)
+	}
+}
+
+func TestRuntimeAutoAgentLoopInfersMCPToolRequiredArguments(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "tools": [{"name":"echo","description":"Echo","inputSchema":"{\"type\":\"object\",\"required\":[\"message\"],\"properties\":{\"message\":{\"type\":\"string\"}}}"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: `use mcp tool echo with message "hello mcp"`,
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" || loopHasStep(loop, "mcp_boundary", "completed") || !loopHasStep(loop, "mcp_call", "completed") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
+	if calls := runtime.ListMCPCalls(context.Background()); len(calls) != 1 || calls[0].ToolID != "docs/echo" {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestRuntimeAutoAgentLoopStopsWhenMCPRequiredArgumentCannotBeInferred(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "tools": [{"name":"echo","description":"Echo","inputSchema":"{\"type\":\"object\",\"required\":[\"message\"],\"properties\":{\"message\":{\"type\":\"string\"}}}"}]
     }
   }
 }`)
@@ -996,10 +1281,41 @@ func TestRuntimeAutoAgentLoopStopsBeforeMCPToolWithRequiredArguments(t *testing.
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
 	}
-	if !loopHasStep(loop, "mcp_boundary", "completed") || loopHasStep(loop, "mcp_call", "completed") {
+	if loop.State != "attention" || !loopHasStep(loop, "mcp_boundary", "completed") || loopHasStep(loop, "mcp_call", "completed") {
 		t.Fatalf("loop steps = %#v", loop.Steps)
 	}
 	if calls := runtime.ListMCPCalls(context.Background()); len(calls) != 0 {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestRuntimeAutoAgentLoopRunsMultiMCPPlan(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "mcp.json")
+	writeTestFile(t, configPath, `{
+  "mcpServers": {
+    "docs": {
+      "command": "`+os.Args[0]+`",
+      "env": {"LINEA_FAKE_MCP_SERVER":"1"},
+      "tools": [{"name":"ping","description":"Ping","inputSchema":"{\"type\":\"object\"}"}],
+      "resources": [{"uri":"docs://readme","name":"README","description":"Readme"}],
+      "prompts": [{"name":"review","description":"Review"}]
+    }
+  }
+}`)
+	runtime := NewRuntime("", WithMCPConfigPath(configPath))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "all mcp actions",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if loop.State != "completed" {
+		t.Fatalf("loop = %#v", loop)
+	}
+	calls := runtime.ListMCPCalls(context.Background())
+	if len(calls) != 3 {
 		t.Fatalf("calls = %#v", calls)
 	}
 }
@@ -2144,6 +2460,73 @@ func TestWorkspaceRejectsOutsideRoot(t *testing.T) {
 
 	if _, err := runtime.ReadFile(context.Background(), "../secret.txt"); !errors.Is(err, ErrPathOutsideRoot) {
 		t.Fatalf("ReadFile() error = %v, want ErrPathOutsideRoot", err)
+	}
+}
+
+func TestWorkspaceFullTrustReadsAbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "notes.txt")
+	writeTestFile(t, outside, "outside")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithDeveloperMode(true, "full"))
+
+	result, err := runtime.ReadFile(context.Background(), outside)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	resolvedOutside, err := filepath.EvalSymlinks(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Path != resolvedOutside || result.Content != "outside" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestWorkspaceFullTrustDeveloperReadKeepsRelativeWorkspacePath(t *testing.T) {
+	processDir := t.TempDir()
+	workspace := t.TempDir()
+	writeTestFile(t, filepath.Join(processDir, "README.md"), "process")
+	writeTestFile(t, filepath.Join(workspace, "README.md"), "workspace")
+	previousDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(processDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(previousDir); err != nil {
+			t.Fatalf("Chdir() restore error = %v", err)
+		}
+	}()
+	runtime := NewRuntime("", WithWorkspaceRoot(workspace), WithDeveloperMode(true, "full"))
+
+	result, err := runtime.ReadDeveloperFile(context.Background(), "README.md")
+	if err != nil {
+		t.Fatalf("ReadDeveloperFile() error = %v", err)
+	}
+	if result.Path != "README.md" || result.Content != "workspace" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestWorkspaceFiltersSecretFiles(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, ".env"), "API_KEY=secret\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithDeveloperMode(true, "full"))
+
+	if _, err := runtime.ReadFile(context.Background(), ".env"); err == nil {
+		t.Fatal("ReadFile(.env) error = nil, want secret filter")
+	}
+	if _, err := runtime.ProposeEdit(context.Background(), EditProposalInput{Path: ".env", Content: "API_KEY=next\n"}); err == nil {
+		t.Fatal("ProposeEdit(.env) error = nil, want secret filter")
+	}
+	results, err := runtime.SearchFiles(context.Background(), "secret")
+	if err != nil {
+		t.Fatalf("SearchFiles() error = %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("results = %#v", results)
 	}
 }
 
@@ -3538,6 +3921,15 @@ func (f *fakeEditPlanner) PlanEdit(_ context.Context, request EditPlanRequest) (
 func loopHasStep(loop AgentLoop, kind string, state string) bool {
 	for _, step := range loop.Steps {
 		if step.Kind == kind && step.State == state {
+			return true
+		}
+	}
+	return false
+}
+
+func loopStepHasCommand(loop AgentLoop, kind string, command string) bool {
+	for _, step := range loop.Steps {
+		if step.Kind == kind && step.Command == command {
 			return true
 		}
 	}

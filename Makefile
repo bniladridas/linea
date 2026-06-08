@@ -1,4 +1,4 @@
-.PHONY: build test check install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full
+.PHONY: build test check install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full
 
 BREW_LINEA_BIN = $$(brew --prefix bniladridas/linea/linea)/bin/linea
 
@@ -55,6 +55,9 @@ model-check:
 agent-check: build
 	./bin/linea -migrate
 	node scripts/agent-smoke.mjs --start
+
+agent-autonomy-check: build
+	node scripts/agent-autonomy-smoke.mjs
 
 agent-check-memory: build
 	LINEA_AGENT_SMOKE_MEMORY=1 node scripts/agent-smoke.mjs --start

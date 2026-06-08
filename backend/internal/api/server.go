@@ -64,9 +64,13 @@ type AgentRuntime interface {
 	ListMCPResources(context.Context) []agent.MCPResource
 	ListMCPPrompts(context.Context) []agent.MCPPrompt
 	ListMCPCalls(context.Context) []agent.MCPCall
+	ListMCPSubscriptions(context.Context) []agent.MCPSubscription
+	ListMCPEvents(context.Context) []agent.MCPEvent
 	CallMCPTool(context.Context, agent.MCPCallInput) (agent.MCPCall, error)
 	ReadMCPResource(context.Context, agent.MCPResourceReadInput) (agent.MCPCall, error)
 	GetMCPPrompt(context.Context, agent.MCPPromptGetInput) (agent.MCPCall, error)
+	SubscribeMCPResource(context.Context, agent.MCPSubscribeInput) (agent.MCPSubscription, error)
+	UnsubscribeMCPResource(context.Context, string) (agent.MCPSubscription, error)
 	ListTraces(context.Context) []agent.Trace
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ListHookRuns(context.Context) []agent.HookRun
@@ -208,8 +212,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent/mcp-resources", s.listAgentMCPResources)
 	mux.HandleFunc("GET /api/agent/mcp-prompts", s.listAgentMCPPrompts)
 	mux.HandleFunc("GET /api/agent/mcp-calls", s.listAgentMCPCalls)
+	mux.HandleFunc("GET /api/agent/mcp-subscriptions", s.listAgentMCPSubscriptions)
+	mux.HandleFunc("GET /api/agent/mcp-events", s.listAgentMCPEvents)
 	mux.HandleFunc("POST /api/agent/mcp-calls", s.callAgentMCPTool)
 	mux.HandleFunc("POST /api/agent/mcp-resources/read", s.readAgentMCPResource)
+	mux.HandleFunc("POST /api/agent/mcp-resources/subscribe", s.subscribeAgentMCPResource)
+	mux.HandleFunc("POST /api/agent/mcp-subscriptions/{id}/unsubscribe", s.unsubscribeAgentMCPResource)
 	mux.HandleFunc("POST /api/agent/mcp-prompts/get", s.getAgentMCPPrompt)
 	mux.HandleFunc("GET /api/agent/traces", s.listAgentTraces)
 	mux.HandleFunc("POST /api/agent/traces", s.createAgentTrace)
@@ -386,6 +394,22 @@ func (s *Server) listAgentMCPCalls(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPCalls(r.Context()))
 }
 
+func (s *Server) listAgentMCPSubscriptions(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.MCPSubscription{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPSubscriptions(r.Context()))
+}
+
+func (s *Server) listAgentMCPEvents(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeJSON(w, http.StatusOK, []agent.MCPEvent{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPEvents(r.Context()))
+}
+
 func (s *Server) callAgentMCPTool(w http.ResponseWriter, r *http.Request) {
 	if s.agentRuntime == nil {
 		writeError(w, http.StatusNotFound, "MCP tools are not available.")
@@ -422,6 +446,39 @@ func (s *Server) readAgentMCPResource(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "mcp resource", call.State, call.ToolID)
 	writeJSON(w, http.StatusCreated, call)
+}
+
+func (s *Server) subscribeAgentMCPResource(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "MCP resources are not available.")
+		return
+	}
+	var input agent.MCPSubscribeInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	subscription, err := s.agentRuntime.SubscribeMCPResource(r.Context(), input)
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "mcp subscribe", subscription.State, subscription.URI)
+	writeJSON(w, http.StatusCreated, subscription)
+}
+
+func (s *Server) unsubscribeAgentMCPResource(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "MCP subscriptions are not available.")
+		return
+	}
+	subscription, err := s.agentRuntime.UnsubscribeMCPResource(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeAgentToolError(w, err)
+		return
+	}
+	s.recordAgentTrace(r.Context(), "mcp unsubscribe", subscription.State, subscription.URI)
+	writeJSON(w, http.StatusOK, subscription)
 }
 
 func (s *Server) getAgentMCPPrompt(w http.ResponseWriter, r *http.Request) {
@@ -1574,8 +1631,12 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 		goal = strings.TrimSpace(firstLine[len("start agent "):])
 	case strings.HasPrefix(lowerFirstLine, "agent auto "):
 		goal = strings.TrimSpace(firstLine[len("agent auto "):])
+	case strings.HasPrefix(lowerFirstLine, "agent developer "):
+		goal = strings.TrimSpace(firstLine[len("agent developer "):])
 	case strings.HasPrefix(lowerFirstLine, ":loop auto "):
 		goal = strings.TrimSpace(firstLine[len(":loop auto "):])
+	case strings.HasPrefix(lowerFirstLine, ":loop developer "):
+		goal = strings.TrimSpace(firstLine[len(":loop developer "):])
 	case strings.HasPrefix(lowerFirstLine, ":loop "):
 		goal = strings.TrimSpace(firstLine[len(":loop "):])
 	case strings.HasPrefix(lowerFirstLine, "agent "):
@@ -1592,6 +1653,10 @@ func parseAgentLoopChatCommand(content string) (agent.AgentLoopInput, bool, erro
 	input := agent.AgentLoopInput{Goal: goal}
 	if strings.HasPrefix(lowerFirstLine, "agent auto ") || strings.HasPrefix(lowerFirstLine, ":loop auto ") {
 		input.Mode = "auto"
+		input.AutoApply = true
+	}
+	if strings.HasPrefix(lowerFirstLine, "agent developer ") || strings.HasPrefix(lowerFirstLine, ":loop developer ") {
+		input.Mode = "developer"
 		input.AutoApply = true
 	}
 	if shouldStartTempAppLoopFromChat(strings.ToLower(goal)) {
