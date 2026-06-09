@@ -1739,3 +1739,54 @@ func TestSmokeCoversPickerNewSearchAndAttachments(t *testing.T) {
 		t.Fatalf("conversations = %d, want 2", len(conversations))
 	}
 }
+
+func TestRunHandlesNewAgentCommands(t *testing.T) {
+	dir := t.TempDir()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(dir), agent.WithCommandAllowlist([]string{"printf ok"}))
+	var out strings.Builder
+	input := strings.Join([]string{
+		":checks",
+		":approvals",
+		":runs",
+		":auto-approve",
+		":check printf ok",
+		":auto-approve read inspect",
+		":auto-approve",
+		":check printf ok",
+		":checks",
+		":approve printf ok",
+		":approvals",
+		":runs",
+		":run printf ok",
+		":runs",
+		":agent",
+		":quit",
+		"",
+	}, "\n")
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "unused"}, strings.NewReader(input), &out).WithAgentRuntime(runtime)
+
+	if err := app.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	output := out.String()
+	for _, want := range []string{
+		"No command checks.",
+		"No command approvals.",
+		"No command runs.",
+		"Auto-approve categories: none",
+		"printf ok · allowed",
+		"Auto-approve categories set to: [read inspect]",
+		"Auto-approve categories: [read inspect]",
+		"printf ok · auto-approved by category · read",
+		"Approved printf ok.",
+		"printf ok · exit 0",
+		"Approvals 1",
+		"Checks 3",
+		"Runs 1",
+		"Auto-approve [read inspect]",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q: %q", want, output)
+		}
+	}
+}

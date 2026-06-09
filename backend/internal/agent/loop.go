@@ -3266,20 +3266,26 @@ func (r *Runtime) StartBackgroundJob(ctx context.Context, input BackgroundJobInp
 
 func (r *Runtime) CancelBackgroundJob(ctx context.Context, id string) (BackgroundJob, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i := range r.backgroundJobs {
-		if r.backgroundJobs[i].ID == id {
-			if r.backgroundJobs[i].State != "running" {
-				return BackgroundJob{}, errors.New("Background job is not running.")
+	job, loopID, err := func() (BackgroundJob, string, error) {
+		for i := range r.backgroundJobs {
+			if r.backgroundJobs[i].ID == id {
+				if r.backgroundJobs[i].State != "running" {
+					return BackgroundJob{}, "", errors.New("Background job is not running.")
+				}
+				r.backgroundJobs[i].State = "cancelled"
+				r.backgroundJobs[i].UpdatedAt = time.Now().UTC()
+				job := r.backgroundJobs[i]
+				return job, job.LoopID, nil
 			}
-			r.backgroundJobs[i].State = "cancelled"
-			r.backgroundJobs[i].UpdatedAt = time.Now().UTC()
-			job := r.backgroundJobs[i]
-			r.CancelAgentLoop(ctx, job.LoopID)
-			return job, nil
 		}
+		return BackgroundJob{}, "", errors.New("Background job not found.")
+	}()
+	r.mu.Unlock()
+	if err != nil {
+		return BackgroundJob{}, err
 	}
-	return BackgroundJob{}, errors.New("Background job not found.")
+	r.CancelAgentLoop(ctx, loopID)
+	return job, nil
 }
 
 func (r *Runtime) backgroundJobByLoopID(id string) (int, bool) {

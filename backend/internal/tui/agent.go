@@ -23,8 +23,12 @@ func (a *App) handleAgentCommand(ctx context.Context, input string) (string, boo
 		!strings.HasPrefix(trimmed, ":read ") &&
 		!strings.HasPrefix(trimmed, ":loop ") &&
 		!strings.HasPrefix(trimmed, ":check ") &&
+		!strings.HasPrefix(trimmed, ":checks") &&
 		!strings.HasPrefix(trimmed, ":approve ") &&
+		!strings.HasPrefix(trimmed, ":approvals") &&
 		!strings.HasPrefix(trimmed, ":run ") &&
+		!strings.HasPrefix(trimmed, ":runs") &&
+		!strings.HasPrefix(trimmed, ":auto-approve") &&
 		!strings.HasPrefix(trimmed, ":trace ") &&
 		!strings.HasPrefix(trimmed, ":hook-run ") &&
 		!strings.HasPrefix(trimmed, ":hook ") &&
@@ -48,7 +52,8 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		return agentHelp(), nil
 	case input == ":agent" || input == ":agent status":
 		status := a.agent.Status(ctx)
-		return fmt.Sprintf("Agent %s. Tools %d. Workspace %s. Subagents %d. MCP %d/%d.", status.RunSummary.State, len(status.Tools), onOff(status.WorkspaceRoot != ""), len(status.Subagents), len(status.MCPServers), len(status.MCPTools)), nil
+		rs := status.RunSummary
+		return fmt.Sprintf("Agent %s. Tools %d. Workspace %s. Subagents %d. MCP %d/%d.\nApprovals %d. Checks %d. Runs %d. Unrestricted %s.\nAuto-approve %v.", rs.State, len(status.Tools), onOff(status.WorkspaceRoot != ""), len(status.Subagents), len(status.MCPServers), len(status.MCPTools), rs.CommandApprovals, rs.CommandChecks, rs.CommandRuns, onOff(status.Unrestricted), a.agent.AutoApproveCategories()), nil
 	case input == ":diag":
 		diagnostics, err := a.agent.ListDiagnostics(ctx)
 		if err != nil {
@@ -183,7 +188,14 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s · %s", check.Command, check.Reason), nil
+		info := fmt.Sprintf("%s · %s", check.Command, check.Reason)
+		if check.Category != "" {
+			info += fmt.Sprintf(" · %s", check.Category)
+		}
+		if check.Destructive {
+			info += " · destructive"
+		}
+		return info, nil
 	case strings.HasPrefix(input, ":approve "):
 		command := strings.TrimSpace(strings.TrimPrefix(input, ":approve "))
 		approval, err := a.agent.AddCommandApproval(ctx, agent.CommandApprovalInput{Command: command, State: "approved", Detail: "Approved in TUI."})
@@ -238,6 +250,71 @@ func (a *App) runAgentCommand(ctx context.Context, input string) (string, error)
 			return "", err
 		}
 		return fmt.Sprintf("Skill %s: %s", execution.SkillRun.SkillID, execution.SkillRun.State), nil
+	case input == ":checks":
+		checks := a.agent.ListCommandChecks(ctx)
+		if len(checks) == 0 {
+			return "No command checks.", nil
+		}
+		var b strings.Builder
+		for i, c := range checks {
+			if i >= 8 {
+				fmt.Fprintf(&b, "\n...%d more", len(checks)-i)
+				break
+			}
+			fmt.Fprintf(&b, "%s · %s", c.Command, c.Reason)
+			if c.Category != "" {
+				fmt.Fprintf(&b, " · %s", c.Category)
+			}
+			if c.Destructive {
+				fmt.Fprint(&b, " · destructive")
+			}
+			b.WriteByte('\n')
+		}
+		return strings.TrimSpace(b.String()), nil
+	case input == ":approvals":
+		approvals := a.agent.ListCommandApprovals(ctx)
+		if len(approvals) == 0 {
+			return "No command approvals.", nil
+		}
+		var b strings.Builder
+		for i, ap := range approvals {
+			if i >= 8 {
+				fmt.Fprintf(&b, "\n...%d more", len(approvals)-i)
+				break
+			}
+			fmt.Fprintf(&b, "%s · %s · %s", ap.Command, ap.State, ap.Category)
+			b.WriteByte('\n')
+		}
+		return strings.TrimSpace(b.String()), nil
+	case input == ":runs":
+		runs := a.agent.ListCommandRuns(ctx)
+		if len(runs) == 0 {
+			return "No command runs.", nil
+		}
+		var b strings.Builder
+		for i, r := range runs {
+			if i >= 8 {
+				fmt.Fprintf(&b, "\n...%d more", len(runs)-i)
+				break
+			}
+			fmt.Fprintf(&b, "%s · exit %d\n%s", r.Command, r.ExitCode, strings.TrimSpace(r.Output))
+		}
+		return strings.TrimSpace(b.String()), nil
+	case strings.HasPrefix(input, ":auto-approve"):
+		value := strings.TrimSpace(strings.TrimPrefix(input, ":auto-approve"))
+		if value == "" {
+			cats := a.agent.AutoApproveCategories()
+			if len(cats) == 0 {
+				return "Auto-approve categories: none", nil
+			}
+			return fmt.Sprintf("Auto-approve categories: %v", cats), nil
+		}
+		var cats []string
+		for _, c := range strings.Fields(value) {
+			cats = append(cats, c)
+		}
+		a.agent.SetAutoApproveCategories(cats)
+		return fmt.Sprintf("Auto-approve categories set to: %v", cats), nil
 	case input == ":proposal" || input == ":proposal list":
 		return formatEditProposals(a.agent.ListEditProposals(ctx)), nil
 	case strings.HasPrefix(input, ":proposal create "):
@@ -366,8 +443,12 @@ func agentHelp() string {
 		":subagent plan <goal>",
 		":subagent plans",
 		":check <command>",
+		":checks",
 		":approve <command>",
+		":approvals",
 		":run <command>",
+		":runs",
+		":auto-approve [categories...]",
 		":trace <event> <state> [detail]",
 		":hook-run <id> <state> [detail]",
 		":hook <id> [command]",
