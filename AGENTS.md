@@ -208,6 +208,15 @@ Tools:
 * Run non-destructive developer commands in developer mode
 * Read diagnostics
 
+Command approval:
+
+* Commands are classified by category (read/write/inspect/destructive/unknown).
+* Auto-approve categories (read, write, inspect, destructive) can be toggled via UI or `LINEA_AUTO_APPROVE_CATEGORIES` env var.
+* Commands matching an auto-approved category skip per-command approval but still respect the allowlist.
+* `CheckCommand` reason strings distinguish `"auto-approved by category"` from `"auto-approved (unrestricted mode)"`.
+* Audit log (JSON lines at `LINEA_AUDIT_LOG_PATH`, default `~/.cache/linea/audit.jsonl`) persists approvals and runs across restarts. Rotates at 10 MB. Set to blank to disable.
+* `LoadAuditLog()` is called explicitly by the server after `NewRuntime`; tests never auto-load, preventing state leaking between tests.
+
 Edit proposals:
 
 * Chat may create explicit edit proposals.
@@ -236,6 +245,8 @@ MCP:
 * Keep permissions narrow.
 * Infer simple MCP arguments only when the goal and schema make them clear.
 * Stop at the MCP boundary when required arguments cannot be inferred safely.
+* Persistent MCP servers must not have a hard timeout; the old 30s timeout was removed because it killed long-lived servers.
+* `cmd.Cancel` is not set before `cmd.Start()` to avoid nil pointer risk.
 
 LSP:
 
