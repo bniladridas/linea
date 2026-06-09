@@ -34,9 +34,12 @@ type Server struct {
 }
 
 type Status struct {
-	Storage   string           `json:"storage"`
-	Search    string           `json:"search"`
-	Providers []ProviderStatus `json:"providers"`
+	Storage    string           `json:"storage"`
+	Search     string           `json:"search"`
+	Providers  []ProviderStatus `json:"providers"`
+	MCPStatus  string           `json:"mcpStatus,omitempty"`
+	MCPConfig  bool             `json:"mcpConfigured"`
+	AgentState string           `json:"agentState,omitempty"`
 }
 
 type ProviderStatus struct {
@@ -269,7 +272,14 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.statusProvider(r.Context()))
+	status := s.statusProvider(r.Context())
+	if s.agentProvider != nil {
+		agentStatus := s.agentProvider(r.Context())
+		status.MCPStatus = agentStatus.MCPState
+		status.MCPConfig = len(agentStatus.MCPServers) > 0
+		status.AgentState = agentStatus.RunSummary.State
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) getAgentStatus(w http.ResponseWriter, r *http.Request) {

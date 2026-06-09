@@ -448,6 +448,13 @@ func (a *App) renderMarkdownLine(line string) {
 		fmt.Fprintln(a.out, a.theme.brand(strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))))
 	case strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* "):
 		fmt.Fprintf(a.out, "  %s %s\n", a.theme.accent("•"), a.renderInline(strings.TrimSpace(trimmed[2:])))
+	case isOrderedMarkdownLine(trimmed):
+		number, text := splitOrderedMarkdownLine(trimmed)
+		fmt.Fprintf(a.out, "  %s %s\n", a.theme.accent(number+"."), a.renderInline(text))
+	case strings.HasPrefix(trimmed, ">"):
+		fmt.Fprintf(a.out, "  %s %s\n", a.theme.muted("│"), a.renderInline(strings.TrimSpace(strings.TrimPrefix(trimmed, ">"))))
+	case trimmed == "---" || trimmed == "***":
+		fmt.Fprintln(a.out, a.theme.muted(strings.Repeat("─", 24)))
 	default:
 		fmt.Fprintln(a.out, a.renderInline(line))
 	}
@@ -476,24 +483,14 @@ func (a *App) renderInline(line string) string {
 	if !a.theme.enabled {
 		return line
 	}
-	var b strings.Builder
-	for {
-		start := strings.Index(line, "`")
-		if start < 0 {
-			b.WriteString(line)
-			break
-		}
-		end := strings.Index(line[start+1:], "`")
-		if end < 0 {
-			b.WriteString(line)
-			break
-		}
-		b.WriteString(line[:start])
-		code := line[start+1 : start+1+end]
-		b.WriteString(a.theme.inlineCode(code))
-		line = line[start+1+end+1:]
-	}
-	return b.String()
+	line = replaceDelimited(line, "`", func(value string) string {
+		return a.theme.inlineCode(value)
+	})
+	line = replaceDelimited(line, "**", func(value string) string {
+		return a.theme.strong(value)
+	})
+	line = replaceLinks(line, a.theme)
+	return line
 }
 
 func (a *App) highlightCode(line string, language string) string {

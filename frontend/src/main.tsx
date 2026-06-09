@@ -2234,6 +2234,15 @@ function MarkdownContent({ content }: { content: string }) {
         if (block.type === 'rule') {
           return <hr key={index} />;
         }
+        if (block.type === 'blockquote') {
+          return (
+            <blockquote key={index}>
+              {block.items.map((item, itemIndex) => (
+                <p key={itemIndex}>{renderInlineMarkdown(item)}</p>
+              ))}
+            </blockquote>
+          );
+        }
         return <p key={index}>{renderInlineMarkdown(block.text)}</p>;
       })}
     </div>
@@ -2327,12 +2336,14 @@ type MarkdownBlock =
   | { type: 'code'; text: string; language?: string }
   | { type: 'paragraph'; text: string }
   | { type: 'list'; items: string[] }
-  | { type: 'rule' };
+  | { type: 'rule' }
+  | { type: 'blockquote'; items: string[] };
 
 function parseMarkdownBlocks(content: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   const paragraph: string[] = [];
   let list: string[] = [];
+  let quote: string[] = [];
   let code: string[] = [];
   let codeLanguage = '';
   let isCodeBlock = false;
@@ -2353,10 +2364,19 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
     list = [];
   };
 
+  const flushQuote = () => {
+    if (quote.length === 0) {
+      return;
+    }
+    blocks.push({ type: 'blockquote', items: quote });
+    quote = [];
+  };
+
   for (const rawLine of content.split(/\r?\n/)) {
     if (rawLine.trim().startsWith('```')) {
       flushParagraph();
       flushList();
+      flushQuote();
       if (isCodeBlock) {
         blocks.push({ type: 'code', language: codeLanguage, text: code.join('\n') });
         code = [];
@@ -2378,12 +2398,14 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
     if (!line) {
       flushParagraph();
       flushList();
+      flushQuote();
       continue;
     }
 
     if (/^([-*_])(?:\s*\1){2,}$/.test(line)) {
       flushParagraph();
       flushList();
+      flushQuote();
       blocks.push({ type: 'rule' });
       continue;
     }
@@ -2392,23 +2414,34 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
     if (heading) {
       flushParagraph();
       flushList();
+      flushQuote();
       blocks.push({ type: 'heading', text: cleanMarkdownText(heading[2] ?? heading[1]) });
       continue;
     }
 
-    const listItem = line.match(/^[-*•]\s+(.+)$/);
+    const listItem = line.match(/^[-*•]\s+(.+)$/) ?? line.match(/^\d+\.\s+(.+)$/);
     if (listItem) {
       flushParagraph();
+      flushQuote();
       list.push(cleanMarkdownText(listItem[1]));
       continue;
     }
 
+    if (line.startsWith('>')) {
+      flushParagraph();
+      flushList();
+      quote.push(cleanMarkdownText(line.replace(/^>\s*/, '')));
+      continue;
+    }
+
     flushList();
+    flushQuote();
     paragraph.push(cleanMarkdownText(line));
   }
 
   flushParagraph();
   flushList();
+  flushQuote();
   if (isCodeBlock && code.length > 0) {
     blocks.push({ type: 'code', language: codeLanguage, text: code.join('\n') });
   }

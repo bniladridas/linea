@@ -289,12 +289,37 @@ func (r *Runtime) mcpTools(ctx context.Context) []MCPTool {
 	return r.mcpToolsFromConfig(ctx, config, true)
 }
 
+func (r *Runtime) mcpState(ctx context.Context) string {
+	servers := r.mcpServers(ctx)
+	if len(servers) == 0 {
+		return "unavailable"
+	}
+	hasActive := false
+	hasReady := false
+	for _, s := range servers {
+		switch s.State {
+		case "active":
+			hasActive = true
+		case "ready":
+			hasReady = true
+		}
+	}
+	switch {
+	case hasActive:
+		return "active"
+	case hasReady:
+		return "ready"
+	default:
+		return "unavailable"
+	}
+}
+
 func (r *Runtime) statusMCPTools(ctx context.Context) []MCPTool {
 	config, ok := r.loadMCPConfig(ctx)
 	if !ok {
 		return []MCPTool{}
 	}
-	return r.mcpToolsFromConfig(ctx, config, false)
+	return r.mcpToolsFromConfig(ctx, config, true)
 }
 
 func (r *Runtime) mcpResources(ctx context.Context) []MCPResource {
@@ -310,7 +335,7 @@ func (r *Runtime) statusMCPResources(ctx context.Context) []MCPResource {
 	if !ok {
 		return []MCPResource{}
 	}
-	return r.mcpResourcesFromConfig(ctx, config, false)
+	return r.mcpResourcesFromConfig(ctx, config, true)
 }
 
 func (r *Runtime) mcpPrompts(ctx context.Context) []MCPPrompt {
@@ -326,7 +351,7 @@ func (r *Runtime) statusMCPPrompts(ctx context.Context) []MCPPrompt {
 	if !ok {
 		return []MCPPrompt{}
 	}
-	return r.mcpPromptsFromConfig(ctx, config, false)
+	return r.mcpPromptsFromConfig(ctx, config, true)
 }
 
 func (r *Runtime) mcpToolsFromConfig(ctx context.Context, config mcpConfig, discover bool) []MCPTool {
