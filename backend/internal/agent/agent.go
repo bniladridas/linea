@@ -1115,7 +1115,7 @@ func defaultSubagents() []Subagent {
 			ID:      "test",
 			Name:    "Test",
 			Purpose: "Run approved checks and report failures.",
-			State:   "planned",
+			State:   "ready",
 			Tools:   []string{"run_command", "diagnostics"},
 		},
 		{

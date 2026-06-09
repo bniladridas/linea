@@ -46,7 +46,7 @@ func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input Suba
 			summary = "Provide a search query."
 			break
 		}
-		results, err := r.SearchFiles(ctx, query)
+		results, err := r.SearchFiles(subCtx, query)
 		if err != nil {
 			state = subagentStateForError(err)
 			summary = err.Error()
@@ -54,11 +54,21 @@ func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input Suba
 			summary = fmt.Sprintf("Found %d result(s) for %q.", len(results), query)
 		}
 	case "test":
-		summary = "Use command approval before running checks."
-		state = "waiting_input"
+		s, err := r.runSubagentAutoLoop(subCtx, summary)
+		if err != nil {
+			state = "blocked"
+			summary = err.Error()
+		} else {
+			summary = s
+		}
 	default:
-		state = "waiting_input"
-		summary = "Subagent is planned."
+		s, err := r.runSubagentAutoLoop(subCtx, summary)
+		if err != nil {
+			state = "blocked"
+			summary = err.Error()
+		} else {
+			summary = s
+		}
 	}
 	run := SubagentRun{
 		ID:         newTraceID(),
@@ -74,6 +84,36 @@ func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input Suba
 		r.subagentRuns = r.subagentRuns[:maxSubagentRuns]
 	}
 	return run, nil
+}
+
+func (r *Runtime) runSubagentAutoLoop(ctx context.Context, goal string) (string, error) {
+	loop, err := r.StartAgentLoop(ctx, AgentLoopInput{
+		Goal:          goal,
+		Mode:          "developer",
+		MaxIterations: 3,
+		AutoApply:     true,
+	})
+	if err != nil {
+		return "", err
+	}
+	for i := 0; i < 5; i++ {
+		loop, err = r.ContinueAgentLoop(ctx, loop.ID, AgentLoopContinueInput{})
+		if err != nil {
+			return "", err
+		}
+		if loop.State == "completed" || loop.State == "canceled" {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	if loop.State != "completed" {
+		r.CancelAgentLoop(ctx, loop.ID)
+	}
+	return loop.Summary, nil
 }
 
 func (r *Runtime) ListSubagentPlans(context.Context) []SubagentPlanRun {
