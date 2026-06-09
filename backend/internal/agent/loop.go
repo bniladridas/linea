@@ -727,14 +727,24 @@ func (r *Runtime) replaceAgentLoop(loop AgentLoop) {
 
 func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentLoopInput) AgentLoop {
 	goalLower := strings.ToLower(loop.Goal)
+	shouldPlanSubagents := false
+	plannedSubagents := false
+	subagentQuery := ""
 	if r.WorkspaceEnabled() {
 		if shouldReadDiagnostics(goalLower) || shouldGatherAutoEvidence(goalLower, loop.Mode) {
 			diagnostics, err := r.ListDiagnostics(ctx)
 			loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", err, fmt.Sprintf("%d diagnostic(s)", len(diagnostics)), "")
 			if isAutonomousAgentLoopMode(loop.Mode) {
-				loop = r.appendSubagentLoopStep(ctx, loop, "review", SubagentRunInput{Goal: loop.Goal})
+				shouldPlanSubagents = true
 			}
 			if err == nil && len(diagnostics) > 0 && isAutonomousAgentLoopMode(loop.Mode) {
+				if shouldPlanSubagents && !plannedSubagents {
+					loop = r.appendSubagentPlanLoopStep(ctx, loop, SubagentPlanInput{Goal: loop.Goal, Query: subagentQuery})
+					plannedSubagents = true
+					if loop.State == "attention" {
+						return loop
+					}
+				}
 				loop.Steps = append(loop.Steps, AgentLoopStep{
 					ID:     newTraceID(),
 					Kind:   "diagnostics_review",
@@ -755,11 +765,15 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 			results, err := r.SearchFiles(ctx, query)
 			loop = appendLoopStep(loop, "search_files", "Search workspace", "search_files", err, fmt.Sprintf("%d result(s) for %q", len(results), query), "")
 			if isAutonomousAgentLoopMode(loop.Mode) {
-				subagentID := "search"
-				if strings.Contains(goalLower, "doc") {
-					subagentID = "docs"
-				}
-				loop = r.appendSubagentLoopStep(ctx, loop, subagentID, SubagentRunInput{Goal: loop.Goal, Query: query})
+				shouldPlanSubagents = true
+				subagentQuery = query
+			}
+		}
+		if shouldPlanSubagents {
+			loop = r.appendSubagentPlanLoopStep(ctx, loop, SubagentPlanInput{Goal: loop.Goal, Query: subagentQuery})
+			plannedSubagents = true
+			if loop.State == "attention" {
+				return loop
 			}
 		}
 		filePath := strings.TrimSpace(input.FilePath)
@@ -1124,6 +1138,33 @@ func (r *Runtime) appendSubagentLoopStep(ctx context.Context, loop AgentLoop, su
 		CreatedID: createdID,
 	})
 	if state == "blocked" {
+		loop.State = "attention"
+	}
+	return loop
+}
+
+func (r *Runtime) appendSubagentPlanLoopStep(ctx context.Context, loop AgentLoop, input SubagentPlanInput) AgentLoop {
+	plan, err := r.RunSubagentPlan(ctx, input)
+	detail := plan.Summary
+	state := plan.State
+	createdID := plan.ID
+	if err != nil {
+		detail = err.Error()
+		state = "blocked"
+	}
+	if strings.TrimSpace(detail) == "" {
+		detail = "Subagent plan"
+	}
+	loop.Steps = append(loop.Steps, AgentLoopStep{
+		ID:        newTraceID(),
+		Kind:      "subagent_plan",
+		Title:     "Run subagent plan",
+		State:     state,
+		Detail:    detail,
+		ToolID:    "subagent",
+		CreatedID: createdID,
+	})
+	if state == "blocked" || state == "attention" {
 		loop.State = "attention"
 	}
 	return loop

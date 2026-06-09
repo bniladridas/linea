@@ -530,7 +530,7 @@ func TestRuntimeAutoAgentLoopPlansEditFromDiagnostics(t *testing.T) {
 	if loop.State != "waiting_approval" || !loopHasStep(loop, "plan_edit", "completed") || !loopHasStep(loop, "edit_review", "waiting_approval") {
 		t.Fatalf("loop = %#v", loop)
 	}
-	if !loopHasStep(loop, "subagent_run", "completed") {
+	if !loopHasStep(loop, "subagent_plan", "completed") {
 		t.Fatalf("loop steps = %#v", loop.Steps)
 	}
 	proposals := runtime.ListEditProposals(context.Background())
@@ -543,7 +543,7 @@ func TestRuntimeAutoAgentLoopPlansEditFromDiagnostics(t *testing.T) {
 	if len(planner.requests) != 1 || len(planner.requests[0].Diagnostics) != 1 || len(planner.requests[0].Files) != 1 {
 		t.Fatalf("planner requests = %#v", planner.requests)
 	}
-	if status := runtime.Status(context.Background()); status.RunSummary.SubagentRuns != 1 {
+	if status := runtime.Status(context.Background()); status.RunSummary.SubagentRuns != 1 || len(status.SubagentPlans) != 1 {
 		t.Fatalf("status = %#v", status)
 	}
 }
@@ -570,8 +570,14 @@ func TestRuntimeAutoAgentLoopGathersEvidenceForBroadFix(t *testing.T) {
 	if loop.State != "waiting_approval" || !loopHasStep(loop, "diagnostics", "completed") || !loopHasStep(loop, "edit_review", "waiting_approval") {
 		t.Fatalf("loop = %#v", loop)
 	}
+	if !loopHasStep(loop, "subagent_plan", "completed") {
+		t.Fatalf("loop steps = %#v", loop.Steps)
+	}
 	if len(planner.requests) != 1 || len(planner.requests[0].Diagnostics) != 1 || len(planner.requests[0].Files) != 1 {
 		t.Fatalf("planner requests = %#v", planner.requests)
+	}
+	if plans := runtime.ListSubagentPlans(context.Background()); len(plans) != 1 || plans[0].SubagentIDs[0] != "review" {
+		t.Fatalf("subagent plans = %#v", plans)
 	}
 }
 
@@ -587,12 +593,16 @@ func TestRuntimeAutoAgentLoopUsesSearchSubagent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
 	}
-	if !loopHasStep(loop, "search_files", "completed") || !loopHasStep(loop, "subagent_run", "completed") {
+	if !loopHasStep(loop, "search_files", "completed") || !loopHasStep(loop, "subagent_plan", "completed") {
 		t.Fatalf("loop = %#v", loop)
 	}
 	runs := runtime.ListSubagentRuns(context.Background())
 	if len(runs) != 1 || runs[0].SubagentID != "search" || !strings.Contains(runs[0].Summary, "Found 1") {
 		t.Fatalf("subagent runs = %#v", runs)
+	}
+	plans := runtime.ListSubagentPlans(context.Background())
+	if len(plans) != 1 || len(plans[0].Runs) != 1 || plans[0].SubagentIDs[0] != "search" {
+		t.Fatalf("subagent plans = %#v", plans)
 	}
 }
 
