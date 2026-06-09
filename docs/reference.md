@@ -58,12 +58,12 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_RULES_FILE` | Agent rules file. |
 | `LINEA_AGENT_DEVELOPER_MODE` | Enables full-trust developer workspace behavior when set to `1`. Developer loops can still run bounded non-destructive commands without this flag. |
 | `LINEA_AGENT_WORKSPACE_TRUST` | Set to `full` with `LINEA_AGENT_DEVELOPER_MODE=1` to let workspace APIs accept absolute paths. |
-| `LINEA_PREVIEW_CACHE_DIR` | Stores generated preview snapshots. Empty uses the user cache directory. |
+| `LINEA_PREVIEW_CACHE_DIR` | Stores generated preview snapshots on disk. Previews survive server restarts and cache clears. Empty uses the user cache directory (`~/Library/Caches/linea/previews` on macOS). |
 | `LINEA_SKILLS_DIR` | Reads markdown skills from this directory. Empty means planned skills only. |
 | `LINEA_WORKSPACE_DIR` | Enables read-only agent workspace tools. Empty means off. |
 | `LINEA_LSP_COMMAND` | Uses an LSP command such as `gopls` for Go diagnostics, symbols, and references. Empty auto-detects `gopls` when available and otherwise uses the local parser fallback. Set `off` to force the fallback. |
-| `LINEA_MCP_CONFIG` | Reads local MCP server and tool names from a JSON config. Empty means none. |
-| `LINEA_COMMAND_ALLOWLIST` | Comma-separated exact commands allowed for agent checks. Empty means none. |
+| `LINEA_MCP_CONFIG` | Reads local MCP server and tool names from a JSON config. Supports per-server `allowedTools` for tool-level access control. MCP processes run with a sanitized environment. Empty means none. |
+| `LINEA_COMMAND_ALLOWLIST` | Comma-separated exact commands allowed for agent checks. Commands are classified by category (read, inspect, write, destructive) and flagged when destructive. Empty means none. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `BRAVE_SEARCH_API_KEY` | Optional Brave Search API key. When set, Brave results are tried before free fallbacks. |
 | `SEARXNG_URL` | Optional self-hosted SearXNG base URL. When set, SearXNG results are tried before DuckDuckGo fallback. |

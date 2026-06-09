@@ -98,6 +98,18 @@ if [[ "$RUN_UI_SMOKE" == "1" ]]; then
   LINEA_UI_URL="http://$API_ADDR/" \
     LINEA_AGENT_REVIEW_FILE="README.md" \
     node "$ROOT_DIR/scripts/ui-smoke.mjs" --agent-review
+
+  if grep -q "\[WKWebView Smoke\] FAIL" "$LOG_FILE"; then
+    echo "WKWebView smoke test reported failure:" >&2
+    grep "\[WKWebView Smoke\]" "$LOG_FILE" >&2 || true
+    exit 1
+  fi
+  if ! grep -q "\[WKWebView Smoke\] PASS" "$LOG_FILE"; then
+    echo "WKWebView smoke test did not report PASS in logs" >&2
+    tail -n 40 "$LOG_FILE" >&2 || true
+    exit 1
+  fi
+  echo "PASS WKWebView smoke test"
 fi
 
 if [[ -f "$DMG_PATH" ]]; then
