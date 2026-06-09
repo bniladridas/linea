@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -1454,6 +1455,211 @@ func TestBubbleFooterUsesCompactStatus(t *testing.T) {
 	model.viewport.GotoBottom()
 	if got := model.footerStatus(); got != "Ready  ·  bottom  ·  :help" {
 		t.Fatalf("footer = %q", got)
+	}
+}
+
+func stripANSI(s string) string {
+	return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "")
+}
+
+type markdownTestCase struct {
+	name     string
+	markdown string
+	// contentChecks are substrings that should appear in the rendered output (after stripping ANSI)
+	contentChecks []string
+	// missingSubstrings are substrings that should NOT appear (e.g. raw markdown syntax)
+	missingSubstrings []string
+}
+
+func commonMarkdownTestCases() []markdownTestCase {
+	return []markdownTestCase{
+		{
+			name:     "heading level 1",
+			markdown: "# Hello",
+			contentChecks: []string{"Hello"},
+		},
+		{
+			name:     "heading level 2",
+			markdown: "## Hello",
+			contentChecks: []string{"Hello"},
+		},
+		{
+			name:     "heading level 3",
+			markdown: "### Hello",
+			contentChecks: []string{"Hello"},
+		},
+		{
+			name:     "unordered list dash",
+			markdown: "- item",
+			contentChecks: []string{"item"},
+			missingSubstrings: []string{"- item"},
+		},
+		{
+			name:     "unordered list star",
+			markdown: "* item",
+			contentChecks: []string{"item"},
+		},
+		{
+			name:     "ordered list",
+			markdown: "1. first\n2. second",
+			contentChecks: []string{"first", "second"},
+		},
+		{
+			name:     "blockquote",
+			markdown: "> quoted text",
+			contentChecks: []string{"quoted text"},
+			missingSubstrings: []string{"> quoted"},
+		},
+		{
+			name:     "horizontal rule",
+			markdown: "---",
+			contentChecks: []string{"─"},
+		},
+		{
+			name:     "horizontal rule stars",
+			markdown: "***",
+			contentChecks: []string{"─"},
+		},
+		{
+			name:     "bold text",
+			markdown: "**bold**",
+			contentChecks: []string{"bold"},
+			missingSubstrings: []string{"**bold**"},
+		},
+		{
+			name:     "bold in paragraph",
+			markdown: "this is **bold** text",
+			contentChecks: []string{"this is bold text"},
+			missingSubstrings: []string{"**bold**"},
+		},
+		{
+			name:     "inline code",
+			markdown: "use `code` here",
+			contentChecks: []string{"code", "use", "here"},
+		},
+		{
+			name:     "link",
+			markdown: "[text](https://example.com)",
+			contentChecks: []string{"text", "example.com"},
+			missingSubstrings: []string{"[text](https://example.com)"},
+		},
+		{
+			name:     "link with trailing text",
+			markdown: "see [docs](https://example.com) for details",
+			contentChecks: []string{"docs", "example.com", "details"},
+			missingSubstrings: []string{"[docs](https://example.com)"},
+		},
+		{
+			name:     "code fence",
+			markdown: "```go\npackage main\n```",
+			contentChecks: []string{"package main"},
+		},
+		{
+			name:     "empty input",
+			markdown: "",
+			contentChecks: []string{},
+		},
+		{
+			name:     "bold with inline code",
+			markdown: "**bold `code` inside**",
+			contentChecks: []string{"bold", "code", "inside"},
+			missingSubstrings: []string{"**bold"},
+		},
+	}
+}
+
+func TestRenderMarkdownSimple(t *testing.T) {
+	var out strings.Builder
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "dummy"}, strings.NewReader(""), &out)
+	app.theme.enabled = true
+
+	for _, tc := range commonMarkdownTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			out.Reset()
+			app.renderMarkdown(tc.markdown)
+			rendered := stripANSI(out.String())
+
+			for _, want := range tc.contentChecks {
+				if !strings.Contains(rendered, want) {
+					t.Errorf("simple render: output missing %q:\n%s", want, rendered)
+				}
+			}
+			for _, unwanted := range tc.missingSubstrings {
+				if strings.Contains(rendered, unwanted) {
+					t.Errorf("simple render: unexpected raw markdown %q:\n%s", unwanted, rendered)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderMarkdownBubble(t *testing.T) {
+	styles := (bubbleModel{}).styles()
+
+	for _, tc := range commonMarkdownTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			rendered := stripANSI(renderMarkdownForBubble(tc.markdown, styles))
+
+			for _, want := range tc.contentChecks {
+				if !strings.Contains(rendered, want) {
+					t.Errorf("bubble render: output missing %q:\n%s", want, rendered)
+				}
+			}
+			for _, unwanted := range tc.missingSubstrings {
+				if strings.Contains(rendered, unwanted) {
+					t.Errorf("bubble render: unexpected raw markdown %q:\n%s", unwanted, rendered)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderMarkdownCrossRendererConsistency(t *testing.T) {
+	var out strings.Builder
+	app := New(store.NewMemoryStore(), &fakeAssistant{response: "dummy"}, strings.NewReader(""), &out)
+	app.theme.enabled = true
+	styles := (bubbleModel{}).styles()
+
+	cases := []struct {
+		name     string
+		markdown string
+		keys     []string // key substrings both renderers must contain
+	}{
+		{"headings", "# A\n## B\n### C", []string{"A", "B", "C"}},
+		{"lists", "- a\n- b\n1. first\n2. second", []string{"a", "b", "first", "second"}},
+		{"mixed", "# Title\n\n- list item\n1. ordered\n\n> blockquote\n\n---\n\n**bold** and `code`", []string{"Title", "list item", "ordered", "blockquote", "bold"}},
+		{"code fence", "```\nline1\nline2\n```", []string{"line1", "line2"}},
+		{"inline formatting", "**bold** `code` [link](https://x.com)", []string{"bold", "link", "x.com"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out.Reset()
+			app.renderMarkdown(tc.markdown)
+			simple := stripANSI(out.String())
+
+			bubble := stripANSI(renderMarkdownForBubble(tc.markdown, styles))
+
+			for _, key := range tc.keys {
+				if !strings.Contains(simple, key) {
+					t.Errorf("simple render missing %q:\n%s", key, simple)
+				}
+				if !strings.Contains(bubble, key) {
+					t.Errorf("bubble render missing %q:\n%s", key, bubble)
+				}
+			}
+
+			// Spot-check: renderer-specific chars like "•" should appear in both
+			// for list content, and "│" for blockquotes
+			if strings.Contains(tc.markdown, ">") {
+				if !strings.Contains(simple, "│") {
+					t.Errorf("simple render missing blockquote char:\n%s", simple)
+				}
+				if !strings.Contains(bubble, "│") {
+					t.Errorf("bubble render missing blockquote char:\n%s", bubble)
+				}
+			}
+		})
 	}
 }
 

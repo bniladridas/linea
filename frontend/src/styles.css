@@ -965,7 +965,8 @@ textarea {
 .message-content p,
 .message-content ul,
 .message-content pre,
-.message-content hr {
+.message-content hr,
+.message-content blockquote {
   min-width: 0;
   margin: 0;
 }
@@ -975,6 +976,18 @@ textarea {
   height: 1px;
   border: 0;
   background: #2a2a2a;
+}
+
+.message-content blockquote {
+  display: grid;
+  gap: 8px;
+  padding: 0 0 0 14px;
+  border-left: 2px solid #333333;
+}
+
+.message-content blockquote p {
+  color: #bbbbbb;
+  font-size: 14px;
 }
 
 .message-content h3 {
@@ -2743,6 +2756,14 @@ textarea:focus {
 :root[data-theme="light"] .message-content code {
   background: #ededeb;
   color: #252522;
+}
+
+:root[data-theme="light"] .message-content blockquote {
+  border-left-color: #d0d0c8;
+}
+
+:root[data-theme="light"] .message-content blockquote p {
+  color: #666660;
 }
 
 :root[data-theme="light"] .message-content hr {

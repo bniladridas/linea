@@ -40,6 +40,35 @@ type Runtime struct {
 	skillsDir        string
 	mcpConfigPath    string
 	commands         []string
+	activeProvider   ProviderInfo
+}
+
+type ProviderInfo struct {
+	Name  string `json:"name"`
+	Model string `json:"model,omitempty"`
+	Role  string `json:"role,omitempty"`
+}
+
+func (r *Runtime) SetActiveProvider(info ProviderInfo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.activeProvider = info
+	r.traces = append([]Trace{{
+		ID:        newTraceID(),
+		Event:     "provider",
+		State:     info.Name + " · " + info.Model,
+		Detail:    info.Role,
+		CreatedAt: time.Now().UTC(),
+	}}, r.traces...)
+	if len(r.traces) > 50 {
+		r.traces = r.traces[:50]
+	}
+}
+
+func (r *Runtime) activeProviderInfo() ProviderInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.activeProvider
 }
 
 type EditPlanner interface {
@@ -63,11 +92,14 @@ type EditPlan struct {
 type Status struct {
 	Mode             string            `json:"mode"`
 	WorkspaceRoot    string            `json:"workspaceRoot,omitempty"`
+	DeveloperMode    bool              `json:"developerMode"`
+	WorkspaceTrust   string            `json:"workspaceTrust,omitempty"`
 	Rules            RuleSet           `json:"rules"`
 	Tools            []Tool            `json:"tools"`
 	Hooks            []Hook            `json:"hooks"`
 	Skills           []Skill           `json:"skills"`
 	Subagents        []Subagent        `json:"subagents"`
+	MCPState         string            `json:"mcpState"`
 	MCPServers       []MCPServer       `json:"mcpServers"`
 	MCPTools         []MCPTool         `json:"mcpTools"`
 	MCPResources     []MCPResource     `json:"mcpResources"`
@@ -87,6 +119,7 @@ type Status struct {
 	CommandApprovals []CommandApproval `json:"commandApprovals"`
 	CommandChecks    []CommandCheck    `json:"commandChecks"`
 	CommandRuns      []CommandRun      `json:"commandRuns"`
+	Providers        []ProviderInfo  `json:"providers,omitempty"`
 }
 
 type RuleSet struct {
@@ -463,14 +496,22 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 }
 
 func (r *Runtime) Status(ctx context.Context) Status {
+	provider := r.activeProviderInfo()
+	providers := []ProviderInfo{}
+	if provider.Name != "" {
+		providers = append(providers, provider)
+	}
 	return Status{
 		Mode:             "local",
 		WorkspaceRoot:    r.WorkspaceRoot(),
+		DeveloperMode:    r.developerMode,
+		WorkspaceTrust:   r.workspaceTrust,
 		Rules:            r.loadRules(ctx),
 		Tools:            r.tools(),
 		Hooks:            defaultHooks(),
 		Skills:           r.skills(ctx),
 		Subagents:        defaultSubagents(),
+		MCPState:         r.mcpState(ctx),
 		MCPServers:       r.mcpServers(ctx),
 		MCPTools:         r.statusMCPTools(ctx),
 		MCPResources:     r.statusMCPResources(ctx),
@@ -490,6 +531,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		CommandApprovals: r.statusCommandApprovals(),
 		CommandChecks:    r.statusCommandChecks(),
 		CommandRuns:      r.statusCommandRuns(),
+		Providers:        providers,
 	}
 }
 

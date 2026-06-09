@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"linea/backend/internal/llm"
+
 	"github.com/evanw/esbuild/pkg/api"
 )
 
@@ -206,7 +208,10 @@ func (r *Runtime) planTempAppContent(ctx context.Context, goal string, current s
 	if r.editPlanner != nil {
 		plannerTried = true
 		files := []FileResult{{Path: "src/App.jsx", Content: current, Size: int64(len(current))}}
-		plan, err := r.editPlanner.PlanEdit(ctx, EditPlanRequest{Goal: goal, Files: files})
+		planCtx := llm.WithProviderCallback(ctx, func(info llm.ProviderInfo) {
+			r.SetActiveProvider(ProviderInfo{Name: info.Name, Model: info.Model, Role: "planner"})
+		})
+		plan, err := r.editPlanner.PlanEdit(planCtx, EditPlanRequest{Goal: goal, Files: files})
 		if err == nil && browserRunnableReactModule(plan.Content) {
 			return strings.TrimSpace(plan.Content) + "\n", nil
 		}
@@ -758,6 +763,12 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 				if loop.State == "waiting_approval" || loop.State == "waiting_input" || loop.State == "attention" {
 					return loop
 				}
+				if cmd := lastCommandRetry(loop); cmd != "" {
+					loop = r.runCheckedLoopCommand(ctx, loop, cmd)
+					if loop.State == "waiting_approval" || loop.State == "waiting_input" || loop.State == "attention" {
+						return loop
+					}
+				}
 			}
 		}
 		query := loopSearchQuery(input, loop.Goal)
@@ -866,6 +877,12 @@ func (r *Runtime) runLoopSteps(ctx context.Context, loop AgentLoop, input AgentL
 			if loop.State == "waiting_approval" || loop.State == "waiting_input" || loop.State == "attention" {
 				return loop
 			}
+			if cmd := lastCommandRetry(loop); cmd != "" {
+				loop = r.runCheckedLoopCommand(ctx, loop, cmd)
+				if loop.State == "waiting_approval" || loop.State == "waiting_input" || loop.State == "attention" {
+					return loop
+				}
+			}
 			if hasCompletedEditReview(loop) {
 				if isAutonomousAgentLoopMode(loop.Mode) && autoLoopLimitReached(loop) {
 					return appendAutoLimitStep(loop)
@@ -901,6 +918,10 @@ afterEditBoundary:
 			loop = appendLoopStep(loop, "command_infer", "Choose check command", "run_command", nil, detail, command)
 			if projectCheck {
 				loop = r.runInferredProjectCommand(ctx, loop, command)
+				if nextCommand, chainDetail := r.inferChainCheckCommand(ctx, loop, loop.Goal); loop.State == "running" && nextCommand != "" {
+					loop = appendLoopStep(loop, "command_infer", "Chain check", "run_command", nil, chainDetail, nextCommand)
+					return r.runCheckedLoopCommand(ctx, loop, nextCommand)
+				}
 				return loop
 			}
 		}
@@ -939,6 +960,10 @@ afterEditBoundary:
 						CreatedID: approval.ID,
 					})
 					loop = r.runLoopCommand(ctx, loop, command, approval.ID)
+					if nextCommand, chainDetail := r.inferChainCheckCommand(ctx, loop, loop.Goal); loop.State == "running" && nextCommand != "" {
+						loop = appendLoopStep(loop, "command_infer", "Chain check", "run_command", nil, chainDetail, nextCommand)
+						return r.runCheckedLoopCommand(ctx, loop, nextCommand)
+					}
 				}
 				return loop
 			}
@@ -975,7 +1000,80 @@ afterEditBoundary:
 		})
 		loop.State = "waiting_input"
 	}
+	if loop.State == "running" && loop.Mode == "auto" && loop.AutoApply && r.WorkspaceEnabled() {
+		if nextCommand, detail := r.inferChainCheckCommand(ctx, loop, loop.Goal); nextCommand != "" {
+			loop = appendLoopStep(loop, "command_infer", "Chain check", "run_command", nil, detail, nextCommand)
+			return r.runCheckedLoopCommand(ctx, loop, nextCommand)
+		}
+	}
 	return loop
+}
+
+var checkChains = []struct {
+	predecessor string
+	successor   string
+	detail      string
+	file        string
+}{
+	{predecessor: "go vet ./...", successor: "go test ./...", detail: "Chaining: vet → test", file: "go.mod"},
+	{predecessor: "go test ./...", successor: "", file: "go.mod"},
+	{predecessor: "npm run lint", successor: "npm run build", detail: "Chaining: lint → build", file: "package.json"},
+	{predecessor: "npm run build", successor: "npm test", detail: "Chaining: build → test", file: "package.json"},
+	{predecessor: "npm test", successor: "", file: "package.json"},
+	{predecessor: "make check", successor: "make test", detail: "Chaining: check → test", file: "Makefile"},
+	{predecessor: "make test", successor: "", file: "Makefile"},
+	{predecessor: "cargo check", successor: "cargo test", detail: "Chaining: check → test", file: "Cargo.toml"},
+	{predecessor: "cargo clippy", successor: "cargo check", detail: "Chaining: clippy → check", file: "Cargo.toml"},
+	{predecessor: "cargo test", successor: "", file: "Cargo.toml"},
+	{predecessor: "gradle check", successor: "gradle test", detail: "Chaining: check → test", file: "build.gradle"},
+	{predecessor: "gradle test", successor: "", file: "build.gradle"},
+	{predecessor: "mvn compile", successor: "mvn test", detail: "Chaining: compile → test", file: "pom.xml"},
+	{predecessor: "mvn verify", successor: "mvn test", detail: "Chaining: verify → test", file: "pom.xml"},
+	{predecessor: "mvn test", successor: "", file: "pom.xml"},
+	{predecessor: "rake spec", successor: "", file: "Rakefile"},
+	{predecessor: "tox", successor: "", file: "tox.ini"},
+	{predecessor: "mix test", successor: "", file: "mix.exs"},
+	{predecessor: "mix format --check-formatted", successor: "mix test", detail: "Chaining: format → test", file: "mix.exs"},
+	{predecessor: "just lint", successor: "just check", detail: "Chaining: lint → check", file: "justfile"},
+	{predecessor: "just check", successor: "just test", detail: "Chaining: check → test", file: "justfile"},
+	{predecessor: "just test", successor: "", file: "justfile"},
+}
+
+func (r *Runtime) inferChainCheckCommand(ctx context.Context, loop AgentLoop, goal string) (string, string) {
+	if !loop.AutoApply {
+		return "", ""
+	}
+	lastCommand := ""
+	for index := len(loop.Steps) - 1; index >= 0; index-- {
+		if loop.Steps[index].Kind == "command_run" && loop.Steps[index].State == "completed" && loop.Steps[index].Command != "" {
+			lastCommand = loop.Steps[index].Command
+			break
+		}
+	}
+	if lastCommand == "" {
+		return "", ""
+	}
+	root, err := r.workspaceRootPath()
+	if err != nil {
+		return "", ""
+	}
+	goalLower := strings.ToLower(goal)
+	for _, chain := range checkChains {
+		if chain.predecessor != lastCommand || chain.successor == "" {
+			continue
+		}
+		if !goalMatchesCommand(chain.successor, goalLower) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, chain.file)); err != nil {
+			continue
+		}
+		if check, checkErr := r.CheckCommand(ctx, CommandCheckInput{Command: chain.successor}); checkErr != nil || !check.Allowed {
+			continue
+		}
+		return chain.successor, chain.detail
+	}
+	return "", ""
 }
 
 func (r *Runtime) consumeAppliedEditReviews(loop AgentLoop) (AgentLoop, bool) {
@@ -1010,6 +1108,7 @@ func (r *Runtime) consumeAppliedEditReviews(loop AgentLoop) (AgentLoop, bool) {
 }
 
 func (r *Runtime) runLoopCommand(ctx context.Context, loop AgentLoop, command string, approvalID string) AgentLoop {
+	loop = r.runHookStep(ctx, loop, "before_tool", "Run command: "+command)
 	run, runErr := r.RunCommand(ctx, CommandCheckInput{Command: command, ApprovalID: approvalID})
 	detail := commandRunDetail(run)
 	if runErr == nil && run.ExitCode != 0 {
@@ -1023,6 +1122,7 @@ func (r *Runtime) runLoopCommand(ctx context.Context, loop AgentLoop, command st
 		}
 	}
 	loop = appendLoopStep(loop, "command_run", "Run command", "run_command", runErr, detail, command)
+	loop = r.runHookStep(ctx, loop, "after_check", "Command: "+command)
 	goalLower := strings.ToLower(loop.Goal)
 	if runErr != nil {
 		if isAutonomousAgentLoopMode(loop.Mode) && r.WorkspaceEnabled() && shouldReadDiagnostics(goalLower) {
@@ -1044,6 +1144,9 @@ func (r *Runtime) runLoopCommand(ctx context.Context, loop AgentLoop, command st
 					Command:       command,
 					CommandOutput: strings.TrimSpace(run.Output),
 				})
+				if cmd := lastCommandRetry(loop); cmd != "" {
+					return r.runCheckedLoopCommand(ctx, loop, cmd)
+				}
 			} else {
 				loop = appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
 			}
@@ -1073,6 +1176,9 @@ func (r *Runtime) runLoopCommand(ctx context.Context, loop AgentLoop, command st
 					Command:       command,
 					CommandOutput: strings.TrimSpace(run.Output),
 				})
+				if cmd := lastCommandRetry(loop); cmd != "" {
+					return r.runCheckedLoopCommand(ctx, loop, cmd)
+				}
 			} else {
 				loop = appendRetryStep(loop, loopRetryDetail(loop, "Diagnostics remain."))
 			}
@@ -1395,39 +1501,142 @@ func (r *Runtime) runInferredProjectCommand(ctx context.Context, loop AgentLoop,
 	return r.runCheckedLoopCommand(ctx, loop, command)
 }
 
-func (r *Runtime) runCheckedLoopCommand(ctx context.Context, loop AgentLoop, command string) AgentLoop {
-	run, err := r.runCheckedCommand(ctx, command)
-	detail := commandRunDetail(run)
-	if err == nil && run.ExitCode != 0 {
-		err = fmt.Errorf("command exited with %d", run.ExitCode)
-	}
+func (r *Runtime) runHookStep(ctx context.Context, loop AgentLoop, hookID string, detail string) AgentLoop {
+	execution, err := r.RunHook(ctx, hookID, HookExecutionInput{Detail: detail})
 	if err != nil {
-		if strings.TrimSpace(run.Output) != "" {
-			detail += " · " + err.Error()
-		} else {
-			detail = err.Error()
-		}
+		return appendLoopStep(loop, "hook_"+hookID, "Hook: "+hookID, hookID, err, err.Error(), "")
 	}
-	loop = appendLoopStep(loop, "command_run", "Run command", "run_command", err, detail, command)
-	if err != nil && loop.Mode == "auto" && loop.AutoApply && r.WorkspaceEnabled() && shouldReadDiagnostics(strings.ToLower(loop.Goal)) {
-		if autoLoopLimitReached(loop) {
-			return appendAutoLimitStep(loop)
-		}
-		diagnostics, diagnosticsErr := r.ListDiagnostics(ctx)
-		loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", diagnosticsErr, fmt.Sprintf("%d diagnostic(s) after failed command", len(diagnostics)), "")
-		if diagnosticsErr == nil && len(diagnostics) > 0 {
-			return r.autoProposeEdit(ctx, loop, EditPlanRequest{
-				Goal:          loop.Goal,
-				Diagnostics:   diagnostics,
-				Command:       command,
-				CommandOutput: strings.TrimSpace(run.Output),
-			})
-		}
+	detailStr := detail
+	if execution.CommandRun != nil {
+		detailStr = execution.CommandRun.Command
 	}
-	if err != nil && loop.Mode == "developer" {
-		return r.runDeveloperFailureInspection(ctx, loop, command)
+	loop = appendLoopStep(loop, "hook_"+hookID, "Hook: "+hookID, hookID, nil, detailStr, "")
+	if execution.CommandRun != nil && execution.CommandRun.ExitCode != 0 {
+		loop.State = "attention"
 	}
 	return loop
+}
+
+func (r *Runtime) runCheckedLoopCommand(ctx context.Context, loop AgentLoop, command string) AgentLoop {
+	loop = r.runHookStep(ctx, loop, "before_tool", "Run command: "+command)
+	for {
+		if command == "" {
+			command = lastCommandRetry(loop)
+			if command == "" {
+				return loop
+			}
+		}
+		run, err := r.runCheckedCommand(ctx, command)
+		detail := commandRunDetail(run)
+		if err == nil && run.ExitCode != 0 {
+			err = fmt.Errorf("command exited with %d", run.ExitCode)
+		}
+		if err != nil {
+			if strings.TrimSpace(run.Output) != "" {
+				detail += " · " + err.Error()
+			} else {
+				detail = err.Error()
+			}
+		}
+		loop = appendLoopStep(loop, "command_run", "Run command", "run_command", err, detail, command)
+		loop = r.runHookStep(ctx, loop, "after_check", "Command: "+command)
+		if err != nil && loop.Mode == "auto" && loop.AutoApply && r.WorkspaceEnabled() {
+			if shouldReadDiagnostics(strings.ToLower(loop.Goal)) {
+				if autoLoopLimitReached(loop) {
+					return appendAutoLimitStep(loop)
+				}
+				diagnostics, diagnosticsErr := r.ListDiagnostics(ctx)
+				loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", diagnosticsErr, fmt.Sprintf("%d diagnostic(s) after failed command", len(diagnostics)), "")
+				if diagnosticsErr == nil && len(diagnostics) > 0 {
+					loop = r.autoProposeEdit(ctx, loop, EditPlanRequest{
+						Goal:          loop.Goal,
+						Diagnostics:   diagnostics,
+						Command:       command,
+						CommandOutput: strings.TrimSpace(run.Output),
+					})
+					if cmd := lastCommandRetry(loop); cmd != "" {
+						command = cmd
+						continue
+					}
+					return loop
+				}
+			}
+			if !autoLoopLimitReached(loop) && looksLikeMissingDependency(run.Output, command) {
+				installCommand := r.inferInstallCommand(ctx)
+				if installCommand != "" {
+					loop = appendLoopStep(loop, "command_retry", "Install dependencies", "run_command", nil, "Command failed, retrying with dependency install.", installCommand)
+					if runInstall, installErr := r.runCheckedCommand(ctx, installCommand); installErr == nil && runInstall.ExitCode == 0 {
+						loop = appendLoopStep(loop, "command_run", "Install dependencies", "run_command", nil, commandRunDetail(runInstall), installCommand)
+						continue
+					}
+				}
+			}
+		}
+		if err != nil && loop.Mode == "developer" {
+			return r.runDeveloperFailureInspection(ctx, loop, command)
+		}
+		if err == nil && loop.Mode == "auto" && loop.AutoApply && r.WorkspaceEnabled() && shouldReadDiagnostics(strings.ToLower(loop.Goal)) {
+			diagnostics, diagnosticsErr := r.ListDiagnostics(ctx)
+			loop = appendLoopStep(loop, "diagnostics", "Read diagnostics", "diagnostics", diagnosticsErr, fmt.Sprintf("%d diagnostic(s) after command", len(diagnostics)), "")
+			if diagnosticsErr == nil && len(diagnostics) > 0 {
+				if autoLoopLimitReached(loop) {
+					return appendAutoLimitStep(loop)
+				}
+				loop = r.autoProposeEdit(ctx, loop, EditPlanRequest{
+					Goal:          loop.Goal,
+					Diagnostics:   diagnostics,
+					Command:       command,
+					CommandOutput: strings.TrimSpace(run.Output),
+				})
+				if cmd := lastCommandRetry(loop); cmd != "" {
+					command = cmd
+					continue
+				}
+			}
+		}
+		return loop
+	}
+}
+
+func looksLikeMissingDependency(output string, command string) bool {
+	lower := strings.ToLower(output)
+	if strings.Contains(lower, "command not found") || strings.Contains(lower, "not a command") {
+		return true
+	}
+	if strings.Contains(lower, "no such host") || strings.Contains(lower, "get \"") || strings.Contains(lower, "module not found") {
+		return true
+	}
+	if strings.Contains(lower, "cannot find module") || strings.Contains(lower, "missing go.sum") {
+		return true
+	}
+	if strings.Contains(lower, "enoent") || strings.Contains(lower, "not found") {
+		return true
+	}
+	return false
+}
+
+func (r *Runtime) inferInstallCommand(ctx context.Context) string {
+	root, err := r.workspaceRootPath()
+	if err != nil {
+		return ""
+	}
+	hasFile := func(name string) bool {
+		_, err := os.Stat(filepath.Join(root, name))
+		return err == nil
+	}
+	switch {
+	case hasFile("go.mod"):
+		return "go mod download"
+	case hasFile("package.json"):
+		return "npm install"
+	case hasFile("Cargo.toml"):
+		return "cargo fetch"
+	case hasFile("Gemfile"):
+		return "bundle install"
+	case hasFile("requirements.txt"):
+		return "pip install -r requirements.txt"
+	}
+	return ""
 }
 
 func (r *Runtime) runDeveloperFailureInspection(ctx context.Context, loop AgentLoop, failedCommand string) AgentLoop {
@@ -1494,6 +1703,23 @@ func (r *Runtime) inferLoopCommand(ctx context.Context, goal string) (string, st
 		{command: "go test ./...", file: "go.mod", terms: []string{"test", "check", "fix"}},
 		{command: "go vet ./...", file: "go.mod", terms: []string{"vet", "check"}},
 		{command: "npm run build", file: "package.json", terms: []string{"build", "frontend", "ui", "typescript"}},
+		{command: "cargo test", file: "Cargo.toml", terms: []string{"test", "check", "fix", "build"}},
+		{command: "cargo check", file: "Cargo.toml", terms: []string{"check", "fix", "build"}},
+		{command: "cargo clippy", file: "Cargo.toml", terms: []string{"lint", "clippy"}},
+		{command: "just test", file: "justfile", terms: []string{"test", "check", "fix", "build"}},
+		{command: "just check", file: "justfile", terms: []string{"check", "fix", "build"}},
+		{command: "just lint", file: "justfile", terms: []string{"lint", "fix"}},
+		{command: "gradle test", file: "build.gradle", terms: []string{"test", "check", "fix", "build"}},
+		{command: "gradle check", file: "build.gradle", terms: []string{"check", "fix", "build"}},
+		{command: "gradle build", file: "build.gradle", terms: []string{"build", "compile"}},
+		{command: "mvn test", file: "pom.xml", terms: []string{"test", "check", "fix", "build"}},
+		{command: "mvn verify", file: "pom.xml", terms: []string{"check", "fix"}},
+		{command: "mvn compile", file: "pom.xml", terms: []string{"compile", "build"}},
+		{command: "rake test", file: "Rakefile", terms: []string{"test", "check", "fix"}},
+		{command: "rake spec", file: "Rakefile", terms: []string{"spec", "test", "check"}},
+		{command: "tox", file: "tox.ini", terms: []string{"test", "check", "fix"}},
+		{command: "mix test", file: "mix.exs", terms: []string{"test", "check", "fix"}},
+		{command: "mix format --check-formatted", file: "mix.exs", terms: []string{"fmt", "format", "lint"}},
 	}
 	for _, candidate := range candidates {
 		select {
@@ -1537,12 +1763,53 @@ func (r *Runtime) inferDeveloperLoopCommand(ctx context.Context, goal string) (s
 		if hasFile("go.mod") {
 			return "go mod download", "Inferred go module download from go.mod."
 		}
-	case strings.Contains(goalLower, "lint"):
+		if hasFile("Cargo.toml") {
+			return "cargo fetch", "Inferred cargo fetch from Cargo.toml."
+		}
+		if hasFile("Gemfile") {
+			return "bundle install", "Inferred bundle install from Gemfile."
+		}
+		if hasFile("requirements.txt") {
+			return "pip install -r requirements.txt", "Inferred pip install from requirements.txt."
+		}
+		if hasFile("mix.exs") {
+			return "mix deps.get", "Inferred mix deps.get from mix.exs."
+		}
+	case strings.Contains(goalLower, "lint") || strings.Contains(goalLower, "check"):
 		if hasFile("package.json") {
 			return "npm run lint", "Inferred npm lint from package.json."
 		}
 		if hasFile("go.mod") {
 			return "go vet ./...", "Inferred Go vet from go.mod."
+		}
+		if hasFile("Cargo.toml") {
+			return "cargo check", "Inferred cargo check from Cargo.toml."
+		}
+	case strings.Contains(goalLower, "build") || strings.Contains(goalLower, "compile"):
+		if hasFile("package.json") {
+			return "npm run build", "Inferred npm build from package.json."
+		}
+		if hasFile("go.mod") {
+			return "go build ./...", "Inferred Go build from go.mod."
+		}
+		if hasFile("Cargo.toml") {
+			return "cargo build", "Inferred cargo build from Cargo.toml."
+		}
+		if hasFile("Makefile") {
+			return "make", "Inferred make from Makefile."
+		}
+	case strings.Contains(goalLower, "test") || strings.Contains(goalLower, "spec") || strings.Contains(goalLower, "e2e"):
+		if hasFile("package.json") {
+			return "npm test", "Inferred npm test from package.json."
+		}
+		if hasFile("go.mod") {
+			return "go test ./...", "Inferred Go test from go.mod."
+		}
+		if hasFile("Cargo.toml") {
+			return "cargo test", "Inferred cargo test from Cargo.toml."
+		}
+		if hasFile("Makefile") {
+			return "make test", "Inferred make test from Makefile."
 		}
 	case strings.Contains(goalLower, "format") || strings.Contains(goalLower, "fmt"):
 		if hasFile("go.mod") {
@@ -1551,7 +1818,14 @@ func (r *Runtime) inferDeveloperLoopCommand(ctx context.Context, goal string) (s
 		if hasFile("package.json") {
 			return "npm run format", "Inferred npm format from package.json."
 		}
-	case strings.Contains(goalLower, "list files") || strings.Contains(goalLower, "inspect files"):
+	case strings.Contains(goalLower, "dev") || strings.Contains(goalLower, "start") || strings.Contains(goalLower, "serve"):
+		if hasFile("package.json") {
+			return "npm run dev", "Inferred npm dev script from package.json."
+		}
+		if hasFile("Makefile") {
+			return "make run", "Inferred make run from Makefile."
+		}
+	case strings.Contains(goalLower, "list files") || strings.Contains(goalLower, "inspect files") || strings.Contains(goalLower, "show files") || strings.Contains(goalLower, "what files"):
 		return "find . -maxdepth 2 -type f", "Inferred file listing for workspace inspection."
 	}
 	return "", ""
@@ -1579,6 +1853,14 @@ func (r *Runtime) inferDeveloperFailureInspection(ctx context.Context, failedCom
 		return "go env GOMOD", "Inspect Go module context after failed command."
 	case strings.HasPrefix(failedLower, "make ") && hasFile("Makefile"):
 		return "sed -n 1,160p Makefile", "Inspect Makefile after failed command."
+	case strings.HasPrefix(failedLower, "cargo ") && hasFile("Cargo.toml"):
+		return "cargo metadata --no-deps --format-version 1", "Inspect Cargo context after failed command."
+	case strings.HasPrefix(failedLower, "pip ") && hasFile("requirements.txt"):
+		return "pip list --format=columns", "Inspect pip packages after failed command."
+	case strings.HasPrefix(failedLower, "bundle ") && hasFile("Gemfile"):
+		return "bundle list", "Inspect Bundler context after failed command."
+	case strings.HasPrefix(failedLower, "mix ") && hasFile("mix.exs"):
+		return "mix deps", "Inspect Mix dependencies after failed command."
 	}
 	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
 		return "git status --short", "Inspect repository status after failed command."
@@ -1624,16 +1906,20 @@ func (r *Runtime) inferPackageCommand(ctx context.Context, root string, goal str
 
 func packageScriptPreference(goal string) []string {
 	switch {
-	case strings.Contains(goal, "lint"):
+	case strings.Contains(goal, "lint") || strings.Contains(goal, "style"):
 		return []string{"lint", "check", "test", "build"}
 	case strings.Contains(goal, "type") || strings.Contains(goal, "typescript"):
 		return []string{"typecheck", "type-check", "check", "build", "test"}
-	case strings.Contains(goal, "test"):
+	case strings.Contains(goal, "test") || strings.Contains(goal, "spec") || strings.Contains(goal, "e2e"):
 		return []string{"test", "check", "lint", "build"}
-	case strings.Contains(goal, "build"):
+	case strings.Contains(goal, "build") || strings.Contains(goal, "compile"):
 		return []string{"build", "check", "test", "lint"}
 	case strings.Contains(goal, "ui") || strings.Contains(goal, "frontend") || strings.Contains(goal, "react"):
 		return []string{"build", "test", "lint", "check"}
+	case strings.Contains(goal, "ci") || strings.Contains(goal, "validate"):
+		return []string{"ci", "test", "lint", "check", "build"}
+	case strings.Contains(goal, "fmt") || strings.Contains(goal, "format"):
+		return []string{"format", "lint", "check", "test"}
 	default:
 		return []string{"check", "test", "build", "lint"}
 	}
@@ -1685,7 +1971,10 @@ func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request E
 		return loop
 	}
 	request.Files = files
-	plan, err := planner.PlanEdit(ctx, request)
+	planCtx := llm.WithProviderCallback(ctx, func(info llm.ProviderInfo) {
+		r.SetActiveProvider(ProviderInfo{Name: info.Name, Model: info.Model, Role: "planner"})
+	})
+	plan, err := planner.PlanEdit(planCtx, request)
 	if err != nil {
 		fallback, ok := autoCreateFallbackPlan(request, files)
 		if !ok {
@@ -1775,13 +2064,14 @@ func (r *Runtime) autoApplyGeneratedEditProposal(ctx context.Context, loop Agent
 		}
 	}
 	loop.Steps = append(loop.Steps, step)
+	loop = r.runHookStep(ctx, loop, "after_edit", "Applied edit proposal: "+proposalID)
 	command = strings.Join(strings.Fields(command), " ")
 	if step.State == "completed" && command != "" {
 		if autoLoopLimitReached(loop) {
 			return appendAutoLimitStep(loop)
 		}
 		loop = appendLoopStep(loop, "command_retry", "Retry command", "run_command", nil, "Retrying after auto-applied edit.", command)
-		return r.runCheckedLoopCommand(ctx, loop, command)
+		loop.State = "running"
 	}
 	return loop
 }
@@ -1790,6 +2080,16 @@ func lastFailedLoopCommand(loop AgentLoop) string {
 	for index := len(loop.Steps) - 1; index >= 0; index-- {
 		step := loop.Steps[index]
 		if step.Kind == "command_run" && step.State == "blocked" && strings.TrimSpace(step.Command) != "" {
+			return step.Command
+		}
+	}
+	return ""
+}
+
+func lastCommandRetry(loop AgentLoop) string {
+	for index := len(loop.Steps) - 1; index >= 0; index-- {
+		step := loop.Steps[index]
+		if step.Kind == "command_retry" && strings.TrimSpace(step.Command) != "" {
 			return step.Command
 		}
 	}
@@ -2859,7 +3159,11 @@ func loopSummary(loop AgentLoop) string {
 }
 
 func shouldReadDiagnostics(goal string) bool {
-	return strings.Contains(goal, "diagnostic") || strings.Contains(goal, "error") || strings.Contains(goal, "test") || strings.Contains(goal, "build")
+	return strings.Contains(goal, "diagnostic") || strings.Contains(goal, "error") ||
+		strings.Contains(goal, "test") || strings.Contains(goal, "build") ||
+		strings.Contains(goal, "lint") || strings.Contains(goal, "fmt") ||
+		strings.Contains(goal, "style") || strings.Contains(goal, "check") ||
+		strings.Contains(goal, "compile")
 }
 
 func shouldGatherAutoEvidence(goal string, mode string) bool {
@@ -2869,7 +3173,11 @@ func shouldGatherAutoEvidence(goal string, mode string) bool {
 	return strings.Contains(goal, "fix") ||
 		strings.Contains(goal, "repair") ||
 		strings.Contains(goal, "refactor") ||
-		strings.Contains(goal, "improve")
+		strings.Contains(goal, "improve") ||
+		strings.Contains(goal, "resolve") ||
+		strings.Contains(goal, "patch") ||
+		strings.Contains(goal, "correct") ||
+		strings.Contains(goal, "address")
 }
 
 func shouldUseWorkspace(goal string) bool {
@@ -2885,7 +3193,10 @@ func shouldReadReferences(goal string) bool {
 }
 
 func mentionsCommand(goal string) bool {
-	return strings.Contains(goal, "run ") || strings.Contains(goal, "test") || strings.Contains(goal, "build") || strings.Contains(goal, "check")
+	return strings.Contains(goal, "run ") || strings.Contains(goal, "test") ||
+		strings.Contains(goal, "build") || strings.Contains(goal, "check") ||
+		strings.Contains(goal, "lint") || strings.Contains(goal, "vet") ||
+		strings.Contains(goal, "verify") || strings.Contains(goal, "compile")
 }
 
 func mentionsEdit(goal string) bool {

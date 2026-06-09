@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -698,6 +697,9 @@ func renderMarkdownForBubble(content string, styles bubbleStyles) string {
 		case strings.HasPrefix(trimmed, "# "):
 			b.WriteString(styles.title.Render(strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))))
 			b.WriteString("\n")
+		case strings.HasPrefix(trimmed, "### "):
+			b.WriteString(styles.title.Render(strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))))
+			b.WriteString("\n")
 		case strings.HasPrefix(trimmed, "## "):
 			b.WriteString(styles.title.Render(strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))))
 			b.WriteString("\n")
@@ -735,40 +737,34 @@ func renderInlineForBubble(line string, styles bubbleStyles) string {
 	line = replaceDelimited(line, "**", func(value string) string {
 		return styles.title.Inline(true).Render(value)
 	})
+	line = replaceLinksForBubble(line, styles)
 	return line
 }
 
-func isOrderedMarkdownLine(line string) bool {
-	index := 0
-	for index < len(line) && unicode.IsDigit(rune(line[index])) {
-		index++
-	}
-	return index > 0 && index+1 < len(line) && line[index] == '.' && unicode.IsSpace(rune(line[index+1]))
-}
-
-func splitOrderedMarkdownLine(line string) (string, string) {
-	number, rest, _ := strings.Cut(line, ".")
-	return number, strings.TrimSpace(rest)
-}
-
-func replaceDelimited(line string, delimiter string, render func(string) string) string {
+func replaceLinksForBubble(line string, styles bubbleStyles) string {
 	var b strings.Builder
 	for {
-		start := strings.Index(line, delimiter)
+		start := strings.Index(line, "[")
 		if start < 0 {
 			b.WriteString(line)
 			break
 		}
-		end := strings.Index(line[start+len(delimiter):], delimiter)
-		if end < 0 {
+		endBracket := strings.Index(line[start+1:], "](")
+		if endBracket < 0 {
 			b.WriteString(line)
 			break
 		}
+		endParen := strings.Index(line[start+1+endBracket+2:], ")")
+		if endParen < 0 {
+			b.WriteString(line)
+			break
+		}
+		text := line[start+1 : start+1+endBracket]
+		url := line[start+1+endBracket+2 : start+1+endBracket+2+endParen]
 		b.WriteString(line[:start])
-		valueStart := start + len(delimiter)
-		valueEnd := valueStart + end
-		b.WriteString(render(line[valueStart:valueEnd]))
-		line = line[valueEnd+len(delimiter):]
+		b.WriteString(styles.accent.Inline(true).Render(text))
+		b.WriteString(styles.muted.Inline(true).Render(" (" + url + ")"))
+		line = line[start+1+endBracket+2+endParen+1:]
 	}
 	return b.String()
 }

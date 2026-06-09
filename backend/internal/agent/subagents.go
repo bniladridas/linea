@@ -12,6 +12,7 @@ const (
 	maxSubagentRuns         = 50
 	maxSubagentPlanRuns     = 30
 	maxSubagentPlanChildren = 3
+	maxSubagentDuration     = 30 * time.Second
 )
 
 func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input SubagentRunInput) (SubagentRun, error) {
@@ -19,6 +20,8 @@ func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input Suba
 	if !ok {
 		return SubagentRun{}, errors.New("Unknown subagent ID.")
 	}
+	subCtx, cancel := context.WithTimeout(ctx, maxSubagentDuration)
+	defer cancel()
 	state := "completed"
 	summary := strings.TrimSpace(input.Goal)
 	if summary == "" {
@@ -26,7 +29,7 @@ func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input Suba
 	}
 	switch subagent.ID {
 	case "review":
-		diagnostics, err := r.ListDiagnostics(ctx)
+		diagnostics, err := r.ListDiagnostics(subCtx)
 		if err != nil {
 			state = subagentStateForError(err)
 			summary = err.Error()
@@ -83,7 +86,7 @@ func (r *Runtime) ListSubagentPlans(context.Context) []SubagentPlanRun {
 }
 
 func (r *Runtime) RunSubagentPlan(ctx context.Context, input SubagentPlanInput) (SubagentPlanRun, error) {
-	ids, err := selectSubagentPlan(input)
+	ids, err := selectSubagentPlan(input, 0)
 	if err != nil {
 		return SubagentPlanRun{}, err
 	}
@@ -136,7 +139,10 @@ func (r *Runtime) statusSubagentPlans() []SubagentPlanRun {
 	return items
 }
 
-func selectSubagentPlan(input SubagentPlanInput) ([]string, error) {
+func selectSubagentPlan(input SubagentPlanInput, depth int) ([]string, error) {
+	if depth > 3 {
+		return nil, errors.New("Subagent plan depth limit reached.")
+	}
 	seen := map[string]bool{}
 	ids := []string{}
 	add := func(id string) error {

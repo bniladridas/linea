@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1659,6 +1660,46 @@ func TestRuntimeRunsHookCommand(t *testing.T) {
 	}
 }
 
+func TestRuntimeAgentLoopFiresHooks(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "fix and test the project",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopHasStep(loop, "hook_before_tool", "completed") {
+		t.Fatalf("loop missing before_tool hook step: %#v", loop)
+	}
+	if !loopHasStep(loop, "hook_after_check", "completed") {
+		t.Fatalf("loop missing after_check hook step: %#v", loop)
+	}
+	hooks := runtime.ListHookRuns(context.Background())
+	if len(hooks) < 2 {
+		t.Fatalf("expected at least 2 hook runs, got %d: %#v", len(hooks), hooks)
+	}
+	hasBeforeTool := false
+	hasAfterCheck := false
+	for _, h := range hooks {
+		if h.HookID == "before_tool" {
+			hasBeforeTool = true
+		}
+		if h.HookID == "after_check" {
+			hasAfterCheck = true
+		}
+	}
+	if !hasBeforeTool {
+		t.Fatal("missing before_tool hook run")
+	}
+	if !hasAfterCheck {
+		t.Fatal("missing after_check hook run")
+	}
+}
+
 func TestStatusLoadsSkillsFromDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "review-change.md"), "# Review change\n\nCommand: printf ok\n\nCheck a diff.")
@@ -1808,7 +1849,7 @@ func TestRuntimeDiscoversPagedMCPTools(t *testing.T) {
 	}
 }
 
-func TestStatusDoesNotDiscoverMCPTools(t *testing.T) {
+func TestStatusDiscoversMCPTools(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
 	writeTestFile(t, configPath, `{
   "mcpServers": {
@@ -1825,7 +1866,10 @@ func TestStatusDoesNotDiscoverMCPTools(t *testing.T) {
 	if len(status.MCPServers) != 1 || status.MCPServers[0].State != "ready" {
 		t.Fatalf("mcp servers = %#v", status.MCPServers)
 	}
-	if len(status.MCPTools) != 0 {
+	if len(status.MCPTools) == 0 {
+		t.Fatalf("mcp tools should be discovered, got empty: %#v", status.MCPTools)
+	}
+	if status.MCPTools[0].Name != "ping" {
 		t.Fatalf("mcp tools = %#v", status.MCPTools)
 	}
 }
@@ -4168,6 +4212,170 @@ esac
 		t.Fatalf("write fake lsp: %v", err)
 	}
 	return path
+}
+
+func TestRuntimeDeveloperLoopInspectsGitFailure(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(root, "README.md"), "notes")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run command",
+		Mode:    "developer",
+		Command: "false",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopStepHasCommand(loop, "command_followup", "git status --short") {
+		t.Fatalf("expected git status inspection, steps = %#v", loop.Steps)
+	}
+	if !loopStepHasCommand(loop, "command_run", "git status --short") {
+		t.Fatalf("expected git status run, steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeDeveloperLoopInspectsMakeFailure(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not available on PATH")
+	}
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "Makefile"), "test:\n\tprintf ok\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run command",
+		Mode:    "developer",
+		Command: "make nonexistent",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopStepHasCommand(loop, "command_followup", "sed -n 1,160p Makefile") {
+		t.Fatalf("expected Makefile inspection, steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeDeveloperLoopInspectsNpmFailure(t *testing.T) {
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm not available on PATH")
+	}
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{}}`)
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run command",
+		Mode:    "developer",
+		Command: "npm test",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopStepHasCommand(loop, "command_followup", "npm run") {
+		t.Fatalf("expected npm run inspection, steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeDeveloperLoopInspectsGoFailure(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not available on PATH")
+	}
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "go.mod"), "module test\n")
+	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal:    "run command",
+		Mode:    "developer",
+		Command: "go build .",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopStepHasCommand(loop, "command_followup", "go env GOMOD") {
+		t.Fatalf("expected go env GOMOD inspection, steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeAutoLoopInfersPackageScriptTest(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"test":"echo ok"}}`)
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"npm test"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "run tests",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopStepHasCommand(loop, "command_run", "npm test") {
+		t.Fatalf("expected npm test, steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeAutoLoopInfersPackageScriptLint(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"lint":"echo ok"}}`)
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"npm run lint"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "lint the project",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopStepHasCommand(loop, "command_run", "npm run lint") {
+		t.Fatalf("expected npm run lint, steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeAutoLoopInfersPackageScriptBuild(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "package.json"), `{"scripts":{"build":"echo ok"}}`)
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithCommandAllowlist([]string{"npm run build"}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "build the frontend",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+	if !loopStepHasCommand(loop, "command_run", "npm run build") {
+		t.Fatalf("expected npm run build, steps = %#v", loop.Steps)
+	}
+}
+
+func TestRuntimeConsumeAppliedEditReviewMissingProposal(t *testing.T) {
+	runtime := NewRuntime("")
+	loop := AgentLoop{
+		ID:    "test-loop",
+		State: "running",
+		Steps: []AgentLoopStep{
+			{
+				Kind:      "edit_review",
+				State:     "waiting_approval",
+				CreatedID: "nonexistent",
+			},
+		},
+	}
+	result, blocked := runtime.consumeAppliedEditReviews(loop)
+	if !blocked {
+		t.Fatalf("expected blocked = true")
+	}
+	if result.State != "attention" {
+		t.Fatalf("expected state = attention, got %q", result.State)
+	}
+	if result.Steps[0].State != "blocked" {
+		t.Fatalf("expected step state = blocked, got %q", result.Steps[0].State)
+	}
 }
 
 type fakeEditPlanner struct {
