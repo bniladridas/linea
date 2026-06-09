@@ -6,6 +6,7 @@ dist/
 
 backend/go.work
 backend/internal/web/dist/
+backend/server
 
 coverage/
 *.coverprofile
