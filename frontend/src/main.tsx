@@ -264,6 +264,17 @@ type AgentStatus = {
     }>;
   }>;
   unrestricted?: boolean;
+  backgroundJobs?: BackgroundJob[];
+};
+
+type BackgroundJob = {
+  id: string;
+  loopId: string;
+  goal: string;
+  state: string;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type AgentRun = {
@@ -1260,6 +1271,28 @@ function App() {
     }
   }
 
+  async function startBackgroundJob(input: { goal: string; mode?: string; maxIterations?: number; autoApply?: boolean }) {
+    try {
+      await request('/api/agent/background-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      await refreshAgentDetails();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start background job.');
+    }
+  }
+
+  async function cancelBackgroundJob(id: string) {
+    try {
+      await request(`/api/agent/background-jobs/${id}/cancel`, { method: 'POST' });
+      await refreshAgentDetails();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not cancel background job.');
+    }
+  }
+
   async function saveAgentWorkspaceRoot(root: string) {
     const activityId = recordAgentActivity({
       kind: 'workspace',
@@ -2130,6 +2163,8 @@ function App() {
           onContinueLoop={(loopId, input) => void continueAgentLoop(loopId, input)}
           onCancelLoop={(loopId) => void cancelAgentLoop(loopId)}
           onSetUnrestricted={(unrestricted) => void setAgentUnrestricted(unrestricted)}
+          onStartBackgroundJob={(input) => void startBackgroundJob(input)}
+          onCancelBackgroundJob={(id) => void cancelBackgroundJob(id)}
           onWorkspaceChange={(root) => void saveAgentWorkspaceRoot(root)}
           onSettingsChange={(next) => void saveAppSettings(next)}
           onClose={() => setIsSystemDetailsOpen(false)}
@@ -2689,6 +2724,8 @@ function SystemDetailsDialog({
   onContinueLoop,
   onCancelLoop,
   onSetUnrestricted,
+  onStartBackgroundJob,
+  onCancelBackgroundJob,
   onSettingsChange,
   onWorkspaceChange,
   settings,
@@ -2720,6 +2757,8 @@ function SystemDetailsDialog({
   onContinueLoop: (loopId: string, input: Omit<AgentLoopRequest, 'goal'>) => void;
   onCancelLoop: (loopId: string) => void;
   onSetUnrestricted: (unrestricted: boolean) => void;
+  onStartBackgroundJob: (input: { goal: string; mode?: string; maxIterations?: number; autoApply?: boolean }) => void;
+  onCancelBackgroundJob: (id: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
   onWorkspaceChange: (root: string) => void;
   settings: AppSettings | null;
@@ -3251,6 +3290,15 @@ function SystemDetailsDialog({
               <button disabled={!loopGoalInput.trim()} type="submit">
                 Start
               </button>
+              {isAutonomousLoopMode(loopModeInput) && (
+                <button
+                  disabled={!loopGoalInput.trim()}
+                  type="button"
+                  onClick={() => onStartBackgroundJob({ goal: loopGoalInput, mode: loopModeInput, autoApply: true, maxIterations: 10 })}
+                >
+                  Start bg
+                </button>
+              )}
             </div>
             <div className="agent-loop-options proposal-options">
               <input
@@ -3888,6 +3936,28 @@ function SystemDetailsDialog({
             <p>No traces</p>
           )}
         </section>
+        {(agentStatus?.backgroundJobs ?? []).length > 0 && (
+          <section className="details-list">
+            <div className="details-list-header">
+              <h3>Background jobs</h3>
+              <span>{agentStatus?.backgroundJobs?.length ?? 0}</span>
+            </div>
+            {(agentStatus?.backgroundJobs ?? []).map((job) => (
+              <div key={job.id} className="agent-card">
+                <div className="agent-card-header">
+                  <strong>{job.goal}</strong>
+                  <span className={`agent-loop-badge ${job.state}`}>{job.state}</span>
+                </div>
+                {job.summary && <p className="agent-card-summary">{job.summary}</p>}
+                <div className="agent-card-actions">
+                  {job.state === 'running' && (
+                    <button type="button" onClick={() => onCancelBackgroundJob(job.id)}>Cancel</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
         <DetailsList
           empty="No blocked checks"
           items={blockedChecks}
