@@ -3225,3 +3225,125 @@ func trimRunes(value string, max int) string {
 	}
 	return string(runes[:max])
 }
+
+func (r *Runtime) listBackgroundJobs() []BackgroundJob {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.backgroundJobs) == 0 {
+		return []BackgroundJob{}
+	}
+	jobs := make([]BackgroundJob, len(r.backgroundJobs))
+	copy(jobs, r.backgroundJobs)
+	return jobs
+}
+
+func (r *Runtime) StartBackgroundJob(ctx context.Context, input BackgroundJobInput) (BackgroundJob, error) {
+	if !isAutonomousAgentLoopMode(input.Mode) {
+		input.Mode = "auto"
+	}
+	loop, err := r.StartAgentLoop(ctx, AgentLoopInput{
+		Goal:          input.Goal,
+		Mode:          input.Mode,
+		MaxIterations: input.MaxIterations,
+		AutoApply:     input.AutoApply,
+	})
+	if err != nil {
+		return BackgroundJob{}, err
+	}
+	job := BackgroundJob{
+		ID:        newTraceID(),
+		LoopID:    loop.ID,
+		Goal:      loop.Goal,
+		State:     "running",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	r.mu.Lock()
+	r.backgroundJobs = append(r.backgroundJobs, job)
+	r.mu.Unlock()
+	return job, nil
+}
+
+func (r *Runtime) CancelBackgroundJob(ctx context.Context, id string) (BackgroundJob, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.backgroundJobs {
+		if r.backgroundJobs[i].ID == id {
+			if r.backgroundJobs[i].State != "running" {
+				return BackgroundJob{}, errors.New("Background job is not running.")
+			}
+			r.backgroundJobs[i].State = "cancelled"
+			r.backgroundJobs[i].UpdatedAt = time.Now().UTC()
+			job := r.backgroundJobs[i]
+			r.CancelAgentLoop(ctx, job.LoopID)
+			return job, nil
+		}
+	}
+	return BackgroundJob{}, errors.New("Background job not found.")
+}
+
+func (r *Runtime) backgroundJobByLoopID(id string) (int, bool) {
+	for i, job := range r.backgroundJobs {
+		if job.LoopID == id {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+func (r *Runtime) startBackgroundSupervisor() {
+	ctx, cancel := context.WithCancel(r.shutdownCtx)
+	r.backgroundCancel = cancel
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				r.tickBackgroundJobs(ctx)
+			}
+		}
+	}()
+}
+
+func (r *Runtime) tickBackgroundJobs(ctx context.Context) {
+	r.mu.RLock()
+	var active []BackgroundJob
+	for _, job := range r.backgroundJobs {
+		if job.State == "running" {
+			active = append(active, job)
+		}
+	}
+	r.mu.RUnlock()
+	for _, job := range active {
+		loop, err := r.ContinueAgentLoop(ctx, job.LoopID, AgentLoopContinueInput{})
+		if err != nil {
+			r.mu.Lock()
+			for i := range r.backgroundJobs {
+				if r.backgroundJobs[i].ID == job.ID {
+					r.backgroundJobs[i].State = "failed"
+					r.backgroundJobs[i].Summary = err.Error()
+					r.backgroundJobs[i].UpdatedAt = time.Now().UTC()
+				}
+			}
+			r.mu.Unlock()
+			continue
+		}
+		r.mu.Lock()
+		for i := range r.backgroundJobs {
+			if r.backgroundJobs[i].ID == job.ID {
+				r.backgroundJobs[i].Summary = loop.Summary
+				r.backgroundJobs[i].UpdatedAt = time.Now().UTC()
+				switch loop.State {
+				case "completed":
+					r.backgroundJobs[i].State = "completed"
+				case "canceled":
+					r.backgroundJobs[i].State = "cancelled"
+				}
+			}
+		}
+		r.mu.Unlock()
+	}
+}

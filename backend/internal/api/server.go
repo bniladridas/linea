@@ -108,6 +108,8 @@ type AgentRuntime interface {
 	ReviewEditProposal(context.Context, string, agent.EditProposalReviewInput) (agent.EditProposal, error)
 	ApplyEditProposal(context.Context, string) (agent.EditProposal, error)
 	SetUnrestricted(bool)
+	StartBackgroundJob(context.Context, agent.BackgroundJobInput) (agent.BackgroundJob, error)
+	CancelBackgroundJob(context.Context, string) (agent.BackgroundJob, error)
 }
 
 type Settings struct {
@@ -239,6 +241,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/loops/{id}/continue", s.continueAgentLoop)
 	mux.HandleFunc("POST /api/agent/loops/{id}/cancel", s.cancelAgentLoop)
 	mux.HandleFunc("POST /api/agent/unrestricted", s.setAgentUnrestricted)
+	mux.HandleFunc("POST /api/agent/background-jobs", s.startBackgroundJob)
+	mux.HandleFunc("POST /api/agent/background-jobs/{id}/cancel", s.cancelBackgroundJob)
 	mux.HandleFunc("GET /api/agent/previews/{id}/{name...}", s.readAgentPreview)
 	mux.HandleFunc("GET /api/agent/command-approvals", s.listAgentCommandApprovals)
 	mux.HandleFunc("POST /api/agent/command-approvals", s.createAgentCommandApproval)
@@ -716,6 +720,37 @@ func (s *Server) setAgentUnrestricted(w http.ResponseWriter, r *http.Request) {
 	}
 	s.agentRuntime.SetUnrestricted(req.Unrestricted)
 	writeJSON(w, http.StatusOK, map[string]bool{"unrestricted": req.Unrestricted})
+}
+
+func (s *Server) startBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent is not available.")
+		return
+	}
+	var input agent.BackgroundJobInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
+		return
+	}
+	job, err := s.agentRuntime.StartBackgroundJob(r.Context(), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) cancelBackgroundJob(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent is not available.")
+		return
+	}
+	job, err := s.agentRuntime.CancelBackgroundJob(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
 }
 
 func (s *Server) readAgentPreview(w http.ResponseWriter, r *http.Request) {

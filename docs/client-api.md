@@ -225,6 +225,14 @@ Cancels a waiting loop.
 
 Enables or disables unrestricted terminal autonomy for the developer loop. Body: `{"unrestricted": true}`.
 
+`POST /api/agent/background-jobs`
+
+Starts a background autonomous job. The job loop auto-continues until completion. Body: `{"goal": "...", "mode": "auto"}`.
+
+`POST /api/agent/background-jobs/{id}/cancel`
+
+Cancels a running background job.
+
 `GET /api/agent/previews/{id}/{name...}`
 
 Serves a temporary agent preview file. The root path serves the preview entry file.

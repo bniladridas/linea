@@ -42,6 +42,8 @@ type Runtime struct {
 	commands         []string
 	activeProvider   ProviderInfo
 	unrestricted    bool
+	backgroundJobs   []BackgroundJob
+	backgroundCancel context.CancelFunc
 }
 
 type ProviderInfo struct {
@@ -128,6 +130,7 @@ type Status struct {
 	CommandRuns      []CommandRun      `json:"commandRuns"`
 	Providers        []ProviderInfo  `json:"providers,omitempty"`
 	Unrestricted    bool              `json:"unrestricted"`
+	BackgroundJobs  []BackgroundJob   `json:"backgroundJobs"`
 }
 
 type RuleSet struct {
@@ -272,6 +275,23 @@ type AppSession struct {
 	Root      string    `json:"root"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type BackgroundJob struct {
+	ID        string    `json:"id"`
+	LoopID    string    `json:"loopId"`
+	Goal      string    `json:"goal"`
+	State     string    `json:"state"`
+	Summary   string    `json:"summary"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type BackgroundJobInput struct {
+	Goal          string `json:"goal"`
+	Mode          string `json:"mode,omitempty"`
+	MaxIterations int    `json:"maxIterations,omitempty"`
+	AutoApply     bool   `json:"autoApply,omitempty"`
 }
 
 type Subagent struct {
@@ -500,6 +520,7 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 	if strings.TrimSpace(runtime.lspCommand) == "" {
 		runtime.lspCommand = defaultLSPCommand()
 	}
+	runtime.startBackgroundSupervisor()
 	return runtime
 }
 
@@ -541,6 +562,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		CommandChecks:    r.statusCommandChecks(),
 		CommandRuns:      r.statusCommandRuns(),
 		Providers:        providers,
+		BackgroundJobs:    r.listBackgroundJobs(),
 	}
 }
 
@@ -1112,7 +1134,6 @@ func defaultBoundaries() []string {
 		"No billing action",
 		"No secrets in logs or commits",
 		"No broad system access",
-		"No background autonomous jobs",
 	}
 }
 
