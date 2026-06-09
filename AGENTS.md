@@ -16,7 +16,7 @@ Linea is a local-first AI assistant.
 
 * Post-MVP
 
-The MVP is complete. New work should improve reliability, distribution, and agentic delivery without making the product harder to understand.
+The MVP is complete. Current work covers agentic delivery, platform expansion, and autonomy.
 
 ## Target Platform
 
@@ -28,13 +28,10 @@ Current target:
 * Terminal (TUI)
 * Native macOS application (.dmg)
 
-Active post-MVP targets:
+Active targets:
 
 * Agentic delivery
 * macOS app polish
-
-Later targets:
-
 * Android application
 
 New targets should reuse the existing backend and core application logic.
@@ -82,7 +79,7 @@ Post-MVP:
 * Optional cloud synchronization
 * Optional multi-device support
 
-Authentication and sync are not part of the current post-MVP work unless explicitly requested.
+Authentication and sync are active targets.
 
 ## Stack
 
@@ -142,29 +139,25 @@ Initial scope:
 * macOS app polish
 * Explicit opt-in developer loops for broader non-destructive local work
 
-Later scope:
+Active scope:
 
 * Android app
 * Optional sync
 * Deeper subagent orchestration
 * Background autonomous jobs
+* Unrestricted terminal autonomy
 
 ## Non-goals
-
-Unless explicitly requested:
 
 * Complex memory systems
 * Enterprise features
 * Plugin marketplaces
 * Workflow builders
 * Team collaboration features
-* Cloud synchronization
-* User accounts
-* Background autonomous jobs
-* Broad system access outside explicit full-trust developer mode
+* Broad system access outside explicit per-session opt-in
 * Unbounded tool execution outside explicit developer mode
 
-Subagents are allowed only when the single-agent loop is reliable and the task benefits from isolation.
+Subagents are allowed when the task benefits from isolation.
 
 ## Agentic Delivery
 
@@ -190,12 +183,13 @@ Loop modes:
 * Developer loops are opt-in and visibly separate from normal loops.
 * Developer loops may run non-destructive local commands without the static allowlist.
 * Developer loops may infer install, build, lint, format, test, and inspection commands from project files.
-* Developer loops may use command output, diagnostics, file reads, and generated edit proposals in a bounded fix/retry cycle.
+* Developer loops may use command output, diagnostics, file reads, and generated edit proposals in a fix/retry cycle.
 * Full-trust workspace access is opt-in through `LINEA_AGENT_DEVELOPER_MODE=1` and `LINEA_AGENT_WORKSPACE_TRUST=full`.
 * Generated app previews should use temporary package sessions unless the user asks to edit the current project.
 * Temporary app sessions should run their checks inside the temp package before showing a preview.
-* Normal auto loops must stop before destructive actions, broad system access, or commands outside the allowlist.
-* Developer loops must still stop before destructive actions, credential reads, secret exposure, privilege escalation, billing/payment actions, or commands that intentionally modify broad system state.
+* Normal auto loops must stop before destructive actions, credential reads, secret exposure, privilege escalation, billing/payment actions, or commands that intentionally modify broad system state.
+* Developer loops may run commands inferred from project files within a bounded inspect/edit/build/test/fix cycle.
+* Developer loops may escalate to full terminal autonomy when explicitly confirmed per-session.
 
 Rules:
 
@@ -251,10 +245,8 @@ LSP:
 
 Subagents:
 
-* Use subagents for review, search, testing, or docs.
-* Keep subagents bounded.
+* Use subagents for review, search, testing, docs, or isolated work.
 * Merge results through the main agent.
-* Do not use subagents as background autonomous workers.
 
 ## Design Principles
 
@@ -368,7 +360,7 @@ Otherwise:
 * complete obvious follow-up work
 * leave the repository in a better state than you found it
 
-Developer-mode work may continue through inspect, edit, build, test, diagnose, and retry cycles until the bounded loop succeeds or reaches a clear safety, permission, or iteration boundary.
+Developer-mode work may continue through inspect, edit, build, test, diagnose, and retry cycles. Full terminal autonomy is available per-session in developer mode.
 
 ## Success Criteria
 
@@ -390,6 +382,7 @@ Post-MVP success means Linea can also:
 * Explain which model answered
 * Show when a fallback is used
 * Recover clearly when a local model is not running
-* Run small local tasks with explicit tool boundaries
-* Run opt-in developer loops for bounded non-destructive local coding work
+* Run local tasks with explicit tool boundaries
+* Run opt-in developer loops for local coding work
+* Run full terminal autonomy in per-session developer mode
 * Keep user-visible behavior simple
