@@ -466,6 +466,7 @@ function App() {
   const [hasScrollableMessages, setHasScrollableMessages] = useState(false);
   const [isAtMessageEnd, setIsAtMessageEnd] = useState(true);
   const [composerHeight, setComposerHeight] = useState(108);
+  const [autoApproveCategories, setAutoApproveCategoriesState] = useState<string[]>([]);
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeId),
@@ -795,7 +796,7 @@ function App() {
   }
 
   async function refreshAgentDetails() {
-    const [status, mcpTools, mcpResources, mcpPrompts] = await Promise.all([
+    const [status, mcpTools, mcpResources, mcpPrompts, categories] = await Promise.all([
       request<AgentStatus>('/api/agent')
         .then((data) => data)
         .catch(() => null),
@@ -808,10 +809,14 @@ function App() {
       request<NonNullable<AgentStatus['mcpPrompts']>>('/api/agent/mcp-prompts')
         .then((data) => (Array.isArray(data) ? data : []))
         .catch(() => []),
+      request<string[]>('/api/agent/auto-approve-categories')
+        .then((data) => (Array.isArray(data) ? data : []))
+        .catch(() => []),
       loadAgentRuns(),
       loadAgentEditProposals(),
     ]);
     setAgentStatus(status ? { ...status, mcpTools, mcpResources, mcpPrompts } : null);
+    setAutoApproveCategoriesState(categories);
     return status;
   }
 
@@ -1268,6 +1273,20 @@ function App() {
       await refreshAgentDetails();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update unrestricted mode.');
+    }
+  }
+
+  async function setAutoApproveCategories(categories: string[]) {
+    try {
+      await request('/api/agent/auto-approve-categories', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categories }),
+      });
+      setAutoApproveCategoriesState(categories);
+      await refreshAgentDetails();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update auto-approve categories.');
     }
   }
 
@@ -2163,6 +2182,8 @@ function App() {
           onContinueLoop={(loopId, input) => void continueAgentLoop(loopId, input)}
           onCancelLoop={(loopId) => void cancelAgentLoop(loopId)}
           onSetUnrestricted={(unrestricted) => void setAgentUnrestricted(unrestricted)}
+          autoApproveCategories={autoApproveCategories}
+          onAutoApproveCategories={(categories) => void setAutoApproveCategories(categories)}
           onStartBackgroundJob={(input) => void startBackgroundJob(input)}
           onCancelBackgroundJob={(id) => void cancelBackgroundJob(id)}
           onWorkspaceChange={(root) => void saveAgentWorkspaceRoot(root)}
@@ -2724,6 +2745,8 @@ function SystemDetailsDialog({
   onContinueLoop,
   onCancelLoop,
   onSetUnrestricted,
+  onAutoApproveCategories,
+  autoApproveCategories,
   onStartBackgroundJob,
   onCancelBackgroundJob,
   onSettingsChange,
@@ -2757,6 +2780,8 @@ function SystemDetailsDialog({
   onContinueLoop: (loopId: string, input: Omit<AgentLoopRequest, 'goal'>) => void;
   onCancelLoop: (loopId: string) => void;
   onSetUnrestricted: (unrestricted: boolean) => void;
+  onAutoApproveCategories: (categories: string[]) => void;
+  autoApproveCategories: string[];
   onStartBackgroundJob: (input: { goal: string; mode?: string; maxIterations?: number; autoApply?: boolean }) => void;
   onCancelBackgroundJob: (id: string) => void;
   onSettingsChange: (settings: AppSettings) => void;
@@ -3260,6 +3285,24 @@ function SystemDetailsDialog({
                     Enable unrestricted
                   </button>
                 )}
+                <div className="auto-approve-categories">
+                  {['read', 'write', 'inspect', 'destructive'].map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={autoApproveCategories.includes(cat) ? 'active' : ''}
+                      onClick={() => {
+                        if (autoApproveCategories.includes(cat)) {
+                          onAutoApproveCategories(autoApproveCategories.filter((c) => c !== cat));
+                        } else {
+                          onAutoApproveCategories([...autoApproveCategories, cat]);
+                        }
+                      }}
+                    >
+                      Auto-approve {cat}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             <input

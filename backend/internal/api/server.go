@@ -93,6 +93,8 @@ type AgentRuntime interface {
 	HasAppSession(string) bool
 	RecoverAppSession(string, string) bool
 	RecoverAgentPreview(string, string, string) bool
+	AutoApproveCategories() []string
+	SetAutoApproveCategories([]string)
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
 	ListCommandChecks(context.Context) []agent.CommandCheck
@@ -252,6 +254,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/command-checks", s.createAgentCommandCheck)
 	mux.HandleFunc("GET /api/agent/command-runs", s.listAgentCommandRuns)
 	mux.HandleFunc("POST /api/agent/command-runs", s.createAgentCommandRun)
+	mux.HandleFunc("GET /api/agent/auto-approve-categories", s.getAgentAutoApproveCategories)
+	mux.HandleFunc("PUT /api/agent/auto-approve-categories", s.setAgentAutoApproveCategories)
 	mux.HandleFunc("GET /api/agent/workspace/file", s.readAgentWorkspaceFile)
 	mux.HandleFunc("PATCH /api/agent/workspace", s.updateAgentWorkspace)
 	mux.HandleFunc("GET /api/agent/workspace/search", s.searchAgentWorkspace)
@@ -961,6 +965,30 @@ func (s *Server) createAgentCommandRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "command run", state, run.Command)
 	writeJSON(w, http.StatusCreated, run)
+}
+
+func (s *Server) getAgentAutoApproveCategories(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent is not available.")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agentRuntime.AutoApproveCategories())
+}
+
+func (s *Server) setAgentAutoApproveCategories(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent is not available.")
+		return
+	}
+	var input struct {
+		Categories []string `json:"categories"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	s.agentRuntime.SetAutoApproveCategories(input.Categories)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) readAgentWorkspaceFile(w http.ResponseWriter, r *http.Request) {

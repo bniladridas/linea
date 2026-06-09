@@ -40,11 +40,11 @@ function duplicatedRoutes(routes) {
 }
 
 function documentedInlineRoutes(content) {
-  return [...content.matchAll(/`((?:GET|POST|PATCH|DELETE) [^`]+)`/g)].map((match) => match[1].split('?')[0]);
+  return [...content.matchAll(/`((?:GET|POST|PATCH|DELETE|PUT) [^`]+)`/g)].map((match) => match[1].split('?')[0]);
 }
 
 function documentedTableRoutes(content) {
-  return [...content.matchAll(/^\| `(GET|POST|PATCH|DELETE)` \| `([^`]+)` \|$/gm)].map(
+  return [...content.matchAll(/^\| `(GET|POST|PATCH|DELETE|PUT)` \| `([^`]+)` \|$/gm)].map(
     (match) => `${match[1]} ${match[2]}`,
   );
 }
