@@ -23,6 +23,7 @@ func TestMain(m *testing.M) {
 		os.Setenv("LINEA_AUDIT_LOG_PATH", f.Name())
 		f.Close()
 	}
+	os.Unsetenv("LINEA_AUTO_APPROVE_CATEGORIES")
 	code := m.Run()
 	if f != nil {
 		os.Remove(f.Name())
