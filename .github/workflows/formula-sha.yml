@@ -48,7 +48,7 @@ jobs:
           url="https://github.com/bniladridas/linea/archive/refs/tags/${tag}.tar.gz"
           curl -fsSL "$url" -o source.tar.gz
           sha="$(sha256sum source.tar.gz | awk '{print $1}')"
-          TAG="$tag" SHA="$sha" ruby -0pi -e 'gsub(/url "https:\/\/github\.com\/bniladridas\/linea\/archive\/refs\/tags\/v[^"]+\.tar\.gz"/, "url \"https://github.com/bniladridas/linea/archive/refs/tags/#{ENV.fetch("TAG")}.tar.gz\""); gsub(/sha256 "[0-9a-f]{64}"/, "sha256 \"#{ENV.fetch("SHA")}\"")' Formula/linea.rb
+          TAG="$tag" SHA="$sha" ruby -0pi -e 'gsub(/url "https:\/\/github\.com\/bniladridas\/linea\/archive\/refs\/tags\/v[^"]+\.tar\.gz"/, "url \"https://github.com/bniladridas/linea/archive/refs/tags/#{ENV.fetch("TAG")}.tar.gz\""); gsub(/sha256 "[0-9a-f]{64}"/, "sha256 \"#{ENV.fetch("SHA")}\""); gsub(/root_url "https:\/\/github\.com\/bniladridas\/linea\/releases\/download\/v[^"]+"/, "root_url \"https://github.com/bniladridas/linea/releases/download/#{ENV.fetch("TAG")}\"")' Formula/linea.rb
           rm source.tar.gz
 
           bottle_url="https://github.com/bniladridas/linea/releases/download/${tag}/linea-${version}.arm64_sequoia.bottle.tar.gz"

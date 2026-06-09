@@ -7,7 +7,7 @@ class Linea < Formula
   head "https://github.com/bniladridas/linea.git", branch: "main"
 
   bottle do
-    root_url "https://github.com/bniladridas/linea/releases/download/v#{version}"
+    root_url "https://github.com/bniladridas/linea/releases/download/v0.1.8"
     sha256 arm64_sequoia: "dc1f00db79562a34f2aa01f76ef309a50480b77b8f5744d05dd85c9fc81e49c9"
   end
 
