@@ -18,7 +18,16 @@ func TestMain(m *testing.M) {
 		runFakeMCPServer()
 		return
 	}
-	os.Exit(m.Run())
+	f, _ := os.CreateTemp("", "linea-audit-*.jsonl")
+	if f != nil {
+		os.Setenv("LINEA_AUDIT_LOG_PATH", f.Name())
+		f.Close()
+	}
+	code := m.Run()
+	if f != nil {
+		os.Remove(f.Name())
+	}
+	os.Exit(code)
 }
 
 func runFakeMCPServer() {

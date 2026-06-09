@@ -595,6 +595,24 @@ Runs a command only when it exactly matches `LINEA_COMMAND_ALLOWLIST` and has an
 }
 ```
 
+`GET /api/agent/auto-approve-categories`
+
+Returns the list of auto-approved command categories.
+
+```json
+["read", "write"]
+```
+
+`PUT /api/agent/auto-approve-categories`
+
+Sets the list of auto-approved command categories.
+
+```json
+{
+  "categories": ["read", "write"]
+}
+```
+
 `GET /api/agent/workspace/file?path=README.md`
 
 Reads a text file from `LINEA_WORKSPACE_DIR`.

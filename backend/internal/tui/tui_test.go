@@ -29,7 +29,16 @@ func TestMain(m *testing.M) {
 		runFakeTUIMCPServer()
 		return
 	}
-	os.Exit(m.Run())
+	f, _ := os.CreateTemp("", "linea-audit-*.jsonl")
+	if f != nil {
+		os.Setenv("LINEA_AUDIT_LOG_PATH", f.Name())
+		f.Close()
+	}
+	code := m.Run()
+	if f != nil {
+		os.Remove(f.Name())
+	}
+	os.Exit(code)
 }
 
 func runFakeTUIMCPServer() {
@@ -746,6 +755,7 @@ func TestRunSkillUsesDefaultCommandApproval(t *testing.T) {
 		agent.WithSkillsDir(skillsDir),
 		agent.WithWorkspaceRoot(workspace),
 		agent.WithCommandAllowlist([]string{"printf ok"}),
+		agent.WithAuditLogPath(filepath.Join(t.TempDir(), "audit.jsonl")),
 	)
 	var out strings.Builder
 	input := strings.Join([]string{

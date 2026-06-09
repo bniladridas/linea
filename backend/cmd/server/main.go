@@ -197,10 +197,12 @@ func newAgentRuntime(cfg config.Config, planners ...agent.EditPlanner) *agent.Ru
 	if cfg.AgentLSPCommand != "" {
 		options = append(options, agent.WithLSPCommand(cfg.AgentLSPCommand))
 	}
-	return agent.NewRuntime(
+	runtime := agent.NewRuntime(
 		cfg.AgentRulesPath,
 		options...,
 	)
+	runtime.LoadAuditLog()
+	return runtime
 }
 
 func isPublicAPIAddr(addr string) bool {

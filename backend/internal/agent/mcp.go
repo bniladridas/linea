@@ -1020,6 +1020,8 @@ func startMCPCommand(ctx context.Context, server mcpServerConfig) (*exec.Cmd, io
 	cmd := exec.CommandContext(ctx, cmdPath, args...)
 	if strings.TrimSpace(server.Dir) != "" {
 		cmd.Dir = server.Dir
+	} else {
+		cmd.Dir = os.TempDir()
 	}
 
 	var cleanEnv []string

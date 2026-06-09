@@ -29,7 +29,16 @@ func TestMain(m *testing.M) {
 		runFakeAPIMCPServer()
 		return
 	}
-	os.Exit(m.Run())
+	f, _ := os.CreateTemp("", "linea-audit-*.jsonl")
+	if f != nil {
+		os.Setenv("LINEA_AUDIT_LOG_PATH", f.Name())
+		f.Close()
+	}
+	code := m.Run()
+	if f != nil {
+		os.Remove(f.Name())
+	}
+	os.Exit(code)
 }
 
 func runFakeAPIMCPServer() {
@@ -1733,7 +1742,7 @@ func TestAgentCommandCheckEndpointsCreateAndListChecks(t *testing.T) {
 
 func TestAgentCommandApprovalEndpointsCreateAndListApprovals(t *testing.T) {
 	appStore := store.NewMemoryStore()
-	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}), agent.WithAuditLogPath(filepath.Join(t.TempDir(), "audit.jsonl")))
 	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
@@ -1799,7 +1808,7 @@ func TestAgentCommandCheckEndpointBlocksUnlistedCommand(t *testing.T) {
 
 func TestAgentCommandRunEndpointsCreateAndListRuns(t *testing.T) {
 	appStore := store.NewMemoryStore()
-	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}), agent.WithAuditLogPath(filepath.Join(t.TempDir(), "audit.jsonl")))
 	approval, err := runtime.AddCommandApproval(context.Background(), agent.CommandApprovalInput{Command: "printf ok", State: "approved"})
 	if err != nil {
 		t.Fatalf("AddCommandApproval() error = %v", err)

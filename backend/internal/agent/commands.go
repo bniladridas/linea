@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+type auditEntry struct {
+	Type      string    `json:"type"`
+	Data      any       `json:"data"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 var (
 	commandTimeout   = 30 * time.Second
 	maxCommandOutput = 64 * 1024
@@ -58,6 +64,9 @@ func (r *Runtime) AddCommandApproval(_ context.Context, input CommandApprovalInp
 		return CommandApproval{}, errors.New("Command approval state is invalid.")
 	}
 	allowed := r.commandAllowed(command)
+	if state == "pending" && allowed && r.isAutoApproved(command) {
+		state = "approved"
+	}
 	if !allowed && state == "approved" {
 		return CommandApproval{}, errors.New("Command is not in allowlist.")
 	}
@@ -65,6 +74,7 @@ func (r *Runtime) AddCommandApproval(_ context.Context, input CommandApprovalInp
 	if len([]rune(detail)) > 240 {
 		detail = string([]rune(detail)[:240])
 	}
+	now := time.Now().UTC()
 	approval := CommandApproval{
 		ID:          newTraceID(),
 		Command:     command,
@@ -72,14 +82,19 @@ func (r *Runtime) AddCommandApproval(_ context.Context, input CommandApprovalInp
 		Category:    commandCategory(command),
 		Destructive: commandDestructive(command),
 		Detail:      detail,
-		CreatedAt:   time.Now().UTC(),
+		CreatedAt:   now,
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.commandApprovals = append([]CommandApproval{approval}, r.commandApprovals...)
 	if len(r.commandApprovals) > 50 {
 		r.commandApprovals = r.commandApprovals[:50]
 	}
+	r.mu.Unlock()
+	r.writeAuditLog(auditEntry{
+		Type:      "approval",
+		Data:      approval,
+		CreatedAt: now,
+	})
 	return approval, nil
 }
 
@@ -93,7 +108,11 @@ func (r *Runtime) ListCommandRuns(context.Context) []CommandRun {
 }
 
 func (r *Runtime) RunCommand(ctx context.Context, input CommandCheckInput) (CommandRun, error) {
-	if strings.TrimSpace(input.ApprovalID) == "" {
+	command := strings.Join(strings.Fields(input.Command), " ")
+	if command == "" {
+		return CommandRun{}, errors.New("Command is required.")
+	}
+	if strings.TrimSpace(input.ApprovalID) == "" && !r.isAutoApproved(command) {
 		return CommandRun{}, errors.New("Command approval is required.")
 	}
 	check, err := r.CheckCommand(ctx, input)
@@ -149,20 +168,26 @@ func (r *Runtime) runCheckedCommand(ctx context.Context, command string) (Comman
 		content = content[:outputLimit]
 		truncated = true
 	}
+	now := time.Now().UTC()
 	run := CommandRun{
 		ID:        newTraceID(),
 		Command:   command,
 		ExitCode:  exitCode,
 		Output:    content,
 		Truncated: truncated,
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: now,
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.commandRuns = append([]CommandRun{run}, r.commandRuns...)
 	if len(r.commandRuns) > 50 {
 		r.commandRuns = r.commandRuns[:50]
 	}
+	r.mu.Unlock()
+	r.writeAuditLog(auditEntry{
+		Type:      "run",
+		Data:      run,
+		CreatedAt: now,
+	})
 	return run, nil
 }
 

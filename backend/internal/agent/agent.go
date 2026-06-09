@@ -1,11 +1,14 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -40,11 +43,14 @@ type Runtime struct {
 	lspCommand       string
 	skillsDir        string
 	mcpConfigPath    string
-	commands         []string
-	activeProvider   ProviderInfo
-	unrestricted    bool
-	backgroundJobs   []BackgroundJob
-	backgroundCancel context.CancelFunc
+	commands             []string
+	autoApproveCategories []string
+	auditLogMu           sync.Mutex
+	auditLogPath         string
+	activeProvider       ProviderInfo
+	unrestricted         bool
+	backgroundJobs       []BackgroundJob
+	backgroundCancel     context.CancelFunc
 }
 
 type ProviderInfo struct {
@@ -531,6 +537,27 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 	if strings.TrimSpace(runtime.lspCommand) == "" {
 		runtime.lspCommand = defaultLSPCommand()
 	}
+	if len(runtime.autoApproveCategories) == 0 {
+		if raw := strings.TrimSpace(os.Getenv("LINEA_AUTO_APPROVE_CATEGORIES")); raw != "" {
+			for _, cat := range strings.Split(raw, ",") {
+				if c := strings.TrimSpace(cat); c != "" {
+					runtime.autoApproveCategories = append(runtime.autoApproveCategories, c)
+				}
+			}
+		}
+	}
+	if runtime.auditLogPath == "" {
+		if raw := os.Getenv("LINEA_AUDIT_LOG_PATH"); raw != "" {
+			runtime.auditLogPath = strings.TrimSpace(raw)
+		} else if _, set := os.LookupEnv("LINEA_AUDIT_LOG_PATH"); !set {
+			if cacheDir, err := os.UserCacheDir(); err == nil {
+				runtime.auditLogPath = filepath.Join(cacheDir, "linea", "audit.jsonl")
+			}
+		}
+	}
+	if runtime.auditLogPath != "" {
+		_ = os.MkdirAll(filepath.Dir(runtime.auditLogPath), 0o755)
+	}
 	runtime.loadPreviewsFromCache()
 	runtime.startBackgroundSupervisor()
 	return runtime
@@ -825,7 +852,14 @@ func (r *Runtime) CheckCommand(_ context.Context, input CommandCheckInput) (Comm
 		reason = "allowed"
 	}
 	if allowed {
-		if err := r.checkCommandApproval(command, approvalID); err != nil {
+		r.mu.RLock()
+		unrestricted := r.unrestricted
+		r.mu.RUnlock()
+		if unrestricted {
+			reason = "auto-approved (unrestricted mode)"
+		} else if r.isAutoApproved(command) {
+			reason = "auto-approved by category"
+		} else if err := r.checkCommandApproval(command, approvalID); err != nil {
 			allowed = false
 			reason = err.Error()
 		}
@@ -1161,4 +1195,137 @@ func newTraceID() string {
 		return strings.ReplaceAll(time.Now().UTC().Format(time.RFC3339Nano), ":", "")
 	}
 	return hex.EncodeToString(b[:])
+}
+
+func WithAuditLogPath(path string) func(*Runtime) {
+	return func(r *Runtime) {
+		r.auditLogPath = path
+	}
+}
+
+func WithAutoApproveCategories(categories []string) func(*Runtime) {
+	return func(r *Runtime) {
+		r.autoApproveCategories = categories
+	}
+}
+
+func (r *Runtime) SetAutoApproveCategories(categories []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := map[string]bool{}
+	r.autoApproveCategories = nil
+	for _, cat := range categories {
+		c := strings.TrimSpace(cat)
+		if c != "" && !seen[c] {
+			seen[c] = true
+			r.autoApproveCategories = append(r.autoApproveCategories, c)
+		}
+	}
+}
+
+func (r *Runtime) AutoApproveCategories() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.autoApproveCategories...)
+}
+
+func (r *Runtime) isAutoApproved(command string) bool {
+	r.mu.RLock()
+	unrestricted := r.unrestricted
+	categories := append([]string(nil), r.autoApproveCategories...)
+	r.mu.RUnlock()
+	if unrestricted {
+		return true
+	}
+	cat := commandCategory(command)
+	if cat == "unknown" {
+		return false
+	}
+	for _, allowed := range categories {
+		if cat == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Runtime) writeAuditLog(entry any) {
+	r.auditLogMu.Lock()
+	defer r.auditLogMu.Unlock()
+	r.mu.RLock()
+	path := r.auditLogPath
+	r.mu.RUnlock()
+	if path == "" {
+		return
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	const maxAuditLogSize = 10 * 1024 * 1024 // 10 MB
+	if fi, err := os.Stat(path); err == nil && fi.Size() >= maxAuditLogSize {
+		os.Rename(path, path+".old")
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.Write(append(data, '\n'))
+}
+
+func (r *Runtime) LoadAuditLog() {
+	r.mu.RLock()
+	path := r.auditLogPath
+	r.mu.RUnlock()
+	if path == "" {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			continue
+		}
+		typ, _ := raw["type"].(string)
+		switch typ {
+		case "approval":
+			var a CommandApproval
+			if data, err := json.Marshal(raw["data"]); err == nil {
+				if json.Unmarshal(data, &a) == nil {
+					r.mu.Lock()
+					r.commandApprovals = append([]CommandApproval{a}, r.commandApprovals...)
+					if len(r.commandApprovals) > 50 {
+						r.commandApprovals = r.commandApprovals[:50]
+					}
+					r.mu.Unlock()
+				}
+			}
+		case "run":
+			var run CommandRun
+			if data, err := json.Marshal(raw["data"]); err == nil {
+				if json.Unmarshal(data, &run) == nil {
+					r.mu.Lock()
+					r.commandRuns = append([]CommandRun{run}, r.commandRuns...)
+					if len(r.commandRuns) > 50 {
+						r.commandRuns = r.commandRuns[:50]
+					}
+					r.mu.Unlock()
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return
+	}
 }
