@@ -66,11 +66,13 @@ func (r *Runtime) AddCommandApproval(_ context.Context, input CommandApprovalInp
 		detail = string([]rune(detail)[:240])
 	}
 	approval := CommandApproval{
-		ID:        newTraceID(),
-		Command:   command,
-		State:     state,
-		Detail:    detail,
-		CreatedAt: time.Now().UTC(),
+		ID:          newTraceID(),
+		Command:     command,
+		State:       state,
+		Category:    commandCategory(command),
+		Destructive: commandDestructive(command),
+		Detail:      detail,
+		CreatedAt:   time.Now().UTC(),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -225,4 +227,133 @@ func (r *Runtime) checkCommandApproval(command string, approvalID string) error 
 		return errors.New("Command approval is not approved.")
 	}
 	return nil
+}
+
+// commandCategory classifies a command as read, write, or inspect based on
+// the leading executable name. Unknown commands default to "unknown".
+func commandCategory(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return "unknown"
+	}
+	base := fields[0]
+
+	readCommands := map[string]bool{
+		"cat": true, "head": true, "tail": true, "less": true,
+		"more": true, "wc": true, "file": true, "stat": true,
+		"find": true, "ls": true, "tree": true, "du": true,
+		"df": true, "which": true, "whoami": true, "id": true,
+		"echo": true, "printf": true, "date": true, "uname": true,
+		"env": true, "printenv": true, "pwd": true, "hostname": true,
+	}
+	inspectCommands := map[string]bool{
+		"grep": true, "rg": true, "ag": true, "ack": true,
+		"diff": true, "git": true, "go": true, "npm": true,
+		"node": true, "python": true, "python3": true,
+		"make": true, "cargo": true, "rustc": true,
+		"gcc": true, "g++": true, "clang": true,
+		"test": true, "[": true, "true": true, "false": true,
+	}
+	writeCommands := map[string]bool{
+		"cp": true, "mv": true, "mkdir": true, "touch": true,
+		"tee": true, "sed": true, "awk": true, "patch": true,
+		"install": true, "ln": true, "chmod": true, "chown": true,
+	}
+
+	switch {
+	case readCommands[base]:
+		return "read"
+	case inspectCommands[base]:
+		// git subcommands can be read or write
+		if base == "git" && len(fields) > 1 {
+			return gitSubcommandCategory(fields[1])
+		}
+		if base == "go" && len(fields) > 1 {
+			return goSubcommandCategory(fields[1])
+		}
+		if base == "npm" && len(fields) > 1 {
+			return npmSubcommandCategory(fields[1])
+		}
+		return "inspect"
+	case writeCommands[base]:
+		return "write"
+	default:
+		return "unknown"
+	}
+}
+
+func gitSubcommandCategory(sub string) string {
+	switch sub {
+	case "status", "log", "diff", "show", "branch", "tag", "remote", "stash",
+		"ls-files", "ls-tree", "rev-parse", "describe", "blame", "shortlog":
+		return "read"
+	case "add", "commit", "push", "pull", "merge", "rebase", "cherry-pick",
+		"checkout", "switch", "restore", "reset", "mv", "rm":
+		return "write"
+	case "clean", "gc", "prune", "filter-branch":
+		return "destructive"
+	default:
+		return "inspect"
+	}
+}
+
+func goSubcommandCategory(sub string) string {
+	switch sub {
+	case "build", "test", "vet", "run", "version", "env", "list", "doc", "fmt":
+		return "inspect"
+	case "install", "get", "mod":
+		return "write"
+	case "clean":
+		return "destructive"
+	default:
+		return "inspect"
+	}
+}
+
+func npmSubcommandCategory(sub string) string {
+	switch sub {
+	case "ls", "list", "outdated", "view", "info", "search", "help",
+		"test", "run", "start", "version", "config", "audit":
+		return "inspect"
+	case "install", "ci", "update", "uninstall", "link", "rebuild",
+		"publish", "init", "pack":
+		return "write"
+	case "cache":
+		return "destructive"
+	default:
+		return "inspect"
+	}
+}
+
+// commandDestructive returns true if the command is known to be destructive.
+func commandDestructive(command string) bool {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+	base := fields[0]
+
+	destructiveCommands := map[string]bool{
+		"rm": true, "rmdir": true, "shred": true,
+		"dd": true, "mkfs": true, "fdisk": true,
+		"kill": true, "killall": true, "pkill": true,
+		"reboot": true, "shutdown": true, "halt": true,
+		"sudo": true,
+	}
+	if destructiveCommands[base] {
+		return true
+	}
+
+	// Check specific subcommands
+	if base == "git" && len(fields) > 1 {
+		return gitSubcommandCategory(fields[1]) == "destructive"
+	}
+	if base == "go" && len(fields) > 1 {
+		return goSubcommandCategory(fields[1]) == "destructive"
+	}
+	if base == "npm" && len(fields) > 1 {
+		return npmSubcommandCategory(fields[1]) == "destructive"
+	}
+
+	return false
 }

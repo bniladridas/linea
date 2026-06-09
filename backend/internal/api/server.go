@@ -76,6 +76,8 @@ type AgentRuntime interface {
 	GetMCPPrompt(context.Context, agent.MCPPromptGetInput) (agent.MCPCall, error)
 	SubscribeMCPResource(context.Context, agent.MCPSubscribeInput) (agent.MCPSubscription, error)
 	UnsubscribeMCPResource(context.Context, string) (agent.MCPSubscription, error)
+	RegisterMCPListener(string, func(agent.MCPEvent))
+	UnregisterMCPListener(string)
 	ListTraces(context.Context) []agent.Trace
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	ListHookRuns(context.Context) []agent.HookRun
@@ -453,6 +455,44 @@ func (s *Server) listAgentMCPEvents(w http.ResponseWriter, r *http.Request) {
 	if s.agentRuntime == nil {
 		writeJSON(w, http.StatusOK, []agent.MCPEvent{})
 		return
+	}
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeError(w, http.StatusInternalServerError, "Streaming is not supported.")
+			return
+		}
+
+		ch := make(chan agent.MCPEvent, 10)
+		listenerID := store.NewID()
+		s.agentRuntime.RegisterMCPListener(listenerID, func(ev agent.MCPEvent) {
+			select {
+			case ch <- ev:
+			default:
+			}
+		})
+		defer s.agentRuntime.UnregisterMCPListener(listenerID)
+
+		initial := s.agentRuntime.ListMCPEvents(r.Context())
+		for i := len(initial) - 1; i >= 0; i-- {
+			writeEvent(w, "event", initial[i])
+			flusher.Flush()
+		}
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case ev := <-ch:
+				writeEvent(w, "event", ev)
+				flusher.Flush()
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, s.agentRuntime.ListMCPEvents(r.Context()))
 }

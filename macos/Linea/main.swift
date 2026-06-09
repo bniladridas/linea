@@ -15,12 +15,42 @@ final class WindowDragRegionView: NSView {
   }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
   private var process: Process?
   private var window: NSWindow?
   private var webView: WKWebView?
   private var baseURL: URL?
   private var logHandle: FileHandle?
+
+  func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+    guard message.name == "smoke",
+          let body = message.body as? [String: Any],
+          let type = body["type"] as? String,
+          let msg = body["message"] as? String else {
+      return
+    }
+    print("[WKWebView Smoke] \(type.uppercased()): \(msg)")
+  }
+
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    let isSmoke = ProcessInfo.processInfo.environment["LINEA_MACOS_UI_SMOKE"] == "1"
+    if isSmoke {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        webView.evaluateJavaScript("document.body.innerText") { (result, error) in
+          if let error = error {
+            print("[WKWebView Smoke] FAIL: evaluateJavaScript error: \(error.localizedDescription)")
+            return
+          }
+          let text = (result as? String) ?? ""
+          if text.contains("Linea") {
+            print("[WKWebView Smoke] PASS: UI rendered successfully inside WKWebView.")
+          } else {
+            print("[WKWebView Smoke] FAIL: Expected 'Linea' text not found in WKWebView.")
+          }
+        }
+      }
+    }
+  }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
@@ -123,6 +153,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
   private func openWindow(_ url: URL) {
     let config = WKWebViewConfiguration()
+    config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+
+    let isSmoke = ProcessInfo.processInfo.environment["LINEA_MACOS_UI_SMOKE"] == "1"
+    if isSmoke {
+      config.userContentController.add(self, name: "smoke")
+      let errorCaptureScript = WKUserScript(
+        source: """
+        window.addEventListener('error', (event) => {
+          window.webkit.messageHandlers.smoke.postMessage({ type: 'error', message: event.message || String(event) });
+        });
+        window.addEventListener('unhandledrejection', (event) => {
+          window.webkit.messageHandlers.smoke.postMessage({ type: 'error', message: 'Unhandled promise rejection: ' + String(event.reason) });
+        });
+        """,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true
+      )
+      config.userContentController.addUserScript(errorCaptureScript)
+    }
+
     config.userContentController.addUserScript(
       WKUserScript(
         source: "document.documentElement.classList.add('linea-macos-shell')",
@@ -138,6 +188,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       )
     )
     let webView = WKWebView(frame: .zero, configuration: config)
+    if #available(macOS 13.3, iOS 16.4, *) {
+      webView.isInspectable = true
+    }
     webView.navigationDelegate = self
     webView.uiDelegate = self
     webView.allowsBackForwardNavigationGestures = true

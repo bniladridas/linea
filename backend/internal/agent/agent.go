@@ -29,6 +29,7 @@ type Runtime struct {
 	mcpSubscriptions []MCPSubscription
 	mcpEvents        []MCPEvent
 	mcpSessions      map[string]*mcpSession
+	mcpListeners     map[string]func(MCPEvent)
 	editProposals    []EditProposal
 	commandApprovals []CommandApproval
 	commandChecks    []CommandCheck
@@ -441,12 +442,14 @@ type MCPPromptGetInput struct {
 }
 
 type CommandCheck struct {
-	ID         string    `json:"id"`
-	Command    string    `json:"command"`
-	ApprovalID string    `json:"approvalId,omitempty"`
-	Allowed    bool      `json:"allowed"`
-	Reason     string    `json:"reason"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID          string    `json:"id"`
+	Command     string    `json:"command"`
+	ApprovalID  string    `json:"approvalId,omitempty"`
+	Allowed     bool      `json:"allowed"`
+	Category    string    `json:"category,omitempty"`
+	Destructive bool      `json:"destructive,omitempty"`
+	Reason      string    `json:"reason"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 type CommandCheckInput struct {
@@ -455,11 +458,13 @@ type CommandCheckInput struct {
 }
 
 type CommandApproval struct {
-	ID        string    `json:"id"`
-	Command   string    `json:"command"`
-	State     string    `json:"state"`
-	Detail    string    `json:"detail,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID          string    `json:"id"`
+	Command     string    `json:"command"`
+	State       string    `json:"state"`
+	Category    string    `json:"category,omitempty"`
+	Destructive bool      `json:"destructive,omitempty"`
+	Detail      string    `json:"detail,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 type CommandApprovalInput struct {
@@ -511,7 +516,13 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 		rulesPath = "AGENTS.md"
 	}
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	runtime := &Runtime{shutdownCtx: shutdownCtx, shutdownCancel: shutdownCancel, rulesPath: rulesPath, mcpSessions: map[string]*mcpSession{}}
+	runtime := &Runtime{
+		shutdownCtx:    shutdownCtx,
+		shutdownCancel: shutdownCancel,
+		rulesPath:      rulesPath,
+		mcpSessions:    map[string]*mcpSession{},
+		mcpListeners:   map[string]func(MCPEvent){},
+	}
 	for _, option := range options {
 		if option != nil {
 			option(runtime)
@@ -520,6 +531,7 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 	if strings.TrimSpace(runtime.lspCommand) == "" {
 		runtime.lspCommand = defaultLSPCommand()
 	}
+	runtime.loadPreviewsFromCache()
 	runtime.startBackgroundSupervisor()
 	return runtime
 }
@@ -819,12 +831,14 @@ func (r *Runtime) CheckCommand(_ context.Context, input CommandCheckInput) (Comm
 		}
 	}
 	check := CommandCheck{
-		ID:         newTraceID(),
-		Command:    command,
-		ApprovalID: approvalID,
-		Allowed:    allowed,
-		Reason:     reason,
-		CreatedAt:  time.Now().UTC(),
+		ID:          newTraceID(),
+		Command:     command,
+		ApprovalID:  approvalID,
+		Allowed:     allowed,
+		Category:    commandCategory(command),
+		Destructive: commandDestructive(command),
+		Reason:      reason,
+		CreatedAt:   time.Now().UTC(),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

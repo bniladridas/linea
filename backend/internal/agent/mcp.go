@@ -138,6 +138,19 @@ func (r *Runtime) CallMCPTool(ctx context.Context, input MCPCallInput) (MCPCall,
 	if strings.TrimSpace(server.Command) == "" {
 		return MCPCall{}, errors.New("MCP server command is required.")
 	}
+	if len(server.AllowedTools) > 0 {
+		allowed := false
+		toolName := strings.TrimSpace(tool.Name)
+		for _, name := range server.AllowedTools {
+			if strings.TrimSpace(name) == toolName {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return MCPCall{}, fmt.Errorf("MCP tool %q is not allowed by server configuration", tool.Name)
+		}
+	}
 	call := MCPCall{
 		ID:        newTraceID(),
 		ToolID:    toolID,
@@ -525,13 +538,14 @@ type mcpConfig struct {
 }
 
 type mcpServerConfig struct {
-	Command   string              `json:"command"`
-	Args      []string            `json:"args"`
-	Env       map[string]string   `json:"env"`
-	Tools     []mcpToolConfig     `json:"tools"`
-	Resources []mcpResourceConfig `json:"resources"`
-	Prompts   []mcpPromptConfig   `json:"prompts"`
-	Dir       string              `json:"-"`
+	Command      string              `json:"command"`
+	Args         []string            `json:"args"`
+	Env          map[string]string   `json:"env"`
+	Tools        []mcpToolConfig     `json:"tools"`
+	Resources    []mcpResourceConfig `json:"resources"`
+	Prompts      []mcpPromptConfig   `json:"prompts"`
+	AllowedTools []string            `json:"allowedTools,omitempty"`
+	Dir          string              `json:"-"`
 }
 
 type mcpToolConfig struct {
@@ -994,12 +1008,39 @@ func getMCPPrompt(ctx context.Context, server mcpServerConfig, name string, argu
 }
 
 func startMCPCommand(ctx context.Context, server mcpServerConfig) (*exec.Cmd, io.WriteCloser, *bufio.Reader, error) {
+	cmdPath := strings.TrimSpace(server.Command)
+	if cmdPath == "" {
+		return nil, nil, nil, errors.New("MCP command is required.")
+	}
+	if strings.Contains(cmdPath, "..") {
+		return nil, nil, nil, errors.New("MCP command path traversal is not allowed.")
+	}
+
 	args := append([]string(nil), server.Args...)
-	cmd := exec.CommandContext(ctx, strings.TrimSpace(server.Command), args...)
+	cmd := exec.CommandContext(ctx, cmdPath, args...)
 	if strings.TrimSpace(server.Dir) != "" {
 		cmd.Dir = server.Dir
 	}
-	cmd.Env = os.Environ()
+
+	var cleanEnv []string
+	allowedEnvKeys := map[string]bool{
+		"PATH":    true,
+		"TMPDIR":  true,
+		"USER":    true,
+		"HOME":    true,
+		"LANG":    true,
+		"TZ":      true,
+		"SHELL":   true,
+		"LOGNAME": true,
+	}
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) > 0 && allowedEnvKeys[strings.ToUpper(parts[0])] {
+			cleanEnv = append(cleanEnv, env)
+		}
+	}
+	cmd.Env = cleanEnv
+
 	for key, value := range server.Env {
 		if strings.TrimSpace(key) == "" {
 			continue
@@ -1161,11 +1202,34 @@ func (s *mcpSession) closePending() {
 
 func (r *Runtime) recordMCPEvent(event MCPEvent) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.mcpEvents = append([]MCPEvent{event}, r.mcpEvents...)
 	if len(r.mcpEvents) > maxMCPEvents {
 		r.mcpEvents = r.mcpEvents[:maxMCPEvents]
 	}
+	var listeners []func(MCPEvent)
+	for _, l := range r.mcpListeners {
+		listeners = append(listeners, l)
+	}
+	r.mu.Unlock()
+
+	for _, listener := range listeners {
+		listener(event)
+	}
+}
+
+func (r *Runtime) RegisterMCPListener(id string, listener func(MCPEvent)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.mcpListeners == nil {
+		r.mcpListeners = map[string]func(MCPEvent){}
+	}
+	r.mcpListeners[id] = listener
+}
+
+func (r *Runtime) UnregisterMCPListener(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.mcpListeners, id)
 }
 
 func (r *Runtime) updateMCPSubscriptionState(id string, state string, errDetail string) {

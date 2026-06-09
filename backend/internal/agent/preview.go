@@ -2,11 +2,13 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -54,6 +56,13 @@ func (r *Runtime) saveAgentPreview(preview AgentPreview) AgentPreview {
 			if strings.TrimSpace(replacedRoot) != "" && replacedRoot != preview.Root {
 				_ = os.RemoveAll(replacedRoot)
 			}
+			if strings.TrimSpace(preview.Root) != "" {
+				_ = os.MkdirAll(preview.Root, 0o755)
+				metadataPath := filepath.Join(preview.Root, "metadata.json")
+				if data, err := json.Marshal(preview); err == nil {
+					_ = os.WriteFile(metadataPath, data, 0o644)
+				}
+			}
 			return preview
 		}
 	}
@@ -64,6 +73,15 @@ func (r *Runtime) saveAgentPreview(preview AgentPreview) AgentPreview {
 		r.agentPreviews = r.agentPreviews[:maxAgentPreviewItems]
 	}
 	r.mu.Unlock()
+
+	if strings.TrimSpace(preview.Root) != "" {
+		_ = os.MkdirAll(preview.Root, 0o755)
+		metadataPath := filepath.Join(preview.Root, "metadata.json")
+		if data, err := json.Marshal(preview); err == nil {
+			_ = os.WriteFile(metadataPath, data, 0o644)
+		}
+	}
+
 	for _, item := range evicted {
 		if strings.TrimSpace(item.Root) != "" {
 			_ = os.RemoveAll(item.Root)
@@ -106,6 +124,44 @@ func (r *Runtime) RecoverAgentPreview(previewID string, sessionID string, root s
 		Entry:     "index.html",
 	})
 	return true
+}
+
+func (r *Runtime) loadPreviewsFromCache() {
+	cacheRoot, err := previewCacheRoot()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(cacheRoot)
+	if err != nil {
+		return
+	}
+	var loaded []AgentPreview
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		metadataPath := filepath.Join(cacheRoot, entry.Name(), "metadata.json")
+		data, err := os.ReadFile(metadataPath)
+		if err != nil {
+			continue
+		}
+		var preview AgentPreview
+		if err := json.Unmarshal(data, &preview); err == nil {
+			if safePreviewID(preview.ID) == entry.Name() {
+				preview.Root = filepath.Join(cacheRoot, entry.Name())
+				loaded = append(loaded, preview)
+			}
+		}
+	}
+	sort.Slice(loaded, func(i, j int) bool {
+		return loaded[i].CreatedAt.After(loaded[j].CreatedAt)
+	})
+	if len(loaded) > maxAgentPreviewItems {
+		loaded = loaded[:maxAgentPreviewItems]
+	}
+	r.mu.Lock()
+	r.agentPreviews = loaded
+	r.mu.Unlock()
 }
 
 func previewCacheRoot() (string, error) {
