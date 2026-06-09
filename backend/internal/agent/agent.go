@@ -41,6 +41,7 @@ type Runtime struct {
 	mcpConfigPath    string
 	commands         []string
 	activeProvider   ProviderInfo
+	unrestricted    bool
 }
 
 type ProviderInfo struct {
@@ -63,6 +64,12 @@ func (r *Runtime) SetActiveProvider(info ProviderInfo) {
 	if len(r.traces) > 50 {
 		r.traces = r.traces[:50]
 	}
+}
+
+func (r *Runtime) SetUnrestricted(unrestricted bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.unrestricted = unrestricted
 }
 
 func (r *Runtime) activeProviderInfo() ProviderInfo {
@@ -120,6 +127,7 @@ type Status struct {
 	CommandChecks    []CommandCheck    `json:"commandChecks"`
 	CommandRuns      []CommandRun      `json:"commandRuns"`
 	Providers        []ProviderInfo  `json:"providers,omitempty"`
+	Unrestricted    bool              `json:"unrestricted"`
 }
 
 type RuleSet struct {
@@ -506,6 +514,7 @@ func (r *Runtime) Status(ctx context.Context) Status {
 		WorkspaceRoot:    r.WorkspaceRoot(),
 		DeveloperMode:    r.developerMode,
 		WorkspaceTrust:   r.workspaceTrust,
+		Unrestricted:     r.unrestricted,
 		Rules:            r.loadRules(ctx),
 		Tools:            r.tools(),
 		Hooks:            defaultHooks(),

@@ -444,6 +444,7 @@ func TestRuntimeDeveloperAgentLoopBlocksBroadSystemCommands(t *testing.T) {
 }
 
 func TestRuntimeDeveloperAgentLoopAllowsProjectScopedPackageCommands(t *testing.T) {
+	runtime := NewRuntime("")
 	for _, command := range []string{
 		"npm install",
 		"npm run build",
@@ -451,7 +452,7 @@ func TestRuntimeDeveloperAgentLoopAllowsProjectScopedPackageCommands(t *testing.
 		"git status --short",
 	} {
 		t.Run(command, func(t *testing.T) {
-			reason, err := checkDeveloperCommand(command)
+			reason, err := checkDeveloperCommand(runtime, command)
 			if err != nil {
 				t.Fatalf("checkDeveloperCommand(%q) error = %v", command, err)
 			}

@@ -221,6 +221,10 @@ Continues a waiting loop after the needed input or approval exists.
 
 Cancels a waiting loop.
 
+`POST /api/agent/unrestricted`
+
+Enables or disables unrestricted terminal autonomy for the developer loop. Body: `{"unrestricted": true}`.
+
 `GET /api/agent/previews/{id}/{name...}`
 
 Serves a temporary agent preview file. The root path serves the preview entry file.

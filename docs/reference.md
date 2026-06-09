@@ -206,6 +206,7 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/loops` |
 | `POST` | `/api/agent/loops/{id}/continue` |
 | `POST` | `/api/agent/loops/{id}/cancel` |
+| `POST` | `/api/agent/unrestricted` |
 | `GET` | `/api/agent/previews/{id}/{name...}` |
 | `GET` | `/api/agent/command-approvals` |
 | `POST` | `/api/agent/command-approvals` |
