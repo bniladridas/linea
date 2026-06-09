@@ -1301,7 +1301,7 @@ func appendAutoLimitStep(loop AgentLoop) AgentLoop {
 }
 
 func (r *Runtime) runDeveloperCommand(ctx context.Context, loop AgentLoop, command string) AgentLoop {
-	reason, err := checkDeveloperCommand(command)
+	reason, err := checkDeveloperCommand(r, command)
 	check := CommandCheck{
 		ID:        newTraceID(),
 		Command:   command,
@@ -1319,11 +1319,15 @@ func (r *Runtime) runDeveloperCommand(ctx context.Context, loop AgentLoop, comma
 	if err != nil {
 		return loop
 	}
+	detail := "Developer loop approved non-destructive command."
+	if r.unrestricted {
+		detail = "Developer loop approved unrestricted command."
+	}
 	approval := CommandApproval{
 		ID:        newTraceID(),
 		Command:   command,
 		State:     "approved",
-		Detail:    "Developer loop approved non-destructive command.",
+		Detail:    detail,
 		CreatedAt: time.Now().UTC(),
 	}
 	r.mu.Lock()
@@ -1345,7 +1349,10 @@ func (r *Runtime) runDeveloperCommand(ctx context.Context, loop AgentLoop, comma
 	return r.runCheckedLoopCommand(ctx, loop, command)
 }
 
-func checkDeveloperCommand(command string) (string, error) {
+func checkDeveloperCommand(r *Runtime, command string) (string, error) {
+	if r.unrestricted {
+		return "developer mode unrestricted", nil
+	}
 	fields := strings.Fields(command)
 	if len(fields) == 0 {
 		return "command is required", errors.New("Command is required.")
@@ -1645,7 +1652,7 @@ func (r *Runtime) runDeveloperFailureInspection(ctx context.Context, loop AgentL
 		return appendRetryStep(loop, loopRetryDetail(loop, "Command failed."))
 	}
 	loop = appendLoopStep(loop, "command_followup", "Inspect failure", "run_command", nil, detail, command)
-	reason, err := checkDeveloperCommand(command)
+	reason, err := checkDeveloperCommand(r, command)
 	check := CommandCheck{
 		ID:        newTraceID(),
 		Command:   command,

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const (
+var (
 	commandTimeout   = 30 * time.Second
 	maxCommandOutput = 64 * 1024
 )
@@ -116,7 +116,13 @@ func (r *Runtime) runCheckedCommand(ctx context.Context, command string) (Comman
 	if len(args) == 0 {
 		return CommandRun{}, errors.New("Command is required.")
 	}
-	runCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	timeout := commandTimeout
+	outputLimit := maxCommandOutput
+	if r.unrestricted {
+		timeout = 5 * time.Minute
+		outputLimit = 1024 * 1024
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)
 	cmd.Dir = root
@@ -137,8 +143,8 @@ func (r *Runtime) runCheckedCommand(ctx context.Context, command string) (Comman
 	}
 	content := redactSecrets(output.String())
 	truncated := false
-	if len(content) > maxCommandOutput {
-		content = content[:maxCommandOutput]
+	if len(content) > outputLimit {
+		content = content[:outputLimit]
 		truncated = true
 	}
 	run := CommandRun{

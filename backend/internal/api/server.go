@@ -107,6 +107,7 @@ type AgentRuntime interface {
 	ProposeEdit(context.Context, agent.EditProposalInput) (agent.EditProposal, error)
 	ReviewEditProposal(context.Context, string, agent.EditProposalReviewInput) (agent.EditProposal, error)
 	ApplyEditProposal(context.Context, string) (agent.EditProposal, error)
+	SetUnrestricted(bool)
 }
 
 type Settings struct {
@@ -237,6 +238,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/loops", s.startAgentLoop)
 	mux.HandleFunc("POST /api/agent/loops/{id}/continue", s.continueAgentLoop)
 	mux.HandleFunc("POST /api/agent/loops/{id}/cancel", s.cancelAgentLoop)
+	mux.HandleFunc("POST /api/agent/unrestricted", s.setAgentUnrestricted)
 	mux.HandleFunc("GET /api/agent/previews/{id}/{name...}", s.readAgentPreview)
 	mux.HandleFunc("GET /api/agent/command-approvals", s.listAgentCommandApprovals)
 	mux.HandleFunc("POST /api/agent/command-approvals", s.createAgentCommandApproval)
@@ -698,6 +700,22 @@ func (s *Server) cancelAgentLoop(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "agent loop", loop.State, loop.ID)
 	writeJSON(w, http.StatusOK, loop)
+}
+
+func (s *Server) setAgentUnrestricted(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent is not available.")
+		return
+	}
+	var req struct {
+		Unrestricted bool `json:"unrestricted"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
+		return
+	}
+	s.agentRuntime.SetUnrestricted(req.Unrestricted)
+	writeJSON(w, http.StatusOK, map[string]bool{"unrestricted": req.Unrestricted})
 }
 
 func (s *Server) readAgentPreview(w http.ResponseWriter, r *http.Request) {

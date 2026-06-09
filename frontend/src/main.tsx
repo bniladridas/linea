@@ -263,6 +263,7 @@ type AgentStatus = {
       createdId?: string;
     }>;
   }>;
+  unrestricted?: boolean;
 };
 
 type AgentRun = {
@@ -1246,6 +1247,19 @@ function App() {
     }
   }
 
+  async function setAgentUnrestricted(unrestricted: boolean) {
+    try {
+      await request('/api/agent/unrestricted', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unrestricted }),
+      });
+      await refreshAgentDetails();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update unrestricted mode.');
+    }
+  }
+
   async function saveAgentWorkspaceRoot(root: string) {
     const activityId = recordAgentActivity({
       kind: 'workspace',
@@ -2115,6 +2129,7 @@ function App() {
           onStartLoop={(input) => void startAgentLoop(input)}
           onContinueLoop={(loopId, input) => void continueAgentLoop(loopId, input)}
           onCancelLoop={(loopId) => void cancelAgentLoop(loopId)}
+          onSetUnrestricted={(unrestricted) => void setAgentUnrestricted(unrestricted)}
           onWorkspaceChange={(root) => void saveAgentWorkspaceRoot(root)}
           onSettingsChange={(next) => void saveAppSettings(next)}
           onClose={() => setIsSystemDetailsOpen(false)}
@@ -2673,6 +2688,7 @@ function SystemDetailsDialog({
   onStartLoop,
   onContinueLoop,
   onCancelLoop,
+  onSetUnrestricted,
   onSettingsChange,
   onWorkspaceChange,
   settings,
@@ -2703,6 +2719,7 @@ function SystemDetailsDialog({
   onStartLoop: (input: AgentLoopRequest) => void;
   onContinueLoop: (loopId: string, input: Omit<AgentLoopRequest, 'goal'>) => void;
   onCancelLoop: (loopId: string) => void;
+  onSetUnrestricted: (unrestricted: boolean) => void;
   onSettingsChange: (settings: AppSettings) => void;
   onWorkspaceChange: (root: string) => void;
   settings: AppSettings | null;
@@ -2717,6 +2734,7 @@ function SystemDetailsDialog({
   const [loopProposalPathInput, setLoopProposalPathInput] = useState('');
   const [loopProposalContentInput, setLoopProposalContentInput] = useState('');
   const [loopModeInput, setLoopModeInput] = useState<AgentLoopMode>('guided');
+  const [unrestrictedConfirm, setUnrestrictedConfirm] = useState<boolean | null>(null);
   const [hookCommandInput, setHookCommandInput] = useState('');
   const [hookRunHookId, setHookRunHookId] = useState(agentStatus?.hooks?.[0]?.id ?? '');
   const [hookRunState, setHookRunState] = useState('completed');
@@ -3192,6 +3210,19 @@ function SystemDetailsDialog({
                 Developer
               </button>
             </div>
+            {loopModeInput === 'developer' && (
+              <div className="agent-unrestricted">
+                {agentStatus?.unrestricted ? (
+                  <button type="button" className="unrestricted-toggle active" onClick={() => onSetUnrestricted(false)}>
+                    Unrestricted – ON
+                  </button>
+                ) : (
+                  <button type="button" className="unrestricted-toggle" onClick={() => setUnrestrictedConfirm(true)}>
+                    Enable unrestricted
+                  </button>
+                )}
+              </div>
+            )}
             <input
               aria-label="Agent goal"
               placeholder="Goal"
@@ -3876,6 +3907,15 @@ function SystemDetailsDialog({
           render={(run) => `${run.state} · ${new Date(run.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}
         />
       </section>
+      {unrestrictedConfirm && (
+        <ConfirmDialog
+          title="Enable unrestricted mode"
+          detail="The agent will have full terminal autonomy and can run any command without blocklist checks. Only destructive, secret, and billing actions will still require approval. Continue?"
+          action="Enable"
+          onCancel={() => setUnrestrictedConfirm(null)}
+          onConfirm={() => { setUnrestrictedConfirm(null); onSetUnrestricted(true); }}
+        />
+      )}
     </div>
   );
 }
