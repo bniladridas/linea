@@ -4430,3 +4430,239 @@ func loopHasCreatedID(loop AgentLoop, kind string, createdID string) bool {
 	}
 	return false
 }
+
+func TestRuntimeAutoApproveCategoriesDefault(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+	cats := runtime.AutoApproveCategories()
+	if len(cats) != 0 {
+		t.Fatalf("AutoApproveCategories() = %v, want empty", cats)
+	}
+}
+
+func TestRuntimeAutoApproveCategoriesSetGet(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+	runtime.SetAutoApproveCategories([]string{"read", "write"})
+	cats := runtime.AutoApproveCategories()
+	if len(cats) != 2 || cats[0] != "read" || cats[1] != "write" {
+		t.Fatalf("AutoApproveCategories() = %v, want [read write]", cats)
+	}
+}
+
+func TestRuntimeAutoApproveCategoriesClearsOnSetEmpty(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+	runtime.SetAutoApproveCategories([]string{"read"})
+	runtime.SetAutoApproveCategories(nil)
+	cats := runtime.AutoApproveCategories()
+	if len(cats) != 0 {
+		t.Fatalf("AutoApproveCategories() = %v, want empty after clearing", cats)
+	}
+}
+
+func TestRuntimeAutoApproveAllowsCommandByCategory(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test", "go test ./..."}), WithAutoApproveCategories([]string{"inspect"}))
+	check, err := runtime.CheckCommand(context.Background(), CommandCheckInput{Command: "make test"})
+	if err != nil {
+		t.Fatalf("CheckCommand() error = %v", err)
+	}
+	if !check.Allowed {
+		t.Fatalf("CheckCommand().Allowed = false, want true")
+	}
+	if check.Reason != "auto-approved by category" {
+		t.Fatalf("CheckCommand().Reason = %q, want %q", check.Reason, "auto-approved by category")
+	}
+}
+
+func TestRuntimeAutoApproveBlocksCommandOutsideAllowlist(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}), WithAutoApproveCategories([]string{"read"}))
+	check, err := runtime.CheckCommand(context.Background(), CommandCheckInput{Command: "printf ok"})
+	if err != nil {
+		t.Fatalf("CheckCommand() error = %v", err)
+	}
+	if check.Allowed {
+		t.Fatalf("CheckCommand().Allowed = true, want false")
+	}
+	if check.Reason != "not in allowlist" {
+		t.Fatalf("CheckCommand().Reason = %q, want %q", check.Reason, "not in allowlist")
+	}
+}
+
+func TestRuntimeAutoApproveCategoriesInitializedFromEnv(t *testing.T) {
+	t.Setenv("LINEA_AUTO_APPROVE_CATEGORIES", "read,write")
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+	cats := runtime.AutoApproveCategories()
+	if len(cats) != 2 || cats[0] != "read" || cats[1] != "write" {
+		t.Fatalf("AutoApproveCategories() = %v, want [read write]", cats)
+	}
+}
+
+func TestRuntimeAutoApproveOptionOverridesEnv(t *testing.T) {
+	t.Setenv("LINEA_AUTO_APPROVE_CATEGORIES", "read,write")
+	runtime := NewRuntime("", WithAutoApproveCategories([]string{"inspect"}))
+	cats := runtime.AutoApproveCategories()
+	if len(cats) != 1 || cats[0] != "inspect" {
+		t.Fatalf("AutoApproveCategories() = %v, want [inspect]", cats)
+	}
+}
+
+func TestRuntimeAuditLogWritesEntry(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	runtime := NewRuntime("", WithAuditLogPath(logPath), WithCommandAllowlist([]string{"make test"}))
+	_, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "make test", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(data), "make test") {
+		t.Fatalf("audit log missing command: %s", data)
+	}
+	if !strings.Contains(string(data), `"approved"`) {
+		t.Fatalf("audit log missing state: %s", data)
+	}
+}
+
+func TestRuntimeAuditLogLoadsEntries(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	runtime := NewRuntime("", WithAuditLogPath(logPath), WithCommandAllowlist([]string{"make test"}))
+	_, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "make test", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+	// Create a new runtime that loads from the same log
+	runtime2 := NewRuntime("", WithAuditLogPath(logPath))
+	runtime2.LoadAuditLog()
+	approvals := runtime2.ListCommandApprovals(context.Background())
+	if len(approvals) == 0 {
+		t.Fatalf("no approvals loaded from audit log")
+	}
+	if approvals[0].Command != "make test" {
+		t.Fatalf("loaded approval command = %q, want %q", approvals[0].Command, "make test")
+	}
+}
+
+func TestRuntimeAuditLogDisabledWhenPathEmpty(t *testing.T) {
+	t.Setenv("LINEA_AUDIT_LOG_PATH", "")
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+	_, err := runtime.AddCommandApproval(context.Background(), CommandApprovalInput{Command: "make test", State: "approved"})
+	if err != nil {
+		t.Fatalf("AddCommandApproval() error = %v", err)
+	}
+}
+
+func TestRuntimeCheckCommandCategoryAndDestructive(t *testing.T) {
+	runtime := NewRuntime("", WithCommandAllowlist([]string{"make test"}))
+	check, err := runtime.CheckCommand(context.Background(), CommandCheckInput{Command: "make test"})
+	if err != nil {
+		t.Fatalf("CheckCommand() error = %v", err)
+	}
+	if check.Category == "" {
+		t.Fatalf("CheckCommand().Category is empty, want a category")
+	}
+	if check.Destructive {
+		t.Fatalf("CheckCommand().Destructive = true, want false for 'make test'")
+	}
+}
+
+func TestRuntimeStatusIncludesAutoApproveCategories(t *testing.T) {
+	runtime := NewRuntime("", WithAutoApproveCategories([]string{"read", "write"}))
+	status := runtime.Status(context.Background())
+	if status.Unrestricted {
+		t.Fatalf("Status().Unrestricted = true, want false")
+	}
+	if status.RunSummary.CommandApprovals != 0 {
+		t.Fatalf("Status().RunSummary.CommandApprovals = %d, want 0", status.RunSummary.CommandApprovals)
+	}
+	if status.RunSummary.CommandChecks != 0 {
+		t.Fatalf("Status().RunSummary.CommandChecks = %d, want 0", status.RunSummary.CommandChecks)
+	}
+	if status.RunSummary.CommandRuns != 0 {
+		t.Fatalf("Status().RunSummary.CommandRuns = %d, want 0", status.RunSummary.CommandRuns)
+	}
+}
+
+func TestRuntimeStartBackgroundJob(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+	job, err := runtime.StartBackgroundJob(context.Background(), BackgroundJobInput{Goal: "test background job"})
+	if err != nil {
+		t.Fatalf("StartBackgroundJob() error = %v", err)
+	}
+	if job.ID == "" {
+		t.Fatalf("job.ID is empty")
+	}
+	if job.Goal != "test background job" {
+		t.Fatalf("job.Goal = %q, want %q", job.Goal, "test background job")
+	}
+	if job.State != "running" {
+		t.Fatalf("job.State = %q, want %q", job.State, "running")
+	}
+	if job.LoopID == "" {
+		t.Fatalf("job.LoopID is empty")
+	}
+}
+
+func TestRuntimeStartBackgroundJobDefaultsToAutoMode(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+	job, err := runtime.StartBackgroundJob(context.Background(), BackgroundJobInput{Goal: "test", Mode: "invalid"})
+	if err != nil {
+		t.Fatalf("StartBackgroundJob() error = %v", err)
+	}
+	if job.State != "running" {
+		t.Fatalf("job.State = %q, want %q", job.State, "running")
+	}
+}
+
+func TestRuntimeCancelBackgroundJob(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+	job, err := runtime.StartBackgroundJob(context.Background(), BackgroundJobInput{Goal: "test"})
+	if err != nil {
+		t.Fatalf("StartBackgroundJob() error = %v", err)
+	}
+	cancelled, err := runtime.CancelBackgroundJob(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("CancelBackgroundJob() error = %v", err)
+	}
+	if cancelled.State != "cancelled" {
+		t.Fatalf("cancelled.State = %q, want %q", cancelled.State, "cancelled")
+	}
+	if cancelled.ID != job.ID {
+		t.Fatalf("cancelled.ID = %q, want %q", cancelled.ID, job.ID)
+	}
+}
+
+func TestRuntimeCancelBackgroundJobNotFound(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+	_, err := runtime.CancelBackgroundJob(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("CancelBackgroundJob() error = nil, want error")
+	}
+}
+
+func TestRuntimeCancelBackgroundJobNotRunning(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+	job, err := runtime.StartBackgroundJob(context.Background(), BackgroundJobInput{Goal: "test"})
+	if err != nil {
+		t.Fatalf("StartBackgroundJob() error = %v", err)
+	}
+	_, err = runtime.CancelBackgroundJob(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("first CancelBackgroundJob() error = %v", err)
+	}
+	_, err = runtime.CancelBackgroundJob(context.Background(), job.ID)
+	if err == nil {
+		t.Fatal("second CancelBackgroundJob() error = nil, want error")
+	}
+}
+
+func TestRuntimeBackgroundJobsInStatus(t *testing.T) {
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+	job, err := runtime.StartBackgroundJob(context.Background(), BackgroundJobInput{Goal: "test"})
+	if err != nil {
+		t.Fatalf("StartBackgroundJob() error = %v", err)
+	}
+	status := runtime.Status(context.Background())
+	if len(status.BackgroundJobs) != 1 || status.BackgroundJobs[0].ID != job.ID {
+		t.Fatalf("Status().BackgroundJobs = %#v, want 1 job with ID %q", status.BackgroundJobs, job.ID)
+	}
+}

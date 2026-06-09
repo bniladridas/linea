@@ -2480,3 +2480,180 @@ func apiLoopHasStep(loop agent.AgentLoop, kind string, state string) bool {
 	}
 	return false
 }
+
+func TestAgentAutoApproveGetReturnsCategories(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}), agent.WithAutoApproveCategories([]string{"read", "write"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/auto-approve-categories", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var cats []string
+	if err := json.NewDecoder(res.Body).Decode(&cats); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(cats) != 2 || cats[0] != "read" || cats[1] != "write" {
+		t.Fatalf("categories = %v, want [read write]", cats)
+	}
+}
+
+func TestAgentAutoApproveSetAndGetCategories(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"categories":["read","inspect"]}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/agent/auto-approve-categories", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/agent/auto-approve-categories", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var cats []string
+	if err := json.NewDecoder(res.Body).Decode(&cats); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(cats) != 2 || cats[0] != "read" || cats[1] != "inspect" {
+		t.Fatalf("categories = %v, want [read inspect]", cats)
+	}
+}
+
+func TestAgentAutoApproveReturns404WhenRuntimeNil(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, nil).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/auto-approve-categories", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusNotFound, res.Body.String())
+	}
+}
+
+func TestAgentCommandCheckReturnsCategory(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"command":"make test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/command-checks", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var check agent.CommandCheck
+	if err := json.NewDecoder(res.Body).Decode(&check); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if check.Category == "" {
+		t.Fatalf("check.Category is empty, want a category")
+	}
+	if check.Destructive {
+		t.Fatalf("check.Destructive = true, want false")
+	}
+}
+
+func TestAgentBackgroundJobStartAndCancel(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"goal":"test background job"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/background-jobs", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("POST status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var created agent.BackgroundJob
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if created.ID == "" || created.Goal != "test background job" || created.State != "running" {
+		t.Fatalf("created = %#v", created)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/agent/background-jobs/"+created.ID+"/cancel", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("POST cancel status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var cancelled agent.BackgroundJob
+	if err := json.NewDecoder(res.Body).Decode(&cancelled); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if cancelled.State != "cancelled" {
+		t.Fatalf("cancelled.State = %q, want %q", cancelled.State, "cancelled")
+	}
+}
+
+func TestAgentBackgroundJobStartWithoutGoal(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	body := strings.NewReader(`{"goal":""}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/background-jobs", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("POST status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+	}
+}
+
+func TestAgentBackgroundJobReturns404WhenRuntimeNil(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+		return Status{}
+	}, nil, nil).Handler()
+
+	body := strings.NewReader(`{"goal":"test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/background-jobs", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("POST status = %d, want %d: %s", res.Code, http.StatusNotFound, res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/agent/background-jobs/none/cancel", nil)
+	res = httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("POST cancel status = %d, want %d: %s", res.Code, http.StatusNotFound, res.Body.String())
+	}
+}

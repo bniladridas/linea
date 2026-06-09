@@ -38,6 +38,8 @@ type Searcher interface {
 
 type AgentRuntime interface {
 	Status(context.Context) agent.Status
+	AutoApproveCategories() []string
+	SetAutoApproveCategories([]string)
 	ListMCPTools(context.Context) []agent.MCPTool
 	ListMCPResources(context.Context) []agent.MCPResource
 	ListMCPPrompts(context.Context) []agent.MCPPrompt
@@ -62,8 +64,10 @@ type AgentRuntime interface {
 	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
 	RunSubagentPlan(context.Context, agent.SubagentPlanInput) (agent.SubagentPlanRun, error)
 	CheckCommand(context.Context, agent.CommandCheckInput) (agent.CommandCheck, error)
+	ListCommandChecks(context.Context) []agent.CommandCheck
 	ListCommandApprovals(context.Context) []agent.CommandApproval
 	AddCommandApproval(context.Context, agent.CommandApprovalInput) (agent.CommandApproval, error)
+	ListCommandRuns(context.Context) []agent.CommandRun
 	RunCommand(context.Context, agent.CommandCheckInput) (agent.CommandRun, error)
 	AddTrace(context.Context, agent.TraceInput) (agent.Trace, error)
 	AddHookRun(context.Context, agent.HookRunInput) (agent.HookRun, error)
