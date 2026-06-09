@@ -36,6 +36,13 @@ jobs:
           tar -C dist/package -czf "dist/linea_${GITHUB_REF_NAME}_darwin_arm64.tar.gz" linea
           shasum -a 256 dist/*.tar.gz dist/macos/Linea.dmg > dist/checksums.txt
 
+      - name: Build bottle
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/bottle/linea/"$version"/bin
+          cp dist/package/linea dist/bottle/linea/"$version"/bin/
+          tar -C dist/bottle -czf "dist/linea-${version}.arm64_sequoia.bottle.tar.gz" linea
+
       - uses: actions/create-github-app-token@v3
         id: app-token
         with:

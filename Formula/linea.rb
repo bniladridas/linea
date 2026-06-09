@@ -6,6 +6,11 @@ class Linea < Formula
   license "MIT"
   head "https://github.com/bniladridas/linea.git", branch: "main"
 
+  bottle do
+    root_url "https://github.com/bniladridas/linea/releases/download/v#{version}"
+    sha256 arm64_sequoia: "dc1f00db79562a34f2aa01f76ef309a50480b77b8f5744d05dd85c9fc81e49c9"
+  end
+
   depends_on "go" => :build
   depends_on "node" => :build
   depends_on "postgresql@16"
