@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Linea agent note.">
+    <title>Agents</title>
+    <link rel="stylesheet" href="../styles.css">
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f0f0f0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='24' height='24' rx='6' fill='%23151514' stroke='none'/%3E%3Ccircle cx='6' cy='19' r='3'/%3E%3Cpath d='M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15'/%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3C/svg%3E"
+    >
+  </head>
+  <body>
+    <main class="page">
+      <header class="site-header" aria-label="Linea">
+        <a class="home-link" href="../index.html">
+          <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="6" cy="19" r="3"></circle>
+            <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"></path>
+            <circle cx="18" cy="5" r="3"></circle>
+          </svg>
+          <span>Linea</span>
+        </a>
+        <a class="plain-link" href="../edits/index.html">Edits</a>
+      </header>
+
+      <article class="article">
+        <p class="kicker">10 Jun 2026</p>
+        <h1>Agents</h1>
+
+        <p>
+          Agent loops read, edit, run, call MCP tools.
+        </p>
+
+        <p>
+          <strong>Modes</strong>: <code>guided</code> pauses every step. <code>auto</code> applies safe edits. <code>developer</code> uses blocklist instead of allowlist.
+        </p>
+
+        <p>
+          <strong>Commands</strong>: categories <code>read</code>, <code>inspect</code>, <code>write</code>, <code>destructive</code>. Auto-approve skips approval. Audit log records everything.
+        </p>
+
+        <p>
+          <strong>New files</strong>: loops only edit files in diagnostic context. Use <code>:proposal create &lt;path&gt; &lt;content&gt;</code> → <code>:proposal approve &lt;id&gt;</code> → <code>:proposal apply &lt;id&gt;</code>.
+        </p>
+
+        <p>
+          <strong>Chat triggers</strong>: loops start for temp app keywords (<code>page</code>, <code>app</code>, <code>preview</code>). Background jobs don't block chat.
+        </p>
+
+        <pre># Start a loop
+POST /api/agent/loops {"goal": "fix lint errors", "mode": "auto"}
+
+# Create a proposal
+POST /api/agent/edit-proposals {"path": "main.go", "content": "..."}
+
+# Approve
+PATCH /api/agent/edit-proposals/{id} {"status": "approved"}
+
+# Apply
+POST /api/agent/edit-proposals/{id}/apply
+
+# Background job
+POST /api/agent/background-jobs {"goal": "run tests", "mode": "auto"}
+POST /api/agent/background-jobs/{id}/cancel
+
+# Command check
+POST /api/agent/command-checks {"command": "make test"}
+
+# Approve command
+POST /api/agent/command-approvals {"command": "make test", "state": "approved"}
+
+# Auto-approve categories
+GET /api/agent/auto-approve-categories
+PUT /api/agent/auto-approve-categories {"categories": ["read", "inspect"]}
+
+# List state
+GET /api/agent/command-checks
+GET /api/agent/command-approvals
+GET /api/agent/command-runs</pre>
+
+        <p>
+          <strong>Config</strong>: <code>LINEA_WORKSPACE_DIR</code>, <code>LINEA_AGENT_DEVELOPER_MODE</code>, <code>LINEA_AUTO_APPROVE_CATEGORIES</code>, <code>LINEA_AUDIT_LOG_PATH</code>, <code>LINEA_COMMAND_ALLOWLIST</code>.
+        </p>
+
+        <p>
+          <strong>Web UI</strong>: messages like "create a React app" start loops. Edit proposals shown for review.
+        </p>
+
+        <p>
+          <strong>TUI</strong>: <code>linea -tui</code>. Commands: <code>:loop &lt;goal&gt;</code>, <code>:loop auto &lt;goal&gt;</code>, <code>:loop developer &lt;goal&gt;</code>, <code>:proposal create &lt;path&gt; &lt;content&gt;</code>, <code>:agent</code>, <code>:checks</code>, <code>:approvals</code>, <code>:runs</code>, <code>:auto-approve &lt;categories...&gt;</code>.
+        </p>
+      </article>
+    </main>
+  </body>
+</html>
