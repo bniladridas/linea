@@ -26,7 +26,8 @@ jobs:
           REPO: ${{ github.repository }}
           BODY: ${{ github.event.issue.body }}
         run: |
-          platform=$(echo "$BODY" | grep -oP '(?<=\*\*Platform:\*\*).*' | grep -ioP 'macOS|iOS|Android|Web' | head -1)
+          raw=$(echo "$BODY" | grep -A1 '^\*\*Platform:\*\*' | tail -1)
+          platform=$(echo "$raw" | grep -ioP 'macOS|iOS|Android|Web' | head -1)
           if [ -n "$platform" ]; then
             label=$(echo "$platform" | tr '[:upper:]' '[:lower:]')
             gh issue edit "$ISSUE" --repo "$REPO" --add-label "$label"
