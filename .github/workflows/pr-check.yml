@@ -73,6 +73,20 @@ jobs:
         continue-on-error: true
         run: make test
 
+      - name: cross-build
+        id: cross-build
+        continue-on-error: true
+        run: |
+          cd backend
+          GOOS=darwin GOARCH=amd64 go build -o /dev/null ./cmd/server
+
+      - name: build-ios
+        id: build-ios
+        continue-on-error: true
+        run: |
+          cd ios
+          xcodebuild -project Linea.xcodeproj -scheme Linea -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -quiet
+
       - name: package
         id: package
         continue-on-error: true
@@ -104,6 +118,7 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BUILD_RESULT: ${{ steps.build.outcome }}
+          IOS_RESULT: ${{ steps.build-ios.outcome }}
           PACKAGE_RESULT: ${{ steps.package.outcome }}
           VERIFY_RESULT: ${{ steps.verify.outcome }}
           VERSION: ${{ steps.version.outputs.value }}
@@ -163,10 +178,11 @@ jobs:
             echo "| Go | $(go version) |"
             echo "| Node | $(node --version) |"
             echo "| Build | ${{ steps.build.outcome }} |"
+            echo "| iOS | ${{ steps.build-ios.outcome }} |"
             echo "| Package | ${{ steps.package.outcome }} |"
             echo "| Verify | ${{ steps.verify.outcome }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: result
-        if: steps.build.outcome != 'success' || steps.package.outcome != 'success' || steps.verify.outcome != 'success'
+        if: steps.build.outcome != 'success' || steps.build-ios.outcome != 'success' || steps.package.outcome != 'success' || steps.verify.outcome != 'success'
         run: exit 1

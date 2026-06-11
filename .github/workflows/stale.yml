@@ -5,17 +5,26 @@ on:
   schedule:
     - cron: "39 4 * * 1"
 
-permissions:
-  issues: write
-  pull-requests: write
-
 jobs:
   mark:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
 
     steps:
+      - id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.LINEA_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
       - uses: actions/stale@v10
         with:
+          repo-token: ${{ steps.app-token.outputs.token }}
           days-before-stale: 45
           days-before-close: 14
           stale-issue-label: stale

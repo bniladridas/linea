@@ -1,0 +1,31 @@
+* text=auto
+
+*.go text
+*.ts text
+*.tsx text
+*.css text
+*.html text
+*.md text
+*.yml text
+*.yaml text
+*.json text
+*.sh text eol=lf
+*.kt text
+*.swift text
+*.gradle text
+*.xml text
+*.plist text
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.svg text
+*.dmg binary
+*.tar.gz binary
+*.zip binary
+*.apk binary
+*.aab binary
+*.so binary

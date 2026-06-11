@@ -1,6 +1,6 @@
 # GitHub Actions
 
-Updated 3 Jun 2026.
+Updated 12 Jun 2026.
 
 # Required secrets
 
@@ -24,9 +24,18 @@ Dependabot alerts: read
 
 # Workflows
 
+`android.yml`
+
+Builds the Android debug APK.
+Runs on pull requests touching `android/` or `backend/`.
+
 `app.yml`
 
 Publishes the app check.
+
+`issue-response.yml`
+
+Comments on newly opened issues from the Linea bot.
 
 `pr-check.yml`
 
@@ -48,7 +57,7 @@ Runs the app checks on pull requests and pushes.
 
 Runs when a `v*` tag is pushed.
 
-Builds the Apple Silicon binary, packages the macOS DMG, writes checksums, and publishes the GitHub release.
+Builds the Apple Silicon binary, packages the macOS DMG, builds iOS `.app`, builds Android debug APK, writes checksums, and publishes the GitHub release.
 
 `nightly.yml`
 
@@ -99,6 +108,7 @@ Branch protection still decides when a pull request can merge.
 `stale.yml`
 
 Marks inactive issues and pull requests.
+Uses Linea bot token for comments.
 
 # Release path
 
