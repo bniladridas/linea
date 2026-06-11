@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,6 +20,7 @@ import (
 	"linea/backend/internal/agent"
 	"linea/backend/internal/api"
 	"linea/backend/internal/config"
+	"linea/backend/internal/daemon"
 	"linea/backend/internal/doctor"
 	"linea/backend/internal/llm"
 	"linea/backend/internal/migrate"
@@ -34,88 +34,90 @@ import (
 
 var version = "dev"
 
+var subcommandArgs []string
+
 func main() {
-	showVersion := flag.Bool("version", false, "print version and exit")
-	runMigrations := flag.Bool("migrate", false, "apply database migrations and exit")
-	runCheck := flag.Bool("check", false, "run non-interactive health checks and exit")
-	runAgentStatus := flag.Bool("agent-status", false, "print local agent status and exit")
-	runTUI := flag.Bool("tui", false, "run the terminal chat interface")
-	runTUIBeta := flag.Bool("tui-beta", false, "run the hand-rolled terminal chat interface")
-	checkServerURL := flag.String("check-server", "", "check a running Linea server URL and exit")
-	flag.Parse()
-	if *showVersion {
-		fmt.Printf("linea %s\n", version)
+	if len(os.Args) < 2 {
+		runServer()
 		return
 	}
 
+	// Support old-style -flag args for backward compatibility.
+	cmd := os.Args[1]
+	if len(cmd) > 0 && cmd[0] == '-' {
+		cmd = strings.TrimLeft(cmd, "-")
+	}
+
+	// Remaining args after the subcommand.
+	subcommandArgs = os.Args[2:]
+
+	switch cmd {
+	case "server":
+		runServer()
+	case "daemon":
+		runDaemonCmd()
+	case "install":
+		runInstallCmd()
+	case "uninstall":
+		runUninstallCmd()
+	case "status":
+		runStatusCmd()
+	case "tui":
+		runTUICmd()
+	case "tui-beta":
+		runTUIBetaCmd()
+	case "migrate":
+		runMigrateCmd()
+	case "check":
+		runCheckCmd()
+	case "check-server":
+		runCheckServerCmd()
+	case "agent-status":
+		runAgentStatusCmd()
+	case "version":
+		fmt.Printf("linea %s\n", version)
+	case "help", "--help", "-h":
+		printHelp()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "run 'linea help' for usage\n")
+		os.Exit(1)
+	}
+}
+
+func printHelp() {
+	fmt.Fprintf(os.Stderr, `Usage: linea <subcommand> [options]
+
+Subcommands:
+  server        start the web server (default)
+  daemon        start the server as a background daemon
+  install       install Linea as a LaunchAgent and start it
+  uninstall     uninstall the Linea LaunchAgent and stop it
+  status        show daemon status
+  tui           run the terminal chat interface
+  tui-beta      run the hand-rolled terminal chat interface
+  migrate       apply database migrations
+  check         run non-interactive health checks
+  check-server  check a running Linea server URL
+  agent-status  print local agent status
+  version       print version
+  help          show this help
+`)
+}
+
+func loadEnvAndConfig() config.Config {
 	if err := config.LoadEnvFile(); err != nil {
 		slog.Error("load env file", "error", err)
 		os.Exit(1)
 	}
-	cfg := config.Load()
+	return config.Load()
+}
+
+func runServer() {
+	cfg := loadEnvAndConfig()
 	ctx := context.Background()
-	if *runMigrations {
-		migrateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		results, err := migrate.Run(migrateCtx, cfg.DatabaseURL)
-		if err != nil {
-			slog.Error("migrate", "error", err)
-			os.Exit(1)
-		}
-		for _, result := range results {
-			status := "skipped"
-			if result.Applied {
-				status = "applied"
-			}
-			fmt.Printf("%s %s\n", status, result.Name)
-		}
-		return
-	}
-	if *runCheck {
-		checkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-		defer cancel()
-		results := doctor.Run(checkCtx, cfg)
-		doctor.Print(results)
-		if doctor.HasFailure(results) {
-			os.Exit(1)
-		}
-		return
-	}
-	if *checkServerURL != "" {
-		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		results := doctor.CheckServer(checkCtx, *checkServerURL)
-		doctor.Print(results)
-		if doctor.HasFailure(results) {
-			os.Exit(1)
-		}
-		return
-	}
-	if *runAgentStatus {
-		if err := printAgentStatus(ctx, cfg, os.Stdout); err != nil {
-			slog.Error("agent status", "error", err)
-			os.Exit(1)
-		}
-		return
-	}
 
-	appStore := store.Store(store.NewMemoryStore())
-	if cfg.DatabaseURL != "" {
-		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
-		if err != nil {
-			slog.Error("connect postgres", "error", err)
-			os.Exit(1)
-		}
-		defer pool.Close()
-		if err := pool.Ping(ctx); err != nil {
-			slog.Error("ping postgres", "error", err)
-			os.Exit(1)
-		}
-		appStore = store.NewPostgresStore(pool)
-	} else {
-		slog.Warn("DATABASE_URL not set; using in-memory storage")
-	}
-
+	appStore := buildStore(ctx, cfg)
 	staticFiles := web.Files()
 	if cfg.StaticDir != "" {
 		staticFiles = http.Dir(cfg.StaticDir)
@@ -134,23 +136,10 @@ func main() {
 			slog.Warn("shutdown agent runtime", "error", err)
 		}
 	}()
-	if *runTUIBeta {
-		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(newSearchClient(cfg)).WithAgentRuntime(agentRuntime).RunBeta(ctx); err != nil {
-			slog.Error("hand-rolled tui", "error", err)
-			os.Exit(1)
-		}
-		return
-	}
-	if *runTUI {
-		if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(newSearchClient(cfg)).WithAgentRuntime(agentRuntime).Run(ctx); err != nil {
-			slog.Error("tui", "error", err)
-			os.Exit(1)
-		}
-		return
-	}
+
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, newSearchClient(cfg), staticFiles, cfg.WebOrigin, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
+		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, newSearchClient(cfg), staticFiles, cfg.WebOrigin, version, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -173,6 +162,174 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Error("shutdown", "error", err)
+	}
+	if err := appStore.Close(); err != nil {
+		slog.Error("close store", "error", err)
+	}
+}
+
+func buildStore(ctx context.Context, cfg config.Config) store.Store {
+	appStore := store.Store(store.NewMemoryStore())
+	if cfg.SyncURL != "" {
+		remote, err := store.NewRemoteStore(cfg.SyncURL, cfg.SyncToken)
+		if err != nil {
+			slog.Error("remote store", "error", err)
+		} else {
+			appStore = remote
+			slog.Info("using remote store", "url", cfg.SyncURL)
+		}
+	} else if cfg.DatabaseURL != "" {
+		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			slog.Error("connect postgres", "error", err)
+			os.Exit(1)
+		}
+		if err := pool.Ping(ctx); err != nil {
+			slog.Error("ping postgres", "error", err)
+			os.Exit(1)
+		}
+		appStore = store.NewPostgresStore(pool)
+	} else {
+		if cfg.SyncURL == "" {
+			slog.Warn("DATABASE_URL not set; using in-memory storage")
+		}
+	}
+	return appStore
+}
+
+func runDaemonCmd() {
+	cfg := loadEnvAndConfig()
+	if err := daemon.StartBackground(cfg.APIAddr); err != nil {
+		slog.Error("daemon", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runInstallCmd() {
+	if err := daemon.Install(); err != nil {
+		slog.Error("install", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("LaunchAgent installed and loaded")
+}
+
+func runUninstallCmd() {
+	if err := daemon.Uninstall(); err != nil {
+		slog.Error("uninstall", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runStatusCmd() {
+	if err := daemon.PrintStatus(os.Stdout); err != nil {
+		slog.Error("status", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runTUICmd() {
+	cfg := loadEnvAndConfig()
+	ctx := context.Background()
+	appStore := buildStore(ctx, cfg)
+	settingsStore, err := newProviderSettingsStore(config.DefaultSettingsFilePath(), defaultProviderSettings(cfg))
+	if err != nil {
+		slog.Error("load settings", "error", err)
+		os.Exit(1)
+	}
+	llmClient := newRoutingAssistant(cfg, settingsStore)
+	agentRuntime := newAgentRuntime(cfg, llmEditPlanner{assistant: llmClient})
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := agentRuntime.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("shutdown agent runtime", "error", err)
+		}
+	}()
+	if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(newSearchClient(cfg)).WithAgentRuntime(agentRuntime).Run(ctx); err != nil {
+		slog.Error("tui", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runTUIBetaCmd() {
+	cfg := loadEnvAndConfig()
+	ctx := context.Background()
+	appStore := buildStore(ctx, cfg)
+	settingsStore, err := newProviderSettingsStore(config.DefaultSettingsFilePath(), defaultProviderSettings(cfg))
+	if err != nil {
+		slog.Error("load settings", "error", err)
+		os.Exit(1)
+	}
+	llmClient := newRoutingAssistant(cfg, settingsStore)
+	agentRuntime := newAgentRuntime(cfg, llmEditPlanner{assistant: llmClient})
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := agentRuntime.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("shutdown agent runtime", "error", err)
+		}
+	}()
+	if err := tui.New(appStore, llmClient, os.Stdin, os.Stdout).WithSearcher(newSearchClient(cfg)).WithAgentRuntime(agentRuntime).RunBeta(ctx); err != nil {
+		slog.Error("hand-rolled tui", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runMigrateCmd() {
+	cfg := loadEnvAndConfig()
+	ctx := context.Background()
+	migrateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	results, err := migrate.Run(migrateCtx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("migrate", "error", err)
+		os.Exit(1)
+	}
+	for _, result := range results {
+		status := "skipped"
+		if result.Applied {
+			status = "applied"
+		}
+		fmt.Printf("%s %s\n", status, result.Name)
+	}
+}
+
+func runCheckCmd() {
+	cfg := loadEnvAndConfig()
+	ctx := context.Background()
+	checkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	results := doctor.Run(checkCtx, cfg)
+	doctor.Print(results)
+	if doctor.HasFailure(results) {
+		os.Exit(1)
+	}
+}
+
+func runCheckServerCmd() {
+	ctx := context.Background()
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var serverURL string
+	if len(subcommandArgs) > 0 {
+		serverURL = subcommandArgs[0]
+	}
+	if serverURL == "" {
+		fmt.Fprintln(os.Stderr, "usage: linea check-server <url>")
+		os.Exit(1)
+	}
+	results := doctor.CheckServer(checkCtx, serverURL)
+	doctor.Print(results)
+	if doctor.HasFailure(results) {
+		os.Exit(1)
+	}
+}
+
+func runAgentStatusCmd() {
+	cfg := loadEnvAndConfig()
+	ctx := context.Background()
+	if err := printAgentStatus(ctx, cfg, os.Stdout); err != nil {
+		slog.Error("agent status", "error", err)
 		os.Exit(1)
 	}
 }
@@ -417,15 +574,17 @@ func providerStatuses(ctx context.Context, cfg config.Config, settings api.Setti
 }
 
 func appStatus(ctx context.Context, cfg config.Config, settings api.Settings) api.Status {
-	status := api.Status{
-		Storage:   "PostgreSQL",
+	storage := "PostgreSQL"
+	if cfg.SyncURL != "" {
+		storage = "Remote"
+	} else if cfg.DatabaseURL == "" {
+		storage = "Memory"
+	}
+	return api.Status{
+		Storage:   storage,
 		Search:    search.ProviderName(cfg.BraveSearchAPIKey, cfg.SearXNGURL),
 		Providers: providerStatuses(ctx, cfg, settings),
 	}
-	if cfg.DatabaseURL == "" {
-		status.Storage = "Memory"
-	}
-	return status
 }
 
 func newSearchClient(cfg config.Config) *search.Client {

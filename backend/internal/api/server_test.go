@@ -145,7 +145,7 @@ func TestCreateMessageStreamsAndPersistsAssistant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
-	server := NewServer(appStore, fakeAssistant{chunks: []string{"hello ", "world"}}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{chunks: []string{"hello ", "world"}}, nil, testFiles(), "", "", Status{}).Handler()
 
 	res := postMessage(t, server, conversation.ID, "hello")
 
@@ -174,7 +174,7 @@ func TestCreateMessageStreamsAndPersistsAssistant(t *testing.T) {
 
 func TestCreateTemporaryMessageStreamsWithoutPersistence(t *testing.T) {
 	appStore := store.NewMemoryStore()
-	server := NewServer(appStore, fakeAssistant{chunks: []string{"temp ", "ok"}}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{chunks: []string{"temp ", "ok"}}, nil, testFiles(), "", "", Status{}).Handler()
 
 	res := postTemporaryMessage(t, server, "hello", nil)
 
@@ -200,7 +200,7 @@ func TestCreateTemporaryMessageStreamsWithoutPersistence(t *testing.T) {
 func TestCreateTemporaryMessageUsesHistory(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	assistant := &capturingAssistant{chunks: []string{"ok"}}
-	server := NewServer(appStore, assistant, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, assistant, nil, testFiles(), "", "", Status{}).Handler()
 	history := []map[string]string{
 		{"role": "user", "content": "first"},
 		{"role": "assistant", "content": "second"},
@@ -221,7 +221,7 @@ func TestCreateTemporaryMessageUsesHistory(t *testing.T) {
 
 func TestCreateConversationImportsMessages(t *testing.T) {
 	appStore := store.NewMemoryStore()
-	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", "", Status{}).Handler()
 	body := strings.NewReader(`{"title":"Saved temp","messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/conversations", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -246,7 +246,7 @@ func TestCreateConversationImportsMessages(t *testing.T) {
 
 func TestCreateConversationRejectsInvalidImportBeforePersisting(t *testing.T) {
 	appStore := store.NewMemoryStore()
-	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", "", Status{}).Handler()
 	body := strings.NewReader(`{"title":"Bad import","messages":[{"role":"system","content":"hidden"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/conversations", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -268,7 +268,7 @@ func TestCreateConversationRejectsInvalidImportBeforePersisting(t *testing.T) {
 func TestCreateConversationRollsBackImportFailure(t *testing.T) {
 	baseStore := store.NewMemoryStore()
 	appStore := &failingImportStore{Store: baseStore, failOnCall: 2}
-	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", "", Status{}).Handler()
 	body := strings.NewReader(`{"title":"Partial","messages":[{"role":"user","content":"one"},{"role":"assistant","content":"two"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/conversations", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -293,7 +293,7 @@ func TestCreateMessageStreamsProviderWhenAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
-	server := NewServer(appStore, providerAssistant{chunks: []string{"ok"}}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, providerAssistant{chunks: []string{"ok"}}, nil, testFiles(), "", "", Status{}).Handler()
 
 	res := postMessage(t, server, conversation.ID, "hello")
 
@@ -315,7 +315,7 @@ func TestCreateMessageFallsBackThroughStream(t *testing.T) {
 		fakeAssistant{err: llm.ErrQuotaExceeded},
 		providerAssistant{name: "Ollama", model: "local", chunks: []string{"local ok"}},
 	)
-	server := NewServer(appStore, assistant, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, assistant, nil, testFiles(), "", "", Status{}).Handler()
 
 	res := postMessage(t, server, conversation.ID, "hello")
 
@@ -345,7 +345,7 @@ func TestCreateMessagePersistsMissingKeyFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
-	server := NewServer(appStore, fakeAssistant{err: llm.ErrMissingAPIKey}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{err: llm.ErrMissingAPIKey}, nil, testFiles(), "", "", Status{}).Handler()
 
 	res := postMessage(t, server, conversation.ID, "hello")
 
@@ -376,7 +376,7 @@ func TestCreateMessageAddsSearchResultsWhenNeeded(t *testing.T) {
 		URL:     "https://example.com",
 		Snippet: "Snippet",
 	}}}
-	server := NewServer(appStore, assistant, searcher, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, assistant, searcher, testFiles(), "", "", Status{}).Handler()
 
 	res := postMessage(t, server, conversation.ID, "what is latest go")
 
@@ -400,7 +400,7 @@ func TestCreateMessageCanCreateEditProposalFromChat(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -444,7 +444,7 @@ func TestCreateMessageCanCreateEmptyEditProposalFromChat(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -485,7 +485,7 @@ func TestCreateMessageAcceptsAlternateEditProposalPhrase(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -512,7 +512,7 @@ func TestCreateMessageCanStartAgentLoopFromChat(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -559,7 +559,7 @@ export default function App() {
 		Summary: "Create app",
 	}}
 	createRuntime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithEditPlanner(createPlanner))
-	createServer := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	createServer := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, createRuntime).Handler()
 
@@ -585,7 +585,7 @@ export default function App() {
 		Summary: "Make background blue",
 	}}
 	restartedRuntime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithEditPlanner(editPlanner))
-	restartedServer := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	restartedServer := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, restartedRuntime).Handler()
 
@@ -614,7 +614,7 @@ func TestCreateMessageCanStartColonAgentLoopFromChat(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -675,7 +675,7 @@ func TestCreateMessageCanStartTempReactAppLoopFromChat(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -745,7 +745,7 @@ func TestCreateMessageCanStartTempReactAppLoopFromChat(t *testing.T) {
 	}
 
 	restartedRuntime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	restartedServer := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	restartedServer := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, restartedRuntime).Handler()
 	recoveredPreviewRes := httptest.NewRecorder()
@@ -758,7 +758,7 @@ func TestCreateMessageCanStartTempReactAppLoopFromChat(t *testing.T) {
 		t.Fatalf("remove temp workspace: %v", err)
 	}
 	cacheRecoveredRuntime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	cacheRecoveredServer := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	cacheRecoveredServer := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, cacheRecoveredRuntime).Handler()
 	cacheRecoveredPreviewRes := httptest.NewRecorder()
@@ -776,7 +776,7 @@ func TestCreateMessageDoesNotStartTempReactAppLoopForQuestions(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"Use Vite or a similar starter."}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"Use Vite or a similar starter."}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -810,7 +810,7 @@ func TestCreateMessageCanStartAgentLoopEditProposalFromChat(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -836,7 +836,7 @@ func TestTemporaryMessageCanStartAgentLoopFromChat(t *testing.T) {
 	root := t.TempDir()
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent loop notes\n")
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(store.NewMemoryStore(), fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(store.NewMemoryStore(), fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -874,7 +874,7 @@ func TestCreateMessagePreservesRawUnfencedEditProposalBody(t *testing.T) {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -904,7 +904,7 @@ func TestCreateMessagePreservesLeadingBlankLinesInUnfencedEditProposal(t *testin
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{chunks: []string{"should not stream"}}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -934,7 +934,7 @@ func TestListMessagesReturnsEmptyArray(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
-	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", "", Status{}).Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/conversations/"+conversation.ID+"/messages", nil)
 	res := httptest.NewRecorder()
@@ -954,7 +954,7 @@ func TestUpdateConversationRenamesTitle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
-	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", "", Status{}).Handler()
 
 	body, err := json.Marshal(map[string]string{"title": "New title"})
 	if err != nil {
@@ -985,7 +985,7 @@ func TestDeleteConversationRemovesMessages(t *testing.T) {
 	if _, err := appStore.AddMessage(context.Background(), conversation.ID, "user", "hello"); err != nil {
 		t.Fatalf("AddMessage() error = %v", err)
 	}
-	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{}, nil, testFiles(), "", "", Status{}).Handler()
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/"+conversation.ID, nil)
 	res := httptest.NewRecorder()
@@ -1000,7 +1000,7 @@ func TestDeleteConversationRemovesMessages(t *testing.T) {
 }
 
 func TestDeleteConversationReturnsNotFound(t *testing.T) {
-	server := NewServer(store.NewMemoryStore(), fakeAssistant{}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(store.NewMemoryStore(), fakeAssistant{}, nil, testFiles(), "", "", Status{}).Handler()
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/missing", nil)
 	res := httptest.NewRecorder()
@@ -1022,7 +1022,7 @@ func TestGetStatusReturnsSafeSystemState(t *testing.T) {
 			Role:    "fallback",
 		}},
 	}
-	server := NewServer(store.NewMemoryStore(), fakeAssistant{}, nil, testFiles(), "", status).Handler()
+	server := NewServer(store.NewMemoryStore(), fakeAssistant{}, nil, testFiles(), "", "", status).Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	res := httptest.NewRecorder()
@@ -1056,7 +1056,7 @@ func TestGetAgentStatusReturnsLocalContract(t *testing.T) {
 			Approval: "not required",
 		}},
 	}
-	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, func(context.Context) agent.Status {
 		return agentStatus
@@ -1081,7 +1081,7 @@ func TestGetAgentStatusReturnsLocalContract(t *testing.T) {
 func TestAgentTraceEndpointsPersistRuntimeEvents(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1123,7 +1123,7 @@ func TestAgentRunSummaryEndpoint(t *testing.T) {
 	if _, err := runtime.CheckCommand(context.Background(), agent.CommandCheckInput{Command: "rm -rf ."}); err != nil {
 		t.Fatalf("CheckCommand() error = %v", err)
 	}
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1149,7 +1149,7 @@ func TestAgentRunEndpointsCreateAndListSnapshots(t *testing.T) {
 	if _, err := runtime.CheckCommand(context.Background(), agent.CommandCheckInput{Command: "rm -rf ."}); err != nil {
 		t.Fatalf("CheckCommand() error = %v", err)
 	}
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1198,7 +1198,7 @@ func TestAgentRunEndpointsCreateAndListSnapshots(t *testing.T) {
 func TestAgentSubagentsEndpoint(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1223,7 +1223,7 @@ func TestAgentSubagentRunEndpoint(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1253,7 +1253,7 @@ func TestAgentSubagentPlanEndpoints(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(root, "README.md"), "agent docs\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1296,7 +1296,7 @@ func TestAgentMCPServersEndpoint(t *testing.T) {
 	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"},"tools":[{"name":"search_docs","description":"Search docs"}]}}}`)
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1321,7 +1321,7 @@ func TestAgentMCPToolsEndpoint(t *testing.T) {
 	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","tools":[{"name":"search_docs","description":"Search docs"}]}}}`)
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1346,7 +1346,7 @@ func TestAgentMCPResourcesPromptsEndpoints(t *testing.T) {
 	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","resources":[{"uri":"docs://readme","name":"README"}],"prompts":[{"name":"review","description":"Review code"}]}}}`)
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1392,7 +1392,7 @@ func TestAgentMCPSubscriptionEndpoints(t *testing.T) {
 }`)
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithMCPConfigPath(configPath))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1428,7 +1428,7 @@ func TestAgentMCPSubscriptionEndpoints(t *testing.T) {
 func TestCreateAgentTraceRejectsEmptyEvent(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1444,7 +1444,7 @@ func TestCreateAgentTraceRejectsEmptyEvent(t *testing.T) {
 func TestAgentHookRunEndpointsCreateAndListRuns(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1487,7 +1487,7 @@ func TestAgentHookRunEndpointsCreateAndListRuns(t *testing.T) {
 func TestAgentHookRunEndpointRejectsUnknownHook(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1507,7 +1507,7 @@ func TestAgentHookRunEndpointExecutesHook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddCommandApproval() error = %v", err)
 	}
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1543,7 +1543,7 @@ func TestAgentSkillRunEndpointExecutesSkill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddCommandApproval() error = %v", err)
 	}
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1590,7 +1590,7 @@ func TestAgentLoopEndpointsCreateAndListLoops(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent loop notes\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root), agent.WithCommandAllowlist([]string{"make test"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1633,7 +1633,7 @@ func TestAgentLoopEndpointsCreateAndListLoops(t *testing.T) {
 func TestAgentLoopContinueAndCancelEndpoints(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1701,7 +1701,7 @@ func TestAgentLoopContinueAndCancelEndpoints(t *testing.T) {
 func TestAgentCommandCheckEndpointsCreateAndListChecks(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1744,7 +1744,7 @@ func TestAgentCommandCheckEndpointsCreateAndListChecks(t *testing.T) {
 func TestAgentCommandApprovalEndpointsCreateAndListApprovals(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}), agent.WithAuditLogPath(filepath.Join(t.TempDir(), "audit.jsonl")))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1787,7 +1787,7 @@ func TestAgentCommandApprovalEndpointsCreateAndListApprovals(t *testing.T) {
 func TestAgentCommandCheckEndpointBlocksUnlistedCommand(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1814,7 +1814,7 @@ func TestAgentCommandRunEndpointsCreateAndListRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddCommandApproval() error = %v", err)
 	}
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1857,7 +1857,7 @@ func TestAgentCommandRunEndpointsCreateAndListRuns(t *testing.T) {
 func TestAgentCommandRunEndpointRejectsMissingApproval(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1873,7 +1873,7 @@ func TestAgentCommandRunEndpointRejectsMissingApproval(t *testing.T) {
 func TestAgentCommandRunEndpointRejectsBlockedCommand(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()), agent.WithCommandAllowlist([]string{"printf ok"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1891,7 +1891,7 @@ func TestAgentWorkspaceReadFileEndpoint(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1920,7 +1920,7 @@ func TestAgentWorkspaceSearchEndpoint(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes\nother")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1949,7 +1949,7 @@ func TestAgentWorkspaceDiagnosticsEndpoint(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc main( {\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -1978,7 +1978,7 @@ func TestAgentWorkspaceSymbolsEndpoint(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(root, "main.go"), "package main\n\ntype App struct{}\nfunc Run() {}\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2007,7 +2007,7 @@ func TestAgentWorkspaceReferencesEndpoint(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc Run() {}\nfunc main() { Run() }\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2034,7 +2034,7 @@ func TestAgentWorkspaceReferencesEndpoint(t *testing.T) {
 func TestAgentWorkspaceDisabledReturnsNotFound(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("")
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2053,7 +2053,7 @@ func TestAgentEditProposalEndpointCreatesDiffWithoutWriting(t *testing.T) {
 	writeAPITestFile(t, filePath, "one\ntwo\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2093,7 +2093,7 @@ func TestAgentEditProposalListEndpoint(t *testing.T) {
 	if _, err := runtime.ProposeEdit(context.Background(), agent.EditProposalInput{Path: "notes.md", Content: "two\n"}); err != nil {
 		t.Fatalf("ProposeEdit() error = %v", err)
 	}
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2123,7 +2123,7 @@ func TestAgentEditProposalReviewEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProposeEdit() error = %v", err)
 	}
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2167,7 +2167,7 @@ func TestAgentEditProposalApplyEndpointWritesApprovedProposal(t *testing.T) {
 	if _, err := runtime.ReviewEditProposal(context.Background(), proposal.ID, agent.EditProposalReviewInput{Status: "approved"}); err != nil {
 		t.Fatalf("ReviewEditProposal() error = %v", err)
 	}
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2200,7 +2200,7 @@ func TestAgentWorkspaceUpdateEndpointChangesRoot(t *testing.T) {
 	writeAPITestFile(t, filepath.Join(secondRoot, "notes.md"), "agent\n")
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(firstRoot))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2259,7 +2259,7 @@ func TestCreateMessageRejectsInvalidAttachmentBeforePersisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateConversation() error = %v", err)
 	}
-	server := NewServer(appStore, fakeAssistant{chunks: []string{"ok"}}, nil, testFiles(), "", Status{}).Handler()
+	server := NewServer(appStore, fakeAssistant{chunks: []string{"ok"}}, nil, testFiles(), "", "", Status{}).Handler()
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -2484,7 +2484,7 @@ func apiLoopHasStep(loop agent.AgentLoop, kind string, state string) bool {
 func TestAgentAutoApproveGetReturnsCategories(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}), agent.WithAutoApproveCategories([]string{"read", "write"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2507,7 +2507,7 @@ func TestAgentAutoApproveGetReturnsCategories(t *testing.T) {
 func TestAgentAutoApproveSetAndGetCategories(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2538,7 +2538,7 @@ func TestAgentAutoApproveSetAndGetCategories(t *testing.T) {
 
 func TestAgentAutoApproveReturns404WhenRuntimeNil(t *testing.T) {
 	appStore := store.NewMemoryStore()
-	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, nil).Handler()
 
@@ -2554,7 +2554,7 @@ func TestAgentAutoApproveReturns404WhenRuntimeNil(t *testing.T) {
 func TestAgentCommandCheckReturnsCategory(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithCommandAllowlist([]string{"make test"}))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2581,7 +2581,7 @@ func TestAgentCommandCheckReturnsCategory(t *testing.T) {
 func TestAgentBackgroundJobStartAndCancel(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2620,7 +2620,7 @@ func TestAgentBackgroundJobStartAndCancel(t *testing.T) {
 func TestAgentBackgroundJobStartWithoutGoal(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(t.TempDir()))
-	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, runtime).Handler()
 
@@ -2636,7 +2636,7 @@ func TestAgentBackgroundJobStartWithoutGoal(t *testing.T) {
 
 func TestAgentBackgroundJobReturns404WhenRuntimeNil(t *testing.T) {
 	appStore := store.NewMemoryStore()
-	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", func(context.Context) Status {
+	server := NewServerWithAgentStatus(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
 		return Status{}
 	}, nil, nil).Handler()
 

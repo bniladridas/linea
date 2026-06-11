@@ -16,11 +16,23 @@ final class WindowDragRegionView: NSView {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
-  private var process: Process?
   private var window: NSWindow?
   private var webView: WKWebView?
   private var baseURL: URL?
-  private var logHandle: FileHandle?
+
+  private var serverURL: URL = {
+    let apiAddr = ProcessInfo.processInfo.environment["API_ADDR"] ?? "127.0.0.1:8080"
+    if apiAddr.contains("://") {
+      return URL(string: apiAddr)!
+    }
+    if apiAddr.hasPrefix(":") {
+      return URL(string: "http://127.0.0.1\(apiAddr)")!
+    }
+    if apiAddr.contains(":") {
+      return URL(string: "http://\(apiAddr)")!
+    }
+    return URL(string: "http://127.0.0.1:\(apiAddr)")!
+  }()
 
   func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
     guard message.name == "smoke",
@@ -57,23 +69,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     NSWindow.allowsAutomaticWindowTabbing = false
     installMenu()
 
-    do {
-      let server = try startServer()
-      process = server.process
-      baseURL = server.url
+    ensureDaemonRunning()
+  }
 
-      DispatchQueue.global(qos: .userInitiated).async {
-        let ready = self.waitForServer(server.url)
-        DispatchQueue.main.async {
-          if ready {
-            self.openWindow(server.url)
-          } else {
-            self.showStartupError(server.url)
-          }
-        }
+  private func ensureDaemonRunning() {
+    // If daemon is already serving, connect immediately.
+    if isServerHealthy(serverURL) {
+      DispatchQueue.main.async { self.openWindow(self.serverURL) }
+      return
+    }
+
+    // Try to start the daemon using the bundled binary.
+    guard let serverPath = Bundle.main.path(forResource: "linea", ofType: nil) else {
+      DispatchQueue.main.async { self.showError("Bundled server was not found.") }
+      return
+    }
+
+    DispatchQueue.global(qos: .userInitiated).async {
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: serverPath)
+      process.arguments = ["daemon"]
+      do {
+        try process.run()
+      } catch {
+        DispatchQueue.main.async { self.showError("Failed to start server: \(error.localizedDescription)") }
+        return
       }
-    } catch {
-      showError(error.localizedDescription)
+      // Don't wait for the process — the daemon runs indefinitely.
+
+      if self.waitForServer(self.serverURL) {
+        DispatchQueue.main.async { self.openWindow(self.serverURL) }
+      } else {
+        DispatchQueue.main.async { self.showStartupError(self.serverURL) }
+      }
     }
   }
 
@@ -82,13 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   }
 
   func applicationWillTerminate(_ notification: Notification) {
-    process?.terminate()
-    DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
-      if self.process?.isRunning == true {
-        self.process?.interrupt()
-      }
-    }
-    try? logHandle?.close()
+    // Don't kill the daemon — it's shared across platforms.
   }
 
   func webView(
@@ -128,30 +150,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     return nil
   }
 
-  private func startServer() throws -> (process: Process, url: URL) {
-    guard let serverPath = Bundle.main.path(forResource: "linea", ofType: nil) else {
-      throw LineaError.message("Bundled server was not found.")
-    }
-
-    let apiAddr = ProcessInfo.processInfo.environment["API_ADDR"] ?? "127.0.0.1:18080"
-    guard let url = URL(string: urlString(for: apiAddr)) else {
-      throw LineaError.message("API_ADDR is invalid: \(apiAddr)")
-    }
-
-    let log = try openLog()
-    logHandle = log
-
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: serverPath)
-    process.environment = ProcessInfo.processInfo.environment.merging(["API_ADDR": apiAddr]) { _, new in new }
-    process.standardOutput = log
-    process.standardError = log
-    try process.run()
-
-    return (process, url)
-  }
-
   private func openWindow(_ url: URL) {
+    baseURL = url
+
     let config = WKWebViewConfiguration()
     config.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
@@ -237,6 +238,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     self.webView = webView
     self.window = window
     NSApp.activate(ignoringOtherApps: true)
+  }
+
+  private func isServerHealthy(_ url: URL) -> Bool {
+    let semaphore = DispatchSemaphore(value: 0)
+    var healthy = false
+    let task = URLSession.shared.dataTask(with: url.appendingPathComponent("healthz")) { _, response, _ in
+      if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+        healthy = true
+      }
+      semaphore.signal()
+    }
+    task.resume()
+    _ = semaphore.wait(timeout: .now() + 2)
+    task.cancel()
+    return healthy
   }
 
   private func previewReturnScript(homeURL: String) -> String {
@@ -534,32 +550,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       return
     }
     webView.goForward()
-  }
-
-  private func openLog() throws -> FileHandle {
-    let logs = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent("Library")
-      .appendingPathComponent("Logs")
-      .appendingPathComponent("Linea")
-    try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
-
-    let path = logs.appendingPathComponent("linea-macos.log")
-    if !FileManager.default.fileExists(atPath: path.path) {
-      FileManager.default.createFile(atPath: path.path, contents: nil)
-    }
-    let handle = try FileHandle(forWritingTo: path)
-    try handle.seekToEnd()
-    return handle
-  }
-
-  private func urlString(for addr: String) -> String {
-    if addr.hasPrefix(":") {
-      return "http://127.0.0.1\(addr)"
-    }
-    if addr.contains(":") {
-      return "http://\(addr)"
-    }
-    return "http://127.0.0.1:\(addr)"
   }
 }
 

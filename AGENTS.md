@@ -44,9 +44,24 @@ Interface:
 
 * Local web application
 * Browser-based chat interface
-* Served by the Go backend
+* Served by the Go daemon
 * Terminal interface
 * Native macOS wrapper
+* iOS app
+* Android app
+
+CLI (unified `linea` binary):
+
+* `linea` — start the web server
+* `linea daemon` — start as background daemon
+* `linea install` — install LaunchAgent
+* `linea uninstall` — uninstall LaunchAgent
+* `linea status` — show daemon status
+* `linea tui` — terminal chat interface
+* `linea migrate` — apply database migrations
+* `linea check` — run health checks
+* `linea version` — print version
+* `linea help` — show help
 
 Installation:
 

@@ -1,10 +1,24 @@
 :root {
+  --glass-bg: rgba(18, 18, 18, 0.82);
+  --glass-blur: blur(20px);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.48);
+  --glass-bg-panel: rgba(15, 15, 15, 0.88);
+  --glass-bg-float: rgba(14, 14, 14, 0.90);
   color: #e7e7e7;
   background: #0b0b0b;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+:root[data-theme="light"] {
+  --glass-bg: rgba(248, 248, 245, 0.78);
+  --glass-bg-panel: rgba(242, 242, 238, 0.88);
+  --glass-bg-float: rgba(255, 255, 255, 0.90);
+  --glass-border: rgba(0, 0, 0, 0.07);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
 
 :root[data-theme="light"] {
@@ -55,8 +69,10 @@ textarea {
   flex-direction: column;
   gap: 16px;
   min-height: 0;
-  border-right: 1px solid #171717;
-  background: #0f0f0f;
+  border-right: 1px solid var(--glass-border);
+  background: var(--glass-bg-panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   padding: 16px;
   overflow: hidden;
 }
@@ -154,9 +170,12 @@ textarea {
   z-index: 30;
   display: grid;
   gap: 3px;
+  border: 1px solid var(--glass-border);
   border-radius: 10px;
-  background: #121212;
-  box-shadow: 0 12px 36px rgb(0 0 0 / 22%);
+  background: var(--glass-bg-float);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
   padding: 6px;
 }
 
@@ -230,9 +249,11 @@ textarea {
   display: grid;
   width: 100%;
   gap: 3px;
-  border: 1px solid #171717;
+  border: 1px solid var(--glass-border);
   border-radius: 10px;
-  background: #111111;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   padding: 8px;
 }
 
@@ -299,9 +320,11 @@ textarea {
   display: grid;
   width: 100%;
   gap: 4px;
-  border: 1px solid #171717;
+  border: 1px solid var(--glass-border);
   border-radius: 10px;
-  background: #111111;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   padding: 8px;
 }
 
@@ -316,13 +339,34 @@ textarea {
   margin-top: 0;
 }
 
+.about-report-link {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 10px;
+  margin: 2px 0;
+  border-radius: 8px;
+  color: #cfcfcf;
+  font-size: 11px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.about-report-link:hover,
+.about-report-link:focus-visible {
+  background: #1d1d1d;
+  color: #eeeeee;
+}
+
 .settings-panel {
   display: grid;
   width: 100%;
   gap: 6px;
-  border: 1px solid #171717;
+  border: 1px solid var(--glass-border);
   border-radius: 10px;
-  background: #111111;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   padding: 8px;
 }
 
@@ -524,9 +568,9 @@ textarea {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  color: #8c8c8c;
-  font-size: 12px;
-  font-weight: 600;
+  color: #777777;
+  font-size: 11px;
+  font-weight: 560;
 }
 
 .conversation:hover,
@@ -540,7 +584,7 @@ textarea {
 }
 
 .conversation.active span {
-  color: #eeeeee;
+  color: #dddddd;
 }
 
 .draft-conversation span,
@@ -584,9 +628,9 @@ textarea {
   -webkit-line-clamp: 2;
   gap: 6px;
   overflow: hidden;
-  color: #dedede;
+  color: #cfcfcf;
   font-size: 13px;
-  font-weight: 540;
+  font-weight: 530;
   line-height: 1.28;
   overflow-wrap: anywhere;
 }
@@ -630,9 +674,12 @@ textarea {
   gap: 2px;
   width: min(132px, 100%);
   margin: 2px 0 4px;
-  border: 1px solid #171717;
+  border: 1px solid var(--glass-border);
   border-radius: 8px;
-  background: #101010;
+  background: var(--glass-bg-float);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
   padding: 3px;
 }
 
@@ -687,9 +734,16 @@ textarea {
 .chat-header {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #181818;
-  background: #0f0f0f;
+  justify-content: space-between;
+  background: var(--glass-bg-panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   padding: 12px 28px;
+  z-index: 10;
+}
+
+.chat-header.scrolled {
+  box-shadow: 0 8px 24px -8px rgba(0,0,0,0.4);
 }
 
 .chat-header h2 {
@@ -1354,6 +1408,8 @@ textarea {
   display: grid;
   place-items: center;
   background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   padding: 20px;
 }
 
@@ -1361,10 +1417,12 @@ textarea {
   display: grid;
   gap: 16px;
   width: min(340px, calc(100vw - 40px));
-  border: 1px solid #181818;
+  border: 1px solid var(--glass-border);
   border-radius: 14px;
-  background: #121212;
-  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.34);
+  background: var(--glass-bg-float);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
   padding: 16px;
 }
 
@@ -1589,6 +1647,16 @@ textarea {
   color: #eeeeee;
   padding: 0 9px;
   font-size: 12px;
+}
+
+.agent-manual-form select,
+.agent-mcp-form select {
+  appearance: none;
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23777771' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
 }
 
 .workspace-root input,
@@ -2353,6 +2421,7 @@ textarea {
   right: 0;
   bottom: 0;
   left: 0;
+  z-index: 10;
   background: transparent;
   padding: 0 max(var(--content-gutter), calc((100% - var(--content-width)) / 2)) 24px;
   pointer-events: none;
@@ -2381,7 +2450,7 @@ textarea {
 
 .composer-row {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   position: relative;
   isolation: isolate;
   gap: 6px;
@@ -2408,7 +2477,7 @@ textarea {
 
 .composer.has-shimmer .composer-row:hover::before,
 .composer.has-shimmer .composer-row:focus-within::before {
-  opacity: 0.45;
+  opacity: 0.2;
 }
 
 .composer.is-dragging .composer-row {
@@ -2451,6 +2520,86 @@ textarea {
   border-radius: 10px;
   background: transparent;
   color: #cfcfcf;
+}
+
+.textarea-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.textarea-wrap textarea {
+  width: 100%;
+}
+
+.voice-pulse {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  pointer-events: none;
+}
+
+.voice-pulse span {
+  display: block;
+  width: 3px;
+  border-radius: 2px;
+  background: #cfcfcf;
+  height: 12px;
+  animation: bar-bounce 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes bar-bounce {
+  from { transform: scaleY(0.3); opacity: 0.4; }
+  to   { transform: scaleY(1);   opacity: 1; }
+}
+
+.send-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mic-drawer {
+  display: contents;
+}
+
+.mic-button {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: width 0.12s ease, opacity 0.12s ease, padding 0.12s ease;
+}
+
+.composer-row:hover .mic-button,
+.composer-row:focus-within .mic-button,
+.mic-button.is-listening {
+  width: 34px;
+  padding: unset;
+  overflow: visible;
+  opacity: 1;
+  transition-delay: 0.35s;
+}
+
+/* keep visible while recording even without hover */
+.mic-drawer:has(.is-listening) .mic-button {
+  width: 34px;
+  overflow: visible;
+  opacity: 1;
+}
+
+.mic-button.is-listening {
+  color: #c06060;
+  animation: mic-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 .file-picker {
@@ -2530,8 +2679,10 @@ textarea:focus {
   min-width: 0;
   flex-direction: column;
   gap: 10px;
-  border-left: 1px solid #171717;
-  background: #0f0f0f;
+  border-left: 1px solid var(--glass-border);
+  background: var(--glass-bg-panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   padding: 18px 12px;
 }
 
@@ -2604,6 +2755,7 @@ textarea:focus {
   .shell.sidebar-collapsed,
   .shell.sources-open,
   .shell.sidebar-collapsed.sources-open {
+    position: relative;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
     height: 100dvh;
@@ -2786,6 +2938,11 @@ textarea:focus {
   background: #f2f2ee;
 }
 
+:root[data-theme="light"] .chat-header.scrolled {
+  background: rgba(248, 248, 245, 0.82);
+  box-shadow: 0 8px 24px -8px rgba(0,0,0,0.12);
+}
+
 :root[data-theme="light"] .chat {
   background: #f8f8f5;
 }
@@ -2965,6 +3122,14 @@ textarea:focus {
   color: #252522;
 }
 
+:root[data-theme="light"] .agent-manual-form select,
+:root[data-theme="light"] .agent-mcp-form select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999794' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+}
+
 :root[data-theme="light"] .agent-loop-mode button {
   color: #777771;
 }
@@ -3092,6 +3257,8 @@ textarea:focus {
 :root[data-theme="light"] .theme-panel button.active,
 :root[data-theme="light"] .theme-panel label:hover,
 :root[data-theme="light"] .theme-panel label:focus-within,
+:root[data-theme="light"] .about-report-link:hover,
+:root[data-theme="light"] .about-report-link:focus-visible,
 :root[data-theme="light"] .settings-provider-actions button:hover:not(:disabled),
 :root[data-theme="light"] .settings-provider-actions button:focus-visible:not(:disabled),
 :root[data-theme="light"] .conversation-menu button:hover,
@@ -3146,6 +3313,7 @@ textarea:focus {
 :root[data-theme="light"] .detail-line,
 :root[data-theme="light"] .theme-panel button,
 :root[data-theme="light"] .theme-panel label,
+:root[data-theme="light"] .about-report-link,
 :root[data-theme="light"] .settings-panel-title,
 :root[data-theme="light"] .settings-provider,
 :root[data-theme="light"] .settings-provider small,

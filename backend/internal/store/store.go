@@ -45,6 +45,7 @@ type Store interface {
 	AddMessage(context.Context, string, string, string) (Message, error)
 	ListAgentRuns(context.Context) ([]AgentRun, error)
 	AddAgentRun(context.Context, string, json.RawMessage) (AgentRun, error)
+	Close() error
 }
 
 func NewID() string {
@@ -193,6 +194,8 @@ func (s *MemoryStore) ListAgentRuns(context.Context) ([]AgentRun, error) {
 	defer s.mu.RUnlock()
 	return append([]AgentRun(nil), s.agentRuns...), nil
 }
+
+func (s *MemoryStore) Close() error { return nil }
 
 func (s *MemoryStore) AddAgentRun(_ context.Context, state string, summary json.RawMessage) (AgentRun, error) {
 	state = strings.TrimSpace(state)

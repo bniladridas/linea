@@ -20,6 +20,24 @@ brew tap bniladridas/linea
 brew install linea
 ```
 
+## Post-Install
+
+```sh
+# Start Linea as a background daemon
+linea daemon
+
+# Or install as a persistent LaunchAgent (auto-starts on login)
+linea install
+
+# Check daemon status
+linea status
+
+# Daemon paths:
+#   PID file:  ~/Library/Caches/linea/daemon.pid
+#   Log file:  ~/Library/Logs/Linea/linea-daemon.log
+#   LaunchAgent plist: ~/Library/LaunchAgents/com.bniladridas.linea.plist
+```
+
 # Config
 
 Linea reads `~/.config/linea/linea.env`. Shell variables override file values.
@@ -105,13 +123,33 @@ Only use LAN mode behind a trusted network, VPN, or reverse proxy with access co
 ```sh
 cp .env.example .env
 cd backend
-go run ./cmd/server -migrate
+go run ./cmd/server migrate
 cd ../frontend
 npm ci
 npm run build
 cd ../backend
 go run ./cmd/server
 ```
+
+The binary uses subcommands:
+
+| Subcommand | Description |
+| --- | --- |
+| `server` (default) | Start the web server |
+| `daemon` | Start as a background daemon |
+| `install` | Install LaunchAgent and start it |
+| `uninstall` | Uninstall LaunchAgent and stop it |
+| `status` | Show daemon status |
+| `tui` | Run terminal chat interface |
+| `tui-beta` | Run hand-rolled terminal UI |
+| `migrate` | Apply database migrations |
+| `check` | Run non-interactive health checks |
+| `check-server <url>` | Check a running server URL |
+| `agent-status` | Print local agent status |
+| `version` | Print version |
+| `help` | Show help |
+
+Old-style flags (`-migrate`, `-check`, `-tui`, `-daemon`) still work for backward compatibility.
 
 Frontend only:
 
@@ -126,17 +164,18 @@ Vite runs at `http://localhost:5173`.
 
 | Check | Command |
 | --- | --- |
-| Setup | `linea -check` |
+| Setup | `linea check` |
 | Local setup | `make check` |
 | Local tests | `make test` |
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
-| Server | `linea -check-server http://127.0.0.1:8080` |
-| Terminal chat | `linea -tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp calls`, `:mcp subscriptions`, `:mcp events`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:subagent plan <goal>`, `:subagent plans`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:checks`, `:approve <command>`, `:approvals`, `:run <command>`, `:runs`, `:auto-approve [categories...]`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, `:quit`) |
+| Server | `linea check-server http://127.0.0.1:8080` |
+| Daemon status | `linea status` |
+| Terminal chat | `linea tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp calls`, `:mcp subscriptions`, `:mcp events`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:subagent plan <goal>`, `:subagent plans`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:checks`, `:approve <command>`, `:approvals`, `:run <command>`, `:runs`, `:auto-approve [categories...]`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, `:quit`) |
 | Terminal smoke | `make tui-check` |
 | Terminal picker | Number or title search |
-| Hand-rolled TUI | `linea -tui-beta` |
-| Agent status | `linea -agent-status` |
+| Hand-rolled TUI | `linea tui-beta` |
+| Agent status | `linea agent-status` |
 | Agent API | `make agent-check` |
 | Agent autonomy | `make agent-autonomy-check` |
 | Agent API memory | `make agent-check-memory` |
@@ -147,6 +186,7 @@ Vite runs at `http://localhost:5173`.
 | macOS package | `make macos-package` |
 | macOS app smoke | `make macos-check` |
 | macOS app UI | `make macos-ui-check` |
+| Android | `make android-check` |
 
 Auto agent loops can gather workspace evidence, run bounded subagent plans for diagnostics/search context, apply their own generated edit proposals after explicit auto activation, run inferred project checks from project files, infer simple MCP arguments, and run multi-action MCP plans. Developer loops can also run non-destructive explicit commands without the static allowlist and infer install, lint, format, and inspection commands. Developer command checks still block destructive commands, shell-wrapped commands, broad system mutation, external-state commands such as `git push`, global package installs, credential reads, and secret-looking output. MCP subscriptions keep configured stdio servers alive, record resource notifications, and shut down when the last subscription for a server is removed. With `LINEA_AGENT_DEVELOPER_MODE=1` and `LINEA_AGENT_WORKSPACE_TRUST=full`, workspace tools accept absolute paths. Secret files and secret-looking output are filtered by default. Guided loops and explicit command runs still stop at approval boundaries.
 
@@ -175,6 +215,7 @@ UI checks need Chrome. Message checks need one working text model.
 | Method | Path |
 | --- | --- |
 | `GET` | `/healthz` |
+| `GET` | `/api/version` |
 | `GET` | `/api/status` |
 | `GET` | `/api/agent` |
 | `GET` | `/api/agent/run-summary` |
