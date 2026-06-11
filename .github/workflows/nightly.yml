@@ -53,6 +53,10 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version=${tag}" -o ../dist/package/linea ./cmd/server
           cd ..
           tar -C dist/package -czf "dist/linea_${tag}_darwin_arm64.tar.gz" linea
+          cd backend
+          GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version=${tag}" -o ../dist/package/linea ./cmd/server
+          cd ..
+          tar -C dist/package -czf "dist/linea_${tag}_darwin_amd64.tar.gz" linea
           shasum -a 256 dist/*.tar.gz dist/macos/Linea.dmg > dist/checksums.txt
 
       - uses: actions/create-github-app-token@v3
@@ -61,13 +65,24 @@ jobs:
           client-id: ${{ secrets.LINEA_BOT_CLIENT_ID }}
           private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
 
+      - name: Build iOS app
+        run: |
+          cd ios
+          xcodebuild -project Linea.xcodeproj -scheme Linea -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -quiet
+          cd ..
+          mkdir -p dist/ios
+          cp -r "$(find ~/Library/Developer/Xcode/DerivedData -name 'Linea.app' -path '*/Release-iphoneos/*' | head -1)" dist/ios/
+          cd dist/ios
+          zip -r "Linea-${TAG}.zip" Linea.app
+          cd ../..
+
       - name: publish
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ steps.tag.outputs.value }}
           TITLE: ${{ steps.tag.outputs.title }}
         run: |
-          gh release create "$TAG" dist/*.tar.gz dist/macos/Linea.dmg dist/checksums.txt \
+          gh release create "$TAG" dist/*.tar.gz dist/macos/Linea.dmg dist/ios/Linea-*.zip dist/checksums.txt \
             --title "$TITLE" \
             --prerelease \
             --notes "Nightly build from \`${GITHUB_SHA}\`."

@@ -1,0 +1,30 @@
+name: issue response
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  respond:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.LINEA_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue comment "$ISSUE" \
+            --repo "$REPO" \
+            --body "Thanks for the report. We'll look into it."

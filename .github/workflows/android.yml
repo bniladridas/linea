@@ -1,0 +1,97 @@
+name: android check
+
+on:
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'backend/**'
+      - 'Makefile'
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  push:
+    branches:
+      - main
+    paths:
+      - 'android/**'
+      - 'backend/**'
+      - 'Makefile'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: android sdk
+        run: |
+          ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          if [ ! -d "$ANDROID_SDK_ROOT" ]; then
+            ANDROID_SDK_ROOT="$HOME/android/sdk"
+            mkdir -p "$ANDROID_SDK_ROOT"
+          fi
+          export ANDROID_SDK_ROOT
+          if ! command -v sdkmanager &>/dev/null && [ -f "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          fi
+          if ! command -v sdkmanager &>/dev/null; then
+            CMDLINE_TOOLS_VERSION="11076708"
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+            cd /tmp
+            curl -sSLo cmdline-tools.zip \
+              "https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip"
+            unzip -q cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            rm -f cmdline-tools.zip
+            export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          fi
+          yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "platform-tools" >/dev/null
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+      - name: gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/gradle/wrapper/gradle-wrapper.properties', 'android/**/*.gradle') }}
+          restore-keys: gradle-
+
+      - name: build
+        run: make android-check
+
+      - name: report
+        if: always()
+        run: |
+          {
+            echo "## android check"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Runner | ubuntu-latest |"
+            echo "| Java | $(java -version 2>&1 | head -n 1) |"
+          } >> "$GITHUB_STEP_SUMMARY"

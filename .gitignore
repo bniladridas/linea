@@ -1,8 +1,14 @@
 .env
 .env.*
 !.env.example
+.DS_Store
+.idea/
+
 bin/
 dist/
+*.dmg
+*.tar.gz
+*.zip
 
 backend/go.work
 backend/internal/web/dist/
@@ -12,8 +18,13 @@ coverage/
 *.coverprofile
 *.log
 *.tmp
-.DS_Store
-.idea/
 
 frontend/dist/
 frontend/node_modules/
+
+android/.gradle/
+android/build/
+android/local.properties
+
+ios/DerivedData/
+ios/*.xcworkspace/
