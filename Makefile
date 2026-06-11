@@ -1,4 +1,4 @@
-.PHONY: build test check install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full
+.PHONY: build test check install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full android-check
 
 BREW_LINEA_BIN = $$(brew --prefix bniladridas/linea/linea)/bin/linea
 
@@ -15,8 +15,8 @@ test:
 	cd backend && go vet ./...
 
 check: build
-	./bin/linea -migrate
-	./bin/linea -check
+	./bin/linea migrate
+	./bin/linea check
 
 install-check:
 	brew tap bniladridas/linea https://github.com/bniladridas/linea
@@ -28,7 +28,7 @@ install-check:
 	fi
 	brew link --overwrite bniladridas/linea/linea
 	brew test bniladridas/linea/linea
-	$(BREW_LINEA_BIN) -version
+	$(BREW_LINEA_BIN) version
 
 release-check:
 	git pull --ff-only
@@ -36,9 +36,9 @@ release-check:
 	brew info bniladridas/linea/linea
 	brew upgrade bniladridas/linea/linea
 	brew link --overwrite bniladridas/linea/linea
-	$(BREW_LINEA_BIN) -version
-	$(BREW_LINEA_BIN) -migrate
-	$(BREW_LINEA_BIN) -check
+	$(BREW_LINEA_BIN) version
+	$(BREW_LINEA_BIN) migrate
+	$(BREW_LINEA_BIN) check
 	$(MAKE) test
 
 macos-package:
@@ -54,7 +54,7 @@ model-check:
 	node scripts/model-smoke.mjs --configured
 
 agent-check: build
-	./bin/linea -migrate
+	./bin/linea migrate
 	node scripts/agent-smoke.mjs --start
 
 agent-autonomy-check: build
@@ -65,8 +65,8 @@ agent-check-memory: build
 
 tui-check: build
 	cd backend && go test ./internal/tui -run TestSmokeCoversPickerNewSearchAndAttachments
-	printf ':quit\n' | LINEA_ENV_FILE=/dev/null ./bin/linea -tui
-	printf ':quit\n' | LINEA_ENV_FILE=/dev/null ./bin/linea -tui-beta
+	printf ':quit\n' | LINEA_ENV_FILE=/dev/null ./bin/linea tui
+	printf ':quit\n' | LINEA_ENV_FILE=/dev/null ./bin/linea tui-beta
 
 ui-check:
 	node scripts/ui-smoke.mjs --attachment --light-theme --mobile
@@ -76,3 +76,6 @@ ui-check-agent:
 
 ui-check-full:
 	node scripts/ui-smoke.mjs --send --search-sources --attachment --light-theme --mobile
+
+android-check:
+	cd android && ./gradlew assembleDebug

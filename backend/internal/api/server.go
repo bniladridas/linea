@@ -27,6 +27,7 @@ type Server struct {
 	searchClient   WebSearcher
 	staticFiles    http.FileSystem
 	origin         string
+	version        string
 	statusProvider StatusProvider
 	agentProvider  AgentStatusProvider
 	agentRuntime   AgentRuntime
@@ -142,14 +143,14 @@ type WebSearcher interface {
 	Search(ctx context.Context, query string) ([]search.Result, error)
 }
 
-func NewServer(store store.Store, llmClient Assistant, searchClient WebSearcher, staticFiles http.FileSystem, origin string, status Status) *Server {
-	return NewServerWithStatus(store, llmClient, searchClient, staticFiles, origin, func(context.Context) Status {
+func NewServer(store store.Store, llmClient Assistant, searchClient WebSearcher, staticFiles http.FileSystem, origin string, version string, status Status) *Server {
+	return NewServerWithStatus(store, llmClient, searchClient, staticFiles, origin, version, func(context.Context) Status {
 		return status
 	})
 }
 
-func NewServerWithStatus(store store.Store, llmClient Assistant, searchClient WebSearcher, staticFiles http.FileSystem, origin string, statusProvider StatusProvider) *Server {
-	return NewServerWithStatusAndSettings(store, llmClient, searchClient, staticFiles, origin, statusProvider, nil)
+func NewServerWithStatus(store store.Store, llmClient Assistant, searchClient WebSearcher, staticFiles http.FileSystem, origin string, version string, statusProvider StatusProvider) *Server {
+	return NewServerWithStatusAndSettings(store, llmClient, searchClient, staticFiles, origin, version, statusProvider, nil)
 }
 
 func NewServerWithStatusAndSettings(
@@ -158,10 +159,11 @@ func NewServerWithStatusAndSettings(
 	searchClient WebSearcher,
 	staticFiles http.FileSystem,
 	origin string,
+	version string,
 	statusProvider StatusProvider,
 	settingsStore SettingsStore,
 ) *Server {
-	return NewServerWithAgentStatus(store, llmClient, searchClient, staticFiles, origin, statusProvider, settingsStore, nil)
+	return NewServerWithAgentStatus(store, llmClient, searchClient, staticFiles, origin, version, statusProvider, settingsStore, nil)
 }
 
 func NewServerWithAgentStatus(
@@ -170,6 +172,7 @@ func NewServerWithAgentStatus(
 	searchClient WebSearcher,
 	staticFiles http.FileSystem,
 	origin string,
+	version string,
 	statusProvider StatusProvider,
 	settingsStore SettingsStore,
 	agentProvider AgentStatusProvider,
@@ -180,6 +183,7 @@ func NewServerWithAgentStatus(
 		searchClient:   searchClient,
 		staticFiles:    staticFiles,
 		origin:         origin,
+		version:        version,
 		statusProvider: statusProvider,
 		agentProvider:  agentProvider,
 		settingsStore:  settingsStore,
@@ -192,6 +196,7 @@ func NewServerWithAgentRuntime(
 	searchClient WebSearcher,
 	staticFiles http.FileSystem,
 	origin string,
+	version string,
 	statusProvider StatusProvider,
 	settingsStore SettingsStore,
 	agentRuntime AgentRuntime,
@@ -202,6 +207,7 @@ func NewServerWithAgentRuntime(
 		searchClient:   searchClient,
 		staticFiles:    staticFiles,
 		origin:         origin,
+		version:        version,
 		statusProvider: statusProvider,
 		agentRuntime:   agentRuntime,
 		settingsStore:  settingsStore,
@@ -211,6 +217,7 @@ func NewServerWithAgentRuntime(
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /api/version", s.getVersion)
 	mux.HandleFunc("GET /api/status", s.getStatus)
 	mux.HandleFunc("GET /api/agent", s.getAgentStatus)
 	mux.HandleFunc("GET /api/agent/run-summary", s.getAgentRunSummary)
@@ -281,6 +288,10 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"version": s.version})
 }
 
 func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {

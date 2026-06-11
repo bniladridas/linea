@@ -28,16 +28,29 @@ No native rewrite yet.
 
 # App Shape
 
+Linea uses a shared daemon architecture. The Go binary runs as a persistent background daemon (LaunchAgent on macOS). All clients connect to it over HTTP.
+
 Process:
 
-* macOS app starts the bundled `linea` server
-* app waits for `/healthz`
-* app opens the local UI
-* app stops the child server on quit
+* macOS app checks if the daemon is healthy at `http://127.0.0.1:8080/healthz`
+* If not running, app spawns `linea daemon` from the bundled binary
+* App waits for `/healthz`
+* App opens the local UI in a WebView
+* App does **not** stop the daemon on quit — it is shared across platforms
+
+The daemon binary is bundled inside the app bundle at `Contents/Resources/linea`.
+
+Daemon management:
+
+* `linea install` — install as a LaunchAgent (auto-starts on login)
+* `linea uninstall` — remove LaunchAgent and stop
+* `linea status` — check if running
+* `linea daemon` — start in foreground as background daemon
 
 Config:
 
-* read `~/.config/linea/linea.env`
+* read `~/.config/linea/linea.env` (honored by the daemon)
+* `API_ADDR` environment variable is read by the app to find the daemon
 * never store provider keys in app code
 * keep existing environment variable names
 
@@ -65,9 +78,9 @@ Build:
 make macos-package
 ```
 
-The app bundle includes the Linea server binary.
+The app bundle includes the Linea daemon binary at `Contents/Resources/linea`.
 
-The launcher is a small Swift app. It starts the server, waits for `/healthz`, opens the local UI in a WebView window, and stops the server when the app quits.
+The launcher is a small Swift app. It starts the daemon if not running, waits for `/healthz`, opens the local UI in a WebView window, and leaves the daemon running on quit.
 
 The window remembers its size. The menus include reload, window controls, and normal quit behavior.
 
@@ -85,12 +98,12 @@ make release-check
 Manual check:
 
 * app opens
-* server starts
+* daemon is running (check with `linea status`)
 * chat works
 * web search works
 * file attachment works
 * image input works when Gemini quota allows it
-* quit stops the local server
+* quitting does not stop the daemon (reopen the app and chat should still work)
 
 # Later
 

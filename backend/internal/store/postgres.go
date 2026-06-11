@@ -198,6 +198,8 @@ func (s *PostgresStore) AddAgentRun(ctx context.Context, state string, summary j
 	return run, err
 }
 
+func (s *PostgresStore) Close() error { s.pool.Close(); return nil }
+
 func IsNoRows(err error) bool {
 	return err == pgx.ErrNoRows
 }

@@ -1,16 +1,18 @@
 # Client API
 
-This is the shared contract for web, macOS, and later clients.
+This is the shared contract for all Linea clients (web, macOS, iOS, Android, TUI).
 
 # Base
 
-Linea serves the API from the same Go process as the web UI.
+Linea serves the API from a single persistent Go daemon process. All clients connect to it over HTTP.
 
 Default base URL:
 
 ```sh
 http://127.0.0.1:8080
 ```
+
+Android emulator connects to `http://10.0.2.2:8080` (host loopback).
 
 Clients should treat IDs as opaque strings.
 
@@ -24,6 +26,14 @@ Returns:
 
 ```json
 {"status":"ok"}
+```
+
+`GET /api/version`
+
+Returns the build version.
+
+```json
+{"version": "0.1.8"}
 ```
 
 `GET /api/status`

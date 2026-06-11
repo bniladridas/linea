@@ -9,6 +9,7 @@ import {
   Bookmark,
   Brush,
   Check,
+  Copy,
   Crown,
   Cpu,
   Database,
@@ -18,6 +19,8 @@ import {
   Heart,
   Info,
   ListChecks,
+  Mic,
+  MicOff,
   Moon,
   MoreHorizontal,
   Monitor,
@@ -49,6 +52,36 @@ const ACCEPTED_ATTACHMENT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'log
 const ACCEPTED_ATTACHMENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const ATTACHMENT_ACCEPT = '.txt,.md,.csv,.json,.log,image/png,image/jpeg,image/webp';
 const AGENT_ACTIVITY_LIMIT = 12;
+
+function detectPlatform(): string {
+  const ua = navigator.userAgent;
+  const standalone = window.matchMedia('(display-mode: standalone)').matches;
+
+  if (/iPad|iPhone|iPod/.test(ua)) {
+    return standalone ? 'iOS App' : 'iOS Web';
+  }
+  if (/Android/.test(ua)) {
+    return standalone ? 'Android App' : 'Android Web';
+  }
+  if (/Mac/.test(ua)) {
+    return standalone ? 'macOS App' : 'macOS Web';
+  }
+  if (/Windows/.test(ua)) return 'Windows';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Unknown';
+}
+
+function reportUrl(version: string): string {
+  const platform = detectPlatform();
+  const body = `**Platform:** ${platform}
+**Version:** ${version || '...'}
+
+**Do you want to fix it yourself?**
+
+**What happened:**
+`;
+  return `https://github.com/bniladridas/linea/issues/new?template=bug-report.md&body=${encodeURIComponent(body)}`;
+}
 
 type Conversation = {
   id: string;
@@ -401,6 +434,7 @@ type UIPrefs = {
   showResponseDetails: boolean;
   showComposerShimmer: boolean;
   showScrollCue: boolean;
+  showHeaderShadow: boolean;
   theme: ThemeChoice;
 };
 
@@ -415,11 +449,44 @@ const FEEDBACK_OPTIONS = [
   { id: 'party', label: 'Great', Icon: PartyPopper },
 ] as const;
 
+function useVoiceInput(onTranscript: (text: string) => void) {
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  function toggle() {
+    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const r: any = new SR();
+    r.lang = 'en-US';
+    r.interimResults = false;
+    r.onresult = (e: SpeechRecognitionEvent) => {
+      const text = e.results[e.results.length - 1][0].transcript;
+      onTranscript(text);
+    };
+    r.onend = () => setListening(false);
+    r.onerror = () => setListening(false);
+    recognitionRef.current = r;
+    r.start();
+    setListening(true);
+  }
+
+  return { listening, toggle };
+}
+
 function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [content, setContent] = useState('');
+  const { listening: voiceListening, toggle: toggleVoice } = useVoiceInput((text) =>
+    setContent((prev) => (prev ? prev + ' ' + text : text)),
+  );
   const [draftContent, setDraftContent] = useState('');
   const [chatMode, setChatMode] = useState<'saved' | 'temporary'>('saved');
   const [temporaryTitle, setTemporaryTitle] = useState('Untitled');
@@ -465,6 +532,7 @@ function App() {
   const autoOpenedSourcesRef = useRef<Record<string, boolean>>({});
   const [hasScrollableMessages, setHasScrollableMessages] = useState(false);
   const [isAtMessageEnd, setIsAtMessageEnd] = useState(true);
+  const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   const [composerHeight, setComposerHeight] = useState(108);
   const [autoApproveCategories, setAutoApproveCategoriesState] = useState<string[]>([]);
 
@@ -1716,10 +1784,12 @@ function App() {
     if (!node) {
       setHasScrollableMessages(false);
       setIsAtMessageEnd(true);
+      setIsHeaderScrolled(false);
       return;
     }
     setHasScrollableMessages(node.scrollHeight - node.clientHeight > 8);
     setIsAtMessageEnd(node.scrollHeight - node.scrollTop - node.clientHeight < 28);
+    setIsHeaderScrolled(node.scrollTop > 8);
   }
 
   function scrollToMessageEnd() {
@@ -1954,7 +2024,7 @@ function App() {
       )}
 
       <section className="chat">
-        <header className="chat-header">
+        <header className={"chat-header" + (isHeaderScrolled && uiPrefs.showHeaderShadow ? " scrolled" : "")}>
           <div className="chat-title">
             <button
               aria-label={isSidebarOpen ? 'Hide conversations' : 'Show conversations'}
@@ -2128,25 +2198,46 @@ function App() {
                 }}
               />
             </label>
-            <textarea
-              ref={textareaRef}
-              aria-label="Message"
-              placeholder="Message · ⌘↵"
-              rows={1}
-              value={content}
-              onKeyDown={handleComposerKeyDown}
-              onChange={(event) => updateContent(event.target.value)}
-            />
-            <button
-              aria-label="Send"
-              className="send-button has-tooltip tooltip-bottom-safe"
-              data-tooltip="Send"
-              disabled={isSending || !content.trim()}
-              type="submit"
-              onPointerDown={() => setAreTooltipsSuppressed(true)}
-            >
-              <ArrowUpRight size={14} strokeWidth={ICON_STROKE} />
-            </button>
+            <div className={`textarea-wrap${voiceListening ? ' is-listening' : ''}`}>
+              <textarea
+                ref={textareaRef}
+                aria-label="Message"
+                placeholder={voiceListening ? 'Listening…' : 'Message · ⌘↵'}
+                rows={1}
+                value={content}
+                onKeyDown={handleComposerKeyDown}
+                onChange={(event) => updateContent(event.target.value)}
+              />
+              {voiceListening && (
+                <div className="voice-pulse" aria-hidden="true">
+                  {[0,1,2,3,4].map((i) => <span key={i} style={{ animationDelay: `${i * 0.1}s` }} />)}
+                </div>
+              )}
+            </div>
+            <div className="send-wrap">
+              <div className="mic-drawer">
+                <button
+                  aria-label={voiceListening ? 'Stop recording' : 'Start voice input'}
+                  className={`icon-button mic-button has-tooltip tooltip-bottom-safe${voiceListening ? ' is-listening' : ''}`}
+                  data-tooltip={voiceListening ? 'Stop' : 'Voice'}
+                  type="button"
+                  onClick={toggleVoice}
+                  onPointerDown={() => setAreTooltipsSuppressed(true)}
+                >
+                  {voiceListening ? <MicOff size={16} strokeWidth={ICON_STROKE} /> : <Mic size={16} strokeWidth={ICON_STROKE} />}
+                </button>
+              </div>
+              <button
+                aria-label="Send"
+                className="send-button has-tooltip tooltip-bottom-safe"
+                data-tooltip="Send"
+                disabled={isSending || !content.trim()}
+                type="submit"
+                onPointerDown={() => setAreTooltipsSuppressed(true)}
+              >
+                <ArrowUpRight size={14} strokeWidth={ICON_STROKE} />
+              </button>
+            </div>
           </div>
         </form>
       </section>
@@ -2321,6 +2412,7 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 function CodeBlock({ code, focusedLine, language }: { code: string; focusedLine?: number; language?: string }) {
+  const [copied, setCopied] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const blockRef = useRef<HTMLPreElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -2352,7 +2444,22 @@ function CodeBlock({ code, focusedLine, language }: { code: string; focusedLine?
     <div className="code-shell">
       <div className="code-top">
         <span>{meta}</span>
-        {canPreview && (
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            aria-label="Copy code"
+            className="code-action has-tooltip tooltip-above"
+            data-tooltip={copied ? 'Copied' : 'Copy'}
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(code).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }).catch(() => {});
+            }}
+          >
+            {copied ? <Check size={13} strokeWidth={ICON_STROKE} /> : <Copy size={13} strokeWidth={ICON_STROKE} />}
+          </button>
+          {canPreview && (
           <button
             aria-label={isPreviewOpen ? 'Hide preview' : 'Preview code'}
             className="code-action has-tooltip tooltip-above"
@@ -2363,6 +2470,7 @@ function CodeBlock({ code, focusedLine, language }: { code: string; focusedLine?
             <Eye size={13} strokeWidth={ICON_STROKE} />
           </button>
         )}
+        </div>
       </div>
       <pre className="code-block" data-language={language || undefined} ref={blockRef}>
         <code>
@@ -2688,7 +2796,7 @@ function SystemPanel({
 
   return (
     <div className="system-panel" role="status" aria-label="System status">
-      <SystemRow Icon={Check} label="Tuned" value={primary?.model ?? 'Model ready'} />
+      <SystemRow Icon={Check} label="Model" value={primary?.model ?? 'Ready'} />
       <SystemRow Icon={Database} label="Storage" value={status?.storage ?? 'Ready'} />
       <SystemRow Icon={SearchIcon} label="Search" value={status?.search ?? 'Ready'} />
       <SystemRow
@@ -4419,6 +4527,21 @@ function ThemePanel({
   systemTheme: ResolvedTheme;
   onChange: React.Dispatch<React.SetStateAction<UIPrefs>>;
 }) {
+  const [appVersion, setAppVersion] = useState('...');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/version')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.version) {
+          setAppVersion(data.version);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="theme-panel" aria-label="Theme settings">
       <span className="theme-panel-title">Theme</span>
@@ -4455,7 +4578,7 @@ function ThemePanel({
           onChange={(event) => onChange((current) => ({ ...current, showResponseDetails: event.target.checked }))}
         />
         <CheckBoxMark checked={prefs.showResponseDetails} />
-        Response details
+        Model info
       </label>
       <span className="theme-panel-title">Comfort</span>
       <label>
@@ -4465,7 +4588,7 @@ function ThemePanel({
           onChange={(event) => onChange((current) => ({ ...current, showComposerShimmer: event.target.checked }))}
         />
         <CheckBoxMark checked={prefs.showComposerShimmer} />
-        Input shimmer
+        Input glow
       </label>
       <label>
         <input
@@ -4474,8 +4597,27 @@ function ThemePanel({
           onChange={(event) => onChange((current) => ({ ...current, showScrollCue: event.target.checked }))}
         />
         <CheckBoxMark checked={prefs.showScrollCue} />
-        Scroll cue
+        Jump to bottom
       </label>
+      <label>
+        <input
+          checked={prefs.showHeaderShadow}
+          type="checkbox"
+          onChange={(event) => onChange((current) => ({ ...current, showHeaderShadow: event.target.checked }))}
+        />
+        <CheckBoxMark checked={prefs.showHeaderShadow} />
+        Header shadow
+      </label>
+      <span className="theme-panel-title">About {appVersion}</span>
+      <a
+        className="about-report-link"
+        href={reportUrl(appVersion)}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Report a problem
+        <ArrowUpRight size={10} strokeWidth={2} />
+      </a>
     </div>
   );
 }
@@ -5005,6 +5147,7 @@ function loadUIPrefs(): UIPrefs {
     return {
       showComposerShimmer: true,
       showScrollCue: true,
+      showHeaderShadow: true,
       ...parsed,
       showResponseDetails,
       theme: isThemeChoice(parsed.theme) ? parsed.theme : 'system',
@@ -5014,6 +5157,7 @@ function loadUIPrefs(): UIPrefs {
       showResponseDetails: false,
       showComposerShimmer: true,
       showScrollCue: true,
+      showHeaderShadow: true,
       theme: 'system',
     };
   }
@@ -5026,6 +5170,7 @@ function saveUIPrefs(prefs: UIPrefs) {
       showResponseDetails: prefs.showResponseDetails,
       showComposerShimmer: prefs.showComposerShimmer,
       showScrollCue: prefs.showScrollCue,
+      showHeaderShadow: prefs.showHeaderShadow,
       theme: prefs.theme,
     }),
   );

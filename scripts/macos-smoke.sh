@@ -89,7 +89,7 @@ case "$index" in
     ;;
 esac
 
-if ! "$SERVER" -version >/dev/null; then
+if ! "$SERVER" version >/dev/null; then
   echo "bundled server version command failed" >&2
   exit 1
 fi

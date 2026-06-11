@@ -33,6 +33,8 @@ type Config struct {
 	OllamaFallback        bool
 	StaticDir             string
 	WebOrigin             string
+	SyncURL               string
+	SyncToken             string
 }
 
 func Load() Config {
@@ -64,6 +66,8 @@ func Load() Config {
 		OllamaFallback:        envBool("OLLAMA_FALLBACK", true),
 		StaticDir:             os.Getenv("STATIC_DIR"),
 		WebOrigin:             env("WEB_ORIGIN", "http://localhost:5173"),
+		SyncURL:               os.Getenv("LINEA_SYNC_URL"),
+		SyncToken:             os.Getenv("LINEA_SYNC_TOKEN"),
 	}
 }
 
