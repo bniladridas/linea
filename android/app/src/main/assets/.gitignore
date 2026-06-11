@@ -1,0 +1,2 @@
+# assets/ is unused for the Go binary (moved to jniLibs/).
+# Add any other generated assets here if needed.
