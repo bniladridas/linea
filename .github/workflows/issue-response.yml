@@ -19,6 +19,19 @@ jobs:
           private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
           permission-issues: write
 
+      - name: label platform
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          platform=$(echo "$BODY" | grep -oP '(?<=\*\*Platform:\*\*).*' | grep -ioP 'macOS|iOS|Android|Web' | head -1)
+          if [ -n "$platform" ]; then
+            label=$(echo "$platform" | tr '[:upper:]' '[:lower:]')
+            gh issue edit "$ISSUE" --repo "$REPO" --add-label "$label"
+          fi
+
       - name: comment
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
