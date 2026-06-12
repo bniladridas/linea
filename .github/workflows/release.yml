@@ -129,3 +129,8 @@ jobs:
         with:
           name: android-apk
           path: dist/android/Linea-*.apk
+
+      - name: Attach APK to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/android/Linea-*.apk
