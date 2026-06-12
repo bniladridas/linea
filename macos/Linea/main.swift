@@ -95,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.main.async { self.showError("Failed to start server: \(error.localizedDescription)") }
         return
       }
-      // Don't wait for the process — the daemon runs indefinitely.
+      // Don't wait for the process - the daemon runs indefinitely.
 
       if self.waitForServer(self.serverURL) {
         DispatchQueue.main.async { self.openWindow(self.serverURL) }
@@ -110,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   }
 
   func applicationWillTerminate(_ notification: Notification) {
-    // Don't kill the daemon — it's shared across platforms.
+    // Don't kill the daemon - it's shared across platforms.
   }
 
   func webView(
