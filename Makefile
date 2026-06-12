@@ -15,9 +15,11 @@ stop:
 
 BREW_LINEA_BIN = $$(brew --prefix bniladridas/linea/linea)/bin/linea
 
+VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo dev)
+
 build:
 	cd frontend && npm ci && npm run build
-	cd backend && go build -o ../bin/linea ./cmd/server
+	cd backend && go build -ldflags "-X main.version=$(VERSION)" -o ../bin/linea ./cmd/server
 
 test:
 	node scripts/client-api-route-check.mjs
