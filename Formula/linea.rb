@@ -1,14 +1,14 @@
 class Linea < Formula
   desc "Local-first AI assistant"
   homepage "https://github.com/bniladridas/linea"
-  url "https://github.com/bniladridas/linea/archive/refs/tags/v0.2.0.tar.gz"
-  sha256 "2e80634b9e602d195f470c4a0cef41381c6d7b07d0d195d895b3de8f37035f86"
+  url "https://github.com/bniladridas/linea/archive/refs/tags/v0.2.1.tar.gz"
+  sha256 "2b08808833d13a04f80a661f8e8d8cc66c3a98c10d1b400665f73c646b09cb8c"
   license "MIT"
   head "https://github.com/bniladridas/linea.git", branch: "main"
 
   bottle do
-    root_url "https://github.com/bniladridas/linea/releases/download/v0.2.0"
-    sha256 arm64_sequoia: "67e86ba081b6acc110a50e5593ac3439a059358fa90be3bc960baeabe6326f0f"
+    root_url "https://github.com/bniladridas/linea/releases/download/v0.2.1"
+    sha256 arm64_sequoia: "6cf406c5ad5f81cdf75f2a2d2bbe20c28e104c7dd3a8f59ed945656eef1e5105"
   end
 
   depends_on "go" => :build
