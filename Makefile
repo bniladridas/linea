@@ -41,7 +41,7 @@ install-check:
 	fi
 	brew link --overwrite bniladridas/linea/linea
 	brew test bniladridas/linea/linea
-	$(BREW_LINEA_BIN) version
+	$(BREW_LINEA_BIN) -version
 
 release-check:
 	git pull --ff-only
@@ -49,7 +49,7 @@ release-check:
 	brew info bniladridas/linea/linea
 	brew upgrade bniladridas/linea/linea
 	brew link --overwrite bniladridas/linea/linea
-	$(BREW_LINEA_BIN) version
+	$(BREW_LINEA_BIN) -version
 	$(BREW_LINEA_BIN) migrate
 	$(BREW_LINEA_BIN) check
 	$(MAKE) test
