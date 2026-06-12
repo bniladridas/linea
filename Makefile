@@ -1,4 +1,17 @@
-.PHONY: build test check install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full android-check
+.PHONY: build test check run start stop install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full android-check
+
+run: build
+	@if [ ! -f .env ]; then echo "!! .env not found"; exit 1; fi
+	@pkill -f "bin/linea" 2>/dev/null || true
+	export $$(grep -v '^#' .env | xargs) && nohup bin/linea > /tmp/linea.log 2>&1 &
+	@sleep 2
+	@curl -s http://127.0.0.1:8080/healthz && echo ""
+
+start:
+	ANDROID=$(ANDROID) IOS=$(IOS) MACOS=$(MACOS) NODB=$(NODB) ./scripts/start.sh
+
+stop:
+	./scripts/stop.sh
 
 BREW_LINEA_BIN = $$(brew --prefix bniladridas/linea/linea)/bin/linea
 

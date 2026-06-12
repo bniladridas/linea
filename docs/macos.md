@@ -36,16 +36,16 @@ Process:
 * If not running, app spawns `linea daemon` from the bundled binary
 * App waits for `/healthz`
 * App opens the local UI in a WebView
-* App does **not** stop the daemon on quit — it is shared across platforms
+* App does **not** stop the daemon on quit - it is shared across platforms
 
 The daemon binary is bundled inside the app bundle at `Contents/Resources/linea`.
 
 Daemon management:
 
-* `linea install` — install as a LaunchAgent (auto-starts on login)
-* `linea uninstall` — remove LaunchAgent and stop
-* `linea status` — check if running
-* `linea daemon` — start in foreground as background daemon
+* `linea install` - install as a LaunchAgent (auto-starts on login)
+* `linea uninstall` - remove LaunchAgent and stop
+* `linea status` - check if running
+* `linea daemon` - start in foreground as background daemon
 
 Config:
 

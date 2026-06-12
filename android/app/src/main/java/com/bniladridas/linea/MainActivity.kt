@@ -3,9 +3,11 @@ package com.bniladridas.linea
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import java.net.HttpURLConnection
 import java.net.URL
@@ -16,7 +18,7 @@ import java.net.URL
  * The bundled Go server binary (jniLibs/arm64-v8a/liblinea.so) is extracted
  * by the Android package manager at install time. This activity spawns it as
  * a subprocess, waits for it to become healthy, then loads the React UI in a
- * WebView — mirroring the macOS Swift wrapper.
+ * WebView - mirroring the macOS Swift wrapper.
  *
  * Build with `make android-check` or manually:
  *   cd android && GOOS=android GOARCH=arm64 CGO_ENABLED=0 \
@@ -44,9 +46,22 @@ class MainActivity : AppCompatActivity() {
                     val host = request.url.host ?: return true
                     return host != "10.0.2.2"
                 }
+                override fun onPageFinished(view: WebView, url: String) {
+                    view.evaluateJavascript(
+                        "document.documentElement.classList.add('linea-android-shell')",
+                        null
+                    )
+                }
             }
         }
-        setContentView(webView)
+        val root = FrameLayout(this).apply {
+            fitsSystemWindows = true
+            addView(webView, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+        }
+        setContentView(root)
 
         // Connect to the host Go server (same instance as iOS).
         Thread {
@@ -79,6 +94,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        webView.destroy()
         super.onDestroy()
     }
 

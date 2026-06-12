@@ -2927,6 +2927,50 @@ textarea:focus {
   padding-left: 96px;
 }
 
+:root.linea-android-shell .sidebar,
+:root.linea-android-shell .chat-header,
+:root.linea-android-shell .sources-panel,
+:root.linea-android-shell .composer,
+:root.linea-android-shell .dialog-panel,
+:root.linea-android-shell .settings-panel,
+:root.linea-android-shell .system-panel,
+:root.linea-android-shell .theme-panel,
+:root.linea-android-shell .new-chat-menu {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+:root.linea-android-shell[data-theme="dark"] .sidebar,
+:root.linea-android-shell[data-theme="dark"] .sources-panel,
+:root.linea-android-shell[data-theme="dark"] .system-panel,
+:root.linea-android-shell[data-theme="dark"] .theme-panel {
+  background: #101010;
+}
+
+:root.linea-android-shell[data-theme="dark"] .chat-header {
+  background: #0e0e0e;
+}
+
+:root.linea-android-shell[data-theme="dark"] .dialog-panel,
+:root.linea-android-shell[data-theme="dark"] .settings-panel,
+:root.linea-android-shell[data-theme="dark"] .new-chat-menu {
+  background: #141414;
+}
+
+:root.linea-android-shell[data-theme="light"] .sidebar,
+:root.linea-android-shell[data-theme="light"] .chat-header,
+:root.linea-android-shell[data-theme="light"] .sources-panel,
+:root.linea-android-shell[data-theme="light"] .system-panel,
+:root.linea-android-shell[data-theme="light"] .theme-panel {
+  background: #f2f2ee;
+}
+
+:root.linea-android-shell[data-theme="light"] .dialog-panel,
+:root.linea-android-shell[data-theme="light"] .settings-panel,
+:root.linea-android-shell[data-theme="light"] .new-chat-menu {
+  background: #ffffff;
+}
+
 :root[data-theme="light"] body {
   background: #f7f7f4;
 }

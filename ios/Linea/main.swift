@@ -20,7 +20,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 final class LineaViewController: UIViewController, WKNavigationDelegate {
 
     // Default matches Go server default (API_ADDR env var).
-    // Point LINEA_SERVER_URL at the host running the Go binary —
+    // Point LINEA_SERVER_URL at the host running the Go binary -
     // e.g. a Mac on the same network, or localhost via SSH tunnel.
     private let serverURL: URL = {
         let raw = ProcessInfo.processInfo.environment["LINEA_SERVER_URL"]
