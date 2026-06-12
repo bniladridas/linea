@@ -40,7 +40,8 @@ install-check:
 		brew install bniladridas/linea/linea; \
 	fi
 	brew link --overwrite bniladridas/linea/linea
-	brew test bniladridas/linea/linea
+	brew trust bniladridas/linea 2>/dev/null || true
+	HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew test bniladridas/linea/linea
 	$(BREW_LINEA_BIN) -version
 
 release-check:
