@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "site/**"
+      - "website/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -30,6 +31,9 @@ jobs:
           fetch-depth: 0
 
       - uses: actions/configure-pages@v6
+
+      - name: copy product page
+        run: cp website/index.html site/index.html
 
       - name: edits
         run: node scripts/site-edits.mjs

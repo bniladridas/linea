@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Linea</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f0f0f0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='24' height='24' rx='6' fill='%23151514' stroke='none'/%3E%3Ccircle cx='6' cy='19' r='3'/%3E%3Cpath d='M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15'/%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3C/svg%3E">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #fff;
+      color: #222;
+      line-height: 1.8;
+      font-size: 15px;
+    }
+    .dark { background: #111; color: #ccc; }
+    .container { max-width: 620px; margin: 0 auto; padding: 48px 24px; }
+    nav { display: flex; align-items: center; gap: 16px; font-size: 14px; margin-bottom: 48px; }
+    .logo { font-weight: 500; }
+    .spacer { flex: 1; }
+    nav button, nav a { color: #888; background: none; border: none; cursor: pointer; text-decoration: none; font-size: 13px; padding: 0; }
+    nav button:hover, nav a:hover { color: #222; }
+    .dark nav button, .dark nav a { color: #666; }
+    .dark nav button:hover, .dark nav a:hover { color: #ccc; }
+    .summary-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.3); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none; transition: opacity 0.3s;
+    }
+    .summary-overlay.open { opacity: 1; pointer-events: auto; }
+    .summary-card {
+      max-width: 520px; margin: 24px; padding: 32px; border-radius: 12px;
+      background: rgba(255,255,255,0.85); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+      box-shadow: 0 4px 40px rgba(0,0,0,0.08);
+      color: #222; line-height: 1.9; font-size: 16px; position: relative;
+    }
+    .dark .summary-card { background: rgba(20,20,20,0.9); color: #ccc; box-shadow: 0 4px 40px rgba(0,0,0,0.3); }
+    .summary-card .close {
+      position: absolute; top: 12px; right: 16px; cursor: pointer;
+      font-size: 18px; color: #999; background: none; border: none; padding: 4px;
+    }
+    .summary-card .close:hover { color: #222; }
+    .dark .summary-card .close:hover { color: #ccc; }
+    .cursor { display: inline-block; width: 2px; height: 1.1em; background: #222; vertical-align: text-bottom; margin-left: 2px; animation: blink 0.8s step-end infinite; }
+    .dark .cursor { background: #ccc; }
+    @keyframes blink { 50% { opacity: 0; } }
+    h2 { font-size: 14px; font-weight: 500; margin-top: 36px; margin-bottom: 8px; color: #666; }
+    .dark h2 { color: #888; }
+    p, li { color: #555; font-size: 15px; }
+    .dark p, .dark li { color: #999; }
+    ul { padding-left: 20px; margin: 8px 0 16px; }
+    li { margin-bottom: 4px; }
+    a { color: #555; }
+    .dark a { color: #999; }
+    .dl-row { display: flex; justify-content: space-between; font-size: 14px; padding: 6px 0; }
+    .dl-row a { color: #888; text-decoration: none; }
+    .dl-row a:hover { color: #222; }
+    .dark .dl-row a { color: #666; }
+    .dark .dl-row a:hover { color: #ccc; }
+    .dl-row .meta { color: #999; font-size: 13px; }
+    .dark .dl-row .meta { color: #666; }
+    footer { margin-top: 48px; font-size: 13px; color: #bbb; }
+    .dark footer { color: #555; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <span class="logo">Linea</span>
+      <span class="spacer"></span>
+      <button id="summary-btn">about</button>
+      <button id="theme-toggle"></button>
+      <a href="notes/">notes</a>
+      <a href="https://github.com/bniladridas/linea">GitHub</a>
+    </nav>
+
+    <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:28px;height:28px;margin-bottom:4px"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
+    <p style="margin-top:4px">Local AI assistant. No cloud dependency. Conversations stay on your machine.</p>
+
+    <h2>Download <span id="dl-tag"></span></h2>
+    <div id="downloads"><p>Loading...</p></div>
+    <p style="font-size:13px;margin-top:6px"><a href="https://github.com/bniladridas/linea/releases">All releases</a></p>
+
+    <h2>News</h2>
+    <div id="news-list">
+      <p>June 12, 2026 - v0.2.1 strips the v prefix from version strings in release builds and attaches the Android APK to releases.</p>
+      <p style="margin-top:8px">June 12, 2026 - v0.2.0 adds cross-platform CI builds for macOS, iOS, and Android with platform labels on new issues.</p>
+    </div>
+
+    <h2>Privacy</h2>
+    <p>No cloud dependency. Conversations stay on your machine. No tracking. API keys stay in a local file. Third-party model providers have their own terms.</p>
+
+    <h2>Models</h2>
+    <p>Supports Gemini (vision, web search), Cerebras, SambaNova, and Ollama (fully local).</p>
+
+    <h2>Terms</h2>
+    <p>MIT License. See <a href="https://github.com/bniladridas/linea/blob/main/LICENSE">LICENSE</a>.</p>
+
+    <footer><a href="https://github.com/bniladridas/linea">GitHub</a></footer>
+  </div>
+
+  <div class="summary-overlay" id="summary-overlay">
+    <div class="summary-card">
+      <button class="close" id="summary-close">&times;</button>
+      <div id="summary-text"></div>
+      <span class="cursor" id="cursor"></span>
+    </div>
+  </div>
+
+  <script>
+    const DL = [
+      { n: 'Linea.dmg', l: 'macOS app' },
+      { n: t => `linea_${t}_darwin_arm64.tar.gz`, l: 'CLI (ARM64)' },
+      { n: t => `linea_${t}_darwin_amd64.tar.gz`, l: 'CLI (AMD64)' },
+      { n: t => `Linea-${t}.zip`, l: 'iOS app' },
+      { n: t => `Linea-${t}.apk`, l: 'Android' },
+    ];
+
+    async function load() {
+      const dlTag = document.getElementById('dl-tag');
+      const dlEl = document.getElementById('downloads');
+      try {
+        const r = await fetch('https://api.github.com/repos/bniladridas/linea/releases?per_page=1');
+        const releases = await r.json();
+        const latest = Array.isArray(releases) ? releases.find(r => !r.draft && !r.prerelease) : null;
+        if (latest) {
+          const tag = latest.tag_name;
+          dlTag.textContent = tag;
+          dlEl.innerHTML = DL.map(f => {
+            const name = typeof f.n === 'function' ? f.n(tag) : f.n;
+            const a = latest.assets.find(x => x.name === name);
+            const s = a ? ' (' + (a.size / 1024 / 1024).toFixed(1) + ' MB)' : '';
+            return `<div class="dl-row"><span class="meta">${f.l}${s}</span><a href="${a ? a.browser_download_url : '#'}">Download</a></div>`;
+          }).join('');
+        }
+      } catch (e) {
+        dlEl.innerHTML = '<p style="color:#999">Could not load - see <a href="https://github.com/bniladridas/linea/releases">releases on GitHub</a>.</p>';
+      }
+      if (!dlTag.textContent) {
+        dlEl.innerHTML = '<p style="color:#999">Could not load - see <a href="https://github.com/bniladridas/linea/releases">releases on GitHub</a>.</p>';
+      }
+    }
+    load();
+
+    const SUMMARY = 'Linea is a local AI assistant for macOS, iOS, and Android. It supports Gemini, Cerebras, Ollama, and SambaNova models with automatic fallback. No cloud dependency - conversations stay on your machine. Built with Go, Kotlin, React, and PostgreSQL.';
+
+    const overlay = document.getElementById('summary-overlay');
+    const textEl = document.getElementById('summary-text');
+    const cursor = document.getElementById('cursor');
+    let typing = false;
+
+    function typewriter(str, el, done) {
+      el.textContent = '';
+      let i = 0;
+      function tick() {
+        if (i < str.length) {
+          el.textContent += str[i++];
+          setTimeout(tick, 20);
+        } else if (done) done();
+      }
+      tick();
+    }
+
+    document.getElementById('summary-btn').addEventListener('click', () => {
+      if (typing) return;
+      overlay.classList.add('open');
+      cursor.style.display = 'inline-block';
+      typing = true;
+      typewriter(SUMMARY, textEl, () => { typing = false; });
+    });
+
+    function closeSummary() {
+      overlay.classList.remove('open');
+      textEl.textContent = '';
+      typing = false;
+    }
+    document.getElementById('summary-close').addEventListener('click', closeSummary);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSummary(); });
+
+    const b = document.getElementById('theme-toggle');
+    if (localStorage.getItem('t') === 'd') document.body.classList.add('dark');
+    b.textContent = document.body.classList.contains('dark') ? 'light' : 'dark';
+    b.addEventListener('click', () => {
+      document.body.classList.toggle('dark');
+      localStorage.setItem('t', document.body.classList.contains('dark') ? 'd' : 'l');
+      b.textContent = document.body.classList.contains('dark') ? 'light' : 'dark';
+    });
+  </script>
+</body>
+</html>
