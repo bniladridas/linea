@@ -31,11 +31,11 @@ jobs:
           make macos-package
           mkdir -p dist/package
           cd backend
-          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" -o ../dist/package/linea ./cmd/server
+          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" -o ../dist/package/linea ./cmd/server
           cd ..
           tar -C dist/package -czf "dist/linea_${GITHUB_REF_NAME}_darwin_arm64.tar.gz" linea
           cd backend
-          GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" -o ../dist/package/linea ./cmd/server
+          GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" -o ../dist/package/linea ./cmd/server
           cd ..
           tar -C dist/package -czf "dist/linea_${GITHUB_REF_NAME}_darwin_amd64.tar.gz" linea
           shasum -a 256 dist/*.tar.gz dist/macos/Linea.dmg > dist/checksums.txt
@@ -45,7 +45,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist/bottle/linea/"$version"/bin
           cd backend
-          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" -o ../dist/bottle/linea/"$version"/bin/linea ./cmd/server
+          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version=${version}" -o ../dist/bottle/linea/"$version"/bin/linea ./cmd/server
           cd ..
           tar -C dist/bottle -czf "dist/linea-${version}.arm64_sequoia.bottle.tar.gz" linea
 
