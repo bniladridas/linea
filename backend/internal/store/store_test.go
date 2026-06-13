@@ -182,6 +182,40 @@ func TestMemoryStoreAgentRuns(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreUsers(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+
+	u1, err := s.CreateUser(ctx, "alice@example.com", "Alice")
+	if err != nil {
+		t.Fatalf("CreateUser(alice) error = %v", err)
+	}
+	if u1.Email != "alice@example.com" || u1.Name != "Alice" {
+		t.Fatalf("unexpected user: %+v", u1)
+	}
+
+	u2, err := s.CreateUser(ctx, "bob@example.com", "Bob")
+	if err != nil {
+		t.Fatalf("CreateUser(bob) error = %v", err)
+	}
+	if u2.Email != "bob@example.com" {
+		t.Fatalf("unexpected email for u2: %q", u2.Email)
+	}
+
+	users, err := s.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("ListUsers() error = %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("ListUsers() length = %d, want 2", len(users))
+	}
+
+	// Test duplicate email
+	if _, err := s.CreateUser(ctx, "alice@example.com", "Alice 2"); err == nil || err.Error() != "email already exists" {
+		t.Fatalf("CreateUser(duplicate) error = %v, want 'email already exists'", err)
+	}
+}
+
 func TestTitleFromMessage(t *testing.T) {
 	if got := TitleFromMessage("  hello   linea  "); got != "hello linea" {
 		t.Fatalf("TitleFromMessage() = %q", got)

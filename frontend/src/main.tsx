@@ -106,10 +106,21 @@ type SearchResult = {
   Snippet: string;
 };
 
+type User = {
+  id: string;
+  email: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type SystemStatus = {
   storage: string;
   search: string;
   providers: ProviderStatus[];
+  mcpStatus?: string;
+  mcpConfigured: boolean;
+  agentState?: string;
 };
 
 type AgentStatus = {
@@ -499,6 +510,7 @@ function App() {
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [agentDiagnostics, setAgentDiagnostics] = useState<AgentDiagnostic[]>([]);
   const [agentEditProposals, setAgentEditProposals] = useState<AgentEditProposal[]>([]);
   const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([]);
@@ -580,6 +592,7 @@ function App() {
     void loadAgentRuns();
     void loadAgentEditProposals();
     void loadAppSettings();
+    void loadUsers();
   }, []);
 
   useEffect(() => {
@@ -717,6 +730,29 @@ function App() {
       setSystemStatus(data);
     } catch {
       setSystemStatus(null);
+    }
+  }
+
+  async function loadUsers() {
+    try {
+      const data = await request<User[]>('/api/users');
+      setUsers(Array.isArray(data) ? data : []);
+    } catch {
+      setUsers([]);
+    }
+  }
+
+  async function createUser(email: string, name: string) {
+    try {
+      const user = await request<User>('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name }),
+      });
+      setUsers((items) => [...items, user]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not create user.';
+      setError(message);
     }
   }
 
@@ -2249,6 +2285,7 @@ function App() {
           status={systemStatus}
           agentStatus={agentStatus}
           agentRuns={agentRuns}
+          users={users}
           diagnostics={agentDiagnostics}
           editProposals={agentEditProposals}
           settings={appSettings}
@@ -2269,6 +2306,7 @@ function App() {
           onGetMCPPrompt={(promptId, args) => void getAgentMCPPrompt(promptId, args)}
           onSaveRun={() => void saveAgentRunSnapshot()}
           onCreateTrace={(input) => void createAgentTrace(input)}
+          onCreateUser={(email, name) => void createUser(email, name)}
           onStartLoop={(input) => void startAgentLoop(input)}
           onContinueLoop={(loopId, input) => void continueAgentLoop(loopId, input)}
           onCancelLoop={(loopId) => void cancelAgentLoop(loopId)}
@@ -2829,6 +2867,7 @@ function SystemPanel({
 function SystemDetailsDialog({
   agentRuns,
   agentStatus,
+  users,
   diagnostics,
   editProposals,
   onApplyProposal,
@@ -2838,6 +2877,7 @@ function SystemDetailsDialog({
   onCreateHookRun,
   onCreateProposal,
   onCreateTrace,
+  onCreateUser,
   onReviewProposal,
   onRunCommand,
   onRunHook,
@@ -2864,6 +2904,7 @@ function SystemDetailsDialog({
 }: {
   agentRuns: AgentRun[];
   agentStatus: AgentStatus | null;
+  users: User[];
   diagnostics: AgentDiagnostic[];
   editProposals: AgentEditProposal[];
   onApplyProposal: (proposalId: string) => void;
@@ -2873,6 +2914,7 @@ function SystemDetailsDialog({
   onCreateHookRun: (input: { hookId: string; state: string; detail?: string }) => void;
   onCreateProposal: (input: { path: string; content: string; summary?: string }) => void;
   onCreateTrace: (input: { event: string; state: string; detail?: string }) => void;
+  onCreateUser: (email: string, name: string) => void;
   onReviewProposal: (proposalId: string, status: 'approved' | 'rejected') => void;
   onRunCommand: (command: string, approvalId: string) => void;
   onRunHook: (hookId: string, command: string, approvalId?: string) => void;
@@ -2916,6 +2958,8 @@ function SystemDetailsDialog({
   const [traceStateInput, setTraceStateInput] = useState('completed');
   const [traceDetailInput, setTraceDetailInput] = useState('');
   const [proposalPathInput, setProposalPathInput] = useState('');
+  const [userEmailInput, setUserEmailInput] = useState('');
+  const [userNameInput, setUserNameInput] = useState('');
   const [proposalSummaryInput, setProposalSummaryInput] = useState('');
   const [proposalContentInput, setProposalContentInput] = useState('');
   const [mcpToolId, setMCPToolId] = useState(agentStatus?.mcpTools?.[0]?.id ?? '');
@@ -2934,6 +2978,17 @@ function SystemDetailsDialog({
   const [workspaceFocusedLine, setWorkspaceFocusedLine] = useState<number | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
+  function submitUser(event: FormEvent) {
+    event.preventDefault();
+    const email = userEmailInput.trim();
+    const name = userNameInput.trim();
+    if (!email) {
+      return;
+    }
+    onCreateUser(email, name);
+    setUserEmailInput('');
+    setUserNameInput('');
+  }
   const enabledAgentTools = agentStatus?.tools.filter((tool) => tool.access !== 'off').length ?? 0;
   const workspaceOn = agentStatus?.tools
     .filter((tool) => ['read_file', 'search_files', 'diagnostics', 'symbols', 'references'].includes(tool.id))
@@ -3302,6 +3357,7 @@ function SystemDetailsDialog({
             <DetailLine label="Commands" value={String(agentStatus?.runSummary?.commandRuns ?? 0)} />
             <DetailLine label="Proposals" value={String(agentStatus?.runSummary?.editProposals ?? editProposals.length)} />
             <DetailLine label="Runs" value={String(agentRuns.length)} />
+            <DetailLine label="Users" value={String(users.length)} />
           </DetailsSection>
 
           <DetailsSection title="MCP">
@@ -4087,6 +4143,42 @@ function SystemDetailsDialog({
             <p>No traces</p>
           )}
         </section>
+
+        <section className="details-list">
+          <div className="details-list-header">
+            <h3>Users</h3>
+            <span>{users.length}</span>
+          </div>
+          <form className="agent-manual-form" onSubmit={submitUser}>
+            <input
+              aria-label="User email"
+              placeholder="Email"
+              type="email"
+              value={userEmailInput}
+              onChange={(event) => setUserEmailInput(event.target.value)}
+            />
+            <input
+              aria-label="User name"
+              placeholder="Name"
+              value={userNameInput}
+              onChange={(event) => setUserNameInput(event.target.value)}
+            />
+            <button disabled={!userEmailInput.trim()} type="submit">
+              Add
+            </button>
+          </form>
+          {users.length > 0 ? (
+            users.map((user) => (
+              <p key={user.id}>
+                {user.email}
+                {user.name ? ` (${user.name})` : ''}
+              </p>
+            ))
+          ) : (
+            <p>No users</p>
+          )}
+        </section>
+
         {(agentStatus?.backgroundJobs ?? []).length > 0 && (
           <section className="details-list">
             <div className="details-list-header">

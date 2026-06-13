@@ -110,6 +110,16 @@ func (s *RemoteStore) ListAgentRuns(ctx context.Context) ([]AgentRun, error) {
 	return out, s.do(ctx, http.MethodGet, "/api/agent/runs", nil, &out)
 }
 
+func (s *RemoteStore) ListUsers(ctx context.Context) ([]User, error) {
+	var out []User
+	return out, s.do(ctx, http.MethodGet, "/api/users", nil, &out)
+}
+
+func (s *RemoteStore) CreateUser(ctx context.Context, email, name string) (User, error) {
+	var out User
+	return out, s.do(ctx, http.MethodPost, "/api/users", map[string]string{"email": email, "name": name}, &out)
+}
+
 func (s *RemoteStore) Close() error { return nil }
 
 func (s *RemoteStore) AddAgentRun(ctx context.Context, state string, summary json.RawMessage) (AgentRun, error) {

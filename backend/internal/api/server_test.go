@@ -172,6 +172,85 @@ func TestCreateMessageStreamsAndPersistsAssistant(t *testing.T) {
 	}
 }
 
+func TestListUsers(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	_, _ = appStore.CreateUser(context.Background(), "alice@example.com", "Alice")
+	server := NewServer(appStore, nil, nil, nil, "", "", Status{}).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+
+	var users []store.User
+	if err := json.Unmarshal(res.Body.Bytes(), &users); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(users) != 1 || users[0].Email != "alice@example.com" {
+		t.Fatalf("unexpected users: %#v", users)
+	}
+}
+
+func TestCreateUser(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	server := NewServer(appStore, nil, nil, nil, "", "", Status{}).Handler()
+
+	body := strings.NewReader(`{"email":"bob@example.com","name":"Bob"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/users", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+
+	var user store.User
+	if err := json.Unmarshal(res.Body.Bytes(), &user); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if user.Email != "bob@example.com" || user.Name != "Bob" {
+		t.Fatalf("unexpected user: %#v", user)
+	}
+
+	// Verify it's in the store
+	users, _ := appStore.ListUsers(context.Background())
+	if len(users) != 1 || users[0].ID != user.ID {
+		t.Fatalf("user not found in store")
+	}
+}
+
+func TestCreateUserDuplicate(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	_, _ = appStore.CreateUser(context.Background(), "alice@example.com", "Alice")
+	server := NewServer(appStore, nil, nil, nil, "", "", Status{}).Handler()
+
+	body := strings.NewReader(`{"email":"alice@example.com","name":"Alice 2"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/users", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusConflict, res.Body.String())
+	}
+}
+
+func TestCreateUserValidation(t *testing.T) {
+	appStore := store.NewMemoryStore()
+	server := NewServer(appStore, nil, nil, nil, "", "", Status{}).Handler()
+
+	body := strings.NewReader(`{"email":"","name":"Bob"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/users", body)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+	}
+}
+
 func TestCreateTemporaryMessageStreamsWithoutPersistence(t *testing.T) {
 	appStore := store.NewMemoryStore()
 	server := NewServer(appStore, fakeAssistant{chunks: []string{"temp ", "ok"}}, nil, testFiles(), "", "", Status{}).Handler()

@@ -274,6 +274,8 @@ UI checks need Chrome. Message checks need one working text model.
 | `GET` | `/api/settings` |
 | `PATCH` | `/api/settings` |
 | `POST` | `/api/chat/temp` |
+| `GET` | `/api/users` |
+| `POST` | `/api/users` |
 | `GET` | `/api/conversations` |
 | `POST` | `/api/conversations` |
 | `PATCH` | `/api/conversations/{id}` |

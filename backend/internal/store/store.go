@@ -13,6 +13,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrEmailExists = errors.New("email already exists")
 
 type Conversation struct {
 	ID        string    `json:"id"`
@@ -36,6 +37,14 @@ type AgentRun struct {
 	CreatedAt time.Time       `json:"createdAt"`
 }
 
+type User struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 type Store interface {
 	ListConversations(context.Context) ([]Conversation, error)
 	CreateConversation(context.Context, string) (Conversation, error)
@@ -45,6 +54,8 @@ type Store interface {
 	AddMessage(context.Context, string, string, string) (Message, error)
 	ListAgentRuns(context.Context) ([]AgentRun, error)
 	AddAgentRun(context.Context, string, json.RawMessage) (AgentRun, error)
+	ListUsers(context.Context) ([]User, error)
+	CreateUser(context.Context, string, string) (User, error)
 	Close() error
 }
 
@@ -100,12 +111,14 @@ type MemoryStore struct {
 	conversations map[string]Conversation
 	messages      map[string][]Message
 	agentRuns     []AgentRun
+	users         map[string]User
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		conversations: map[string]Conversation{},
 		messages:      map[string][]Message{},
+		users:         map[string]User{},
 	}
 }
 
@@ -193,6 +206,33 @@ func (s *MemoryStore) ListAgentRuns(context.Context) ([]AgentRun, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]AgentRun(nil), s.agentRuns...), nil
+}
+
+func (s *MemoryStore) ListUsers(context.Context) ([]User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]User, 0, len(s.users))
+	for _, u := range s.users {
+		items = append(items, u)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) CreateUser(_ context.Context, email, name string) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range s.users {
+		if u.Email == email {
+			return User{}, ErrEmailExists
+		}
+	}
+	now := time.Now().UTC()
+	user := User{ID: NewID(), Email: email, Name: name, CreatedAt: now, UpdatedAt: now}
+	s.users[user.ID] = user
+	return user, nil
 }
 
 func (s *MemoryStore) Close() error { return nil }

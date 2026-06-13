@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -196,6 +198,45 @@ func (s *PostgresStore) AddAgentRun(ctx context.Context, state string, summary j
 		run.ID, run.State, string(run.Summary),
 	).Scan(&run.ID, &run.State, &run.Summary, &run.CreatedAt)
 	return run, err
+}
+
+func (s *PostgresStore) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.pool.Query(ctx, `
+		select id, email, name, created_at, updated_at
+		from users
+		order by created_at desc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := make([]User, 0)
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+func (s *PostgresStore) CreateUser(ctx context.Context, email, name string) (User, error) {
+	user := User{ID: NewID(), Email: email, Name: name}
+	err := s.pool.QueryRow(ctx, `
+		insert into users (id, email, name)
+		values ($1, $2, $3)
+		returning id, email, name, created_at, updated_at`,
+		user.ID, user.Email, user.Name,
+	).Scan(&user.ID, &user.Email, &user.Name, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return User{}, ErrEmailExists
+		}
+		return User{}, err
+	}
+	return user, nil
 }
 
 func (s *PostgresStore) Close() error { s.pool.Close(); return nil }

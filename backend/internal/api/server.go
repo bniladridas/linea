@@ -276,6 +276,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
 	mux.HandleFunc("POST /api/chat/temp", s.createTemporaryMessage)
+	mux.HandleFunc("GET /api/users", s.listUsers)
+	mux.HandleFunc("POST /api/users", s.createUser)
 	mux.HandleFunc("GET /api/conversations", s.listConversations)
 	mux.HandleFunc("POST /api/conversations", s.createConversation)
 	mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
@@ -1201,6 +1203,48 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.store.ListUsers(r.Context())
+	if err != nil {
+		slog.Error("list users", "error", err)
+		writeError(w, http.StatusInternalServerError, "Could not list users.")
+		return
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Email == "" {
+		writeError(w, http.StatusBadRequest, "Email is required.")
+		return
+	}
+	if !strings.Contains(req.Email, "@") {
+		writeError(w, http.StatusBadRequest, "Email must contain an @ symbol.")
+		return
+	}
+	user, err := s.store.CreateUser(r.Context(), req.Email, req.Name)
+	if err != nil {
+		if errors.Is(err, store.ErrEmailExists) {
+			writeError(w, http.StatusConflict, "A user with that email already exists.")
+			return
+		}
+		slog.Error("create user", "error", err)
+		writeError(w, http.StatusInternalServerError, "Could not create user.")
+		return
+	}
+	writeJSON(w, http.StatusCreated, user)
 }
 
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
