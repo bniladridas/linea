@@ -18,12 +18,14 @@ import {
   Handshake,
   Heart,
   Info,
+  Layers,
   ListChecks,
   Mic,
   MicOff,
   Moon,
   MoreHorizontal,
   Monitor,
+  Palette,
   PanelRight,
   Paperclip,
   PartyPopper,
@@ -447,10 +449,12 @@ type UIPrefs = {
   showScrollCue: boolean;
   showHeaderShadow: boolean;
   theme: ThemeChoice;
+  visualStyle: VisualStyle;
 };
 
 type ThemeChoice = 'dark' | 'light' | 'system';
 type ResolvedTheme = 'dark' | 'light';
+type VisualStyle = 'modern' | 'classic';
 
 const FEEDBACK_OPTIONS = [
   { id: 'handshake', label: 'Useful', Icon: Handshake },
@@ -701,8 +705,27 @@ function App() {
     const resolvedTheme = resolveTheme(uiPrefs.theme, systemTheme);
     document.documentElement.dataset.theme = resolvedTheme;
     document.documentElement.style.colorScheme = resolvedTheme;
+    document.documentElement.dataset.visualStyle = uiPrefs.visualStyle;
     saveUIPrefs(uiPrefs);
   }, [systemTheme, uiPrefs]);
+
+  useEffect(() => {
+    const linkId = 'linea-classic-stylesheet';
+    let link = document.getElementById(linkId) as HTMLLinkElement | null;
+    if (uiPrefs.visualStyle === 'classic') {
+      if (!link) {
+        link = document.createElement('link');
+        link.id = linkId;
+        link.rel = 'stylesheet';
+        link.href = '/styles-classic.css';
+        document.head.appendChild(link);
+      }
+    } else {
+      if (link) {
+        link.remove();
+      }
+    }
+  }, [uiPrefs.visualStyle]);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: light)');
@@ -4662,6 +4685,25 @@ function ThemePanel({
         <Sun size={13} strokeWidth={ICON_STROKE} />
         White
       </button>
+      <span className="theme-panel-title">Style</span>
+      <button
+        aria-pressed={prefs.visualStyle === 'modern'}
+        className={prefs.visualStyle === 'modern' ? 'active' : ''}
+        type="button"
+        onClick={() => onChange((current) => ({ ...current, visualStyle: 'modern' }))}
+      >
+        <Palette size={13} strokeWidth={ICON_STROKE} />
+        Modern
+      </button>
+      <button
+        aria-pressed={prefs.visualStyle === 'classic'}
+        className={prefs.visualStyle === 'classic' ? 'active' : ''}
+        type="button"
+        onClick={() => onChange((current) => ({ ...current, visualStyle: 'classic' }))}
+      >
+        <Layers size={13} strokeWidth={ICON_STROKE} />
+        Classic
+      </button>
       <span className="theme-panel-title">Output</span>
       <label>
         <input
@@ -5242,6 +5284,7 @@ function loadUIPrefs(): UIPrefs {
       showHeaderShadow: true,
       ...parsed,
       showResponseDetails,
+      visualStyle: isVisualStyle(parsed.visualStyle) ? parsed.visualStyle : 'modern',
       theme: isThemeChoice(parsed.theme) ? parsed.theme : 'system',
     };
   } catch {
@@ -5250,6 +5293,7 @@ function loadUIPrefs(): UIPrefs {
       showComposerShimmer: true,
       showScrollCue: true,
       showHeaderShadow: true,
+      visualStyle: 'modern',
       theme: 'system',
     };
   }
@@ -5263,6 +5307,7 @@ function saveUIPrefs(prefs: UIPrefs) {
       showComposerShimmer: prefs.showComposerShimmer,
       showScrollCue: prefs.showScrollCue,
       showHeaderShadow: prefs.showHeaderShadow,
+      visualStyle: prefs.visualStyle,
       theme: prefs.theme,
     }),
   );
@@ -5270,6 +5315,10 @@ function saveUIPrefs(prefs: UIPrefs) {
 
 function isThemeChoice(value: unknown): value is ThemeChoice {
   return value === 'dark' || value === 'light' || value === 'system';
+}
+
+function isVisualStyle(value: unknown): value is VisualStyle {
+  return value === 'modern' || value === 'classic';
 }
 
 function getSystemTheme(): ResolvedTheme {
