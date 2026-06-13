@@ -786,6 +786,34 @@ Updates provider order and enabled state. At least one configured provider must 
 }
 ```
 
+# Users
+
+`GET /api/users`
+
+Returns all users.
+
+```json
+[
+  {
+    "id": "id",
+    "email": "user@example.com",
+    "name": "User",
+    "createdAt": "2026-06-01T00:00:00Z",
+    "updatedAt": "2026-06-01T00:00:00Z"
+  }
+]
+```
+
+`POST /api/users`
+
+Body:
+
+```json
+{"email":"user@example.com","name":"User"}
+```
+
+Email is required. Name is optional (defaults to empty). Returns `409` if email already exists.
+
 # Conversations
 
 `GET /api/conversations`

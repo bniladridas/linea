@@ -1051,7 +1051,7 @@ exit 0
 	}
 }
 
-func TestRuntimeAutoAgentLoopRejectsPlannerPathOutsideDiagnostics(t *testing.T) {
+func TestRuntimeAutoAgentLoopAllowsPlannerPathOutsideDiagnostics(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "broken.go"), "package main\nfunc broken( {\n")
 	writeTestFile(t, filepath.Join(root, "other.go"), "package main\nfunc other() {}\n")
@@ -1071,11 +1071,11 @@ func TestRuntimeAutoAgentLoopRejectsPlannerPathOutsideDiagnostics(t *testing.T) 
 	if err != nil {
 		t.Fatalf("StartAgentLoop() error = %v", err)
 	}
-	if loop.State != "attention" || !loopHasStep(loop, "plan_edit", "blocked") {
+	if loop.State != "waiting_approval" || !loopHasStep(loop, "edit_review", "waiting_approval") {
 		t.Fatalf("loop = %#v", loop)
 	}
-	if proposals := runtime.ListEditProposals(context.Background()); len(proposals) != 0 {
-		t.Fatalf("proposals = %#v, want none", proposals)
+	if proposals := runtime.ListEditProposals(context.Background()); len(proposals) != 1 || proposals[0].Path != "other.go" {
+		t.Fatalf("proposals = %#v, want 1 for other.go", proposals)
 	}
 }
 
@@ -4386,6 +4386,34 @@ func TestRuntimeConsumeAppliedEditReviewMissingProposal(t *testing.T) {
 	}
 	if result.Steps[0].State != "blocked" {
 		t.Fatalf("expected step state = blocked, got %q", result.Steps[0].State)
+	}
+}
+
+func TestAgentLoopAllowsNewFileCreation(t *testing.T) {
+	root := t.TempDir()
+	runtime := NewRuntime("", WithWorkspaceRoot(root), WithEditPlanner(&fakeEditPlanner{
+		plan: EditPlan{
+			Path:    "new_file.go",
+			Content: "package main\n",
+			Summary: "Create new file",
+		},
+	}))
+
+	loop, err := runtime.StartAgentLoop(context.Background(), AgentLoopInput{
+		Goal: "create a new file named new_file.go",
+		Mode: "auto",
+	})
+	if err != nil {
+		t.Fatalf("StartAgentLoop() error = %v", err)
+	}
+
+	if loop.State != "waiting_approval" {
+		t.Fatalf("loop.State = %q, want waiting_approval", loop.State)
+	}
+
+	proposals := runtime.ListEditProposals(context.Background())
+	if len(proposals) != 1 || proposals[0].Path != "new_file.go" {
+		t.Fatalf("proposals = %#v", proposals)
 	}
 }
 

@@ -1999,7 +1999,7 @@ func (r *Runtime) autoProposeEdit(ctx context.Context, loop AgentLoop, request E
 		}
 		plan = fallback
 	}
-	if !editPlanPathInFiles(plan.Path, files) {
+	if !isAllowedEditTarget(plan.Path, files) {
 		fallback, ok := autoCreateFallbackPlan(request, files)
 		if !ok {
 			loop = appendLoopStep(loop, "plan_edit", "Plan edit", "edit_file", errors.New("planner returned a path outside diagnostic context"), "", "")
@@ -2646,12 +2646,15 @@ func hasExplicitLoopContinueInput(input AgentLoopContinueInput) bool {
 		strings.TrimSpace(input.ProposalPath) != ""
 }
 
-func editPlanPathInFiles(path string, files []FileResult) bool {
+func isAllowedEditTarget(path string, files []FileResult) bool {
 	path = strings.Trim(strings.TrimSpace(path), "/")
 	for _, file := range files {
 		if strings.Trim(strings.TrimSpace(file.Path), "/") == path {
 			return true
 		}
+	}
+	if path != "" && !filepath.IsAbs(path) {
+		return true
 	}
 	return false
 }
