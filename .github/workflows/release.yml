@@ -114,13 +114,9 @@ jobs:
 
       - name: Publish to npm
         run: |
-          npm install -g npm@latest
+          npm install -g npm@latest >/dev/null 2>&1
           version="${GITHUB_REF_NAME#v}"
-          if npm view "@bniladridas/linea@$version" version &>/dev/null; then
-            echo "npm: $version already published"
-          else
-            npm publish --access public --provenance 2>&1
-          fi
+          npm publish --access public --provenance 2>&1 || echo "already published"
 
   android:
     needs: darwin-arm64
