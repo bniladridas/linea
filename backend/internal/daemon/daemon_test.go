@@ -220,14 +220,10 @@ func TestPlistDirUsesHomeLibrary(t *testing.T) {
 }
 
 func TestReadPIDRespectsDataDir(t *testing.T) {
-	tmp := t.TempDir()
-
-	// Override HOME so UserCacheDir resolves inside tmp
-	t.Setenv("HOME", tmp)
-
-	// DataDir() creates $HOME/Library/Caches/linea
-	dataDir := filepath.Join(tmp, "Library", "Caches", "linea")
-	os.MkdirAll(dataDir, 0o755)
+	dataDir, err := DataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	pidFile := filepath.Join(dataDir, "daemon.pid")
 	os.WriteFile(pidFile, []byte("99\n"), 0o644)
 
@@ -238,6 +234,7 @@ func TestReadPIDRespectsDataDir(t *testing.T) {
 	if pid != 99 {
 		t.Fatalf("ReadPID() = %d, want 99", pid)
 	}
+	os.Remove(pidFile)
 }
 
 type captureWriter struct {
