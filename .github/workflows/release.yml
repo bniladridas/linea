@@ -12,6 +12,7 @@ permissions:
 jobs:
   darwin-arm64:
     runs-on: macos-15
+    environment: npm
 
     steps:
       - uses: actions/checkout@v6
