@@ -60,18 +60,70 @@ jobs:
           zip -r "Linea-${GITHUB_REF_NAME}.zip" Linea.app
           cd ../..
 
+      - name: Update package version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          npm version "$version" --no-git-tag-version --allow-same-version
+
+      - name: Update Homebrew formula
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          curl -sL "https://github.com/bniladridas/linea/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" \
+            -o /tmp/source.tar.gz
+          source_sha=$(shasum -a 256 /tmp/source.tar.gz | awk '{print $1}')
+          bottle_sha=$(shasum -a 256 "dist/linea-${version}.arm64_sequoia.bottle.tar.gz" | awk '{print $1}')
+          sed -i '' "s|url \".*\"|url \"https://github.com/bniladridas/linea/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz\"|" Formula/linea.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"${source_sha}\"/" Formula/linea.rb
+          sed -i '' "s|root_url \".*\"|root_url \"https://github.com/bniladridas/linea/releases/download/${GITHUB_REF_NAME}\"|" Formula/linea.rb
+          sed -i '' "s/sha256 arm64_sequoia: \".*\"/sha256 arm64_sequoia: \"${bottle_sha}\"/" Formula/linea.rb
+
       - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           client-id: ${{ secrets.LINEA_BOT_CLIENT_ID }}
           private-key: ${{ secrets.LINEA_BOT_PRIVATE_KEY }}
 
+      - name: Create version update PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          version="${GITHUB_REF_NAME}"
+          branch="release/${version}"
+          git config user.name "linea-route[bot]"
+          git config user.email "289668827+linea-route[bot]@users.noreply.github.com"
+          git add Formula/linea.rb package.json
+          test -f package-lock.json && git add package-lock.json
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git checkout -b "$branch"
+          git commit -m "chore: update formula and package for ${version}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/bniladridas/linea.git" "$branch"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: update formula and package for ${version}" \
+            --body "Automated version update for ${version}." \
+            --label "formula,automation" \
+            || echo "PR may already exist"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/macos/Linea.dmg dist/ios/Linea-*.zip dist/checksums.txt --title "$GITHUB_REF_NAME" --generate-notes
 
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "//registry.npmjs.org/:_authToken=$NODE_AUTH_TOKEN" > ~/.npmrc
+          if npm view "@bniladridas/linea@$version" version &>/dev/null; then
+            echo "npm: $version already published"
+          else
+            npm publish --access public
+          fi
+
   android:
+    needs: darwin-arm64
     runs-on: ubuntu-latest
 
     steps:

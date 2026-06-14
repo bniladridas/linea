@@ -21,6 +21,8 @@ coverage/
 
 frontend/dist/
 frontend/node_modules/
+node_modules/
+scripts/node_modules/
 
 android/.gradle/
 android/build/
