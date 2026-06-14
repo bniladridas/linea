@@ -2,6 +2,7 @@
   "name": "@bniladridas/linea",
   "version": "0.3.6",
   "description": "Local-first AI assistant",
+  "keywords": ["ai", "assistant", "local", "cli", "chat", "gemini", "llm", "terminal"],
   "bin": {
     "linea": "cli.js"
   },
