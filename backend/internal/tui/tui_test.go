@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"linea/backend/internal/agent"
 	"linea/backend/internal/llm"
@@ -1003,7 +1003,7 @@ func TestBubbleModelSendsMessage(t *testing.T) {
 		t.Fatalf("newBubbleModel() error = %v", err)
 	}
 	model.input.SetValue("hi")
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd == nil {
 		t.Fatal("expected send command")
@@ -1014,7 +1014,7 @@ func TestBubbleModelSendsMessage(t *testing.T) {
 	if len(model.messages) != 2 || model.messages[0].Content != "hi" || model.messages[1].Content != "hello" {
 		t.Fatalf("messages = %#v", model.messages)
 	}
-	view := model.View()
+	view := model.View().Content
 	if !strings.Contains(view, "Linea") || !strings.Contains(view, "hello") {
 		t.Fatalf("view = %q", view)
 	}
@@ -1033,7 +1033,7 @@ func TestBubbleModelHandlesAgentCommand(t *testing.T) {
 	}
 	model.input.SetValue(":search agent")
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil {
 		t.Fatal("agent command should not start async model send")
@@ -1041,8 +1041,8 @@ func TestBubbleModelHandlesAgentCommand(t *testing.T) {
 	if len(model.messages) != 1 || !strings.Contains(model.messages[0].Content, "notes.md:1 agent notes") {
 		t.Fatalf("messages = %#v", model.messages)
 	}
-	if !strings.Contains(model.View(), "notes.md") {
-		t.Fatalf("view = %q", model.View())
+	if !strings.Contains(model.View().Content, "notes.md") {
+		t.Fatalf("view = %q", model.View().Content)
 	}
 }
 
@@ -1055,7 +1055,7 @@ func TestBubbleModelHandlesConversationControls(t *testing.T) {
 		t.Fatalf("newBubbleModel() error = %v", err)
 	}
 	model.input.SetValue("hi")
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd == nil {
 		t.Fatal("expected send command")
@@ -1064,19 +1064,19 @@ func TestBubbleModelHandlesConversationControls(t *testing.T) {
 	model = updated.(bubbleModel)
 
 	model.input.SetValue(":rename Better title")
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil || model.conversation.Title != "Better title" || model.status != "Renamed." {
 		t.Fatalf("conversation=%#v status=%q cmd=%v", model.conversation, model.status, cmd)
 	}
 	model.input.SetValue(":share")
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil || len(model.messages) != 2 || !strings.Contains(model.shareText, "User: hi") {
 		t.Fatalf("messages=%#v share=%q status=%q cmd=%v", model.messages, model.shareText, model.status, cmd)
 	}
 	model.input.SetValue("again")
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd == nil || model.shareText != "" {
 		t.Fatalf("share=%q cmd=%v", model.shareText, cmd)
@@ -1089,13 +1089,13 @@ func TestBubbleModelHandlesConversationControls(t *testing.T) {
 		}
 	}
 	model.input.SetValue(":delete")
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil || !strings.Contains(model.status, ":delete confirm") {
 		t.Fatalf("status=%q cmd=%v", model.status, cmd)
 	}
 	model.input.SetValue(":delete confirm")
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil || model.conversation.ID != "" || len(model.messages) != 0 || model.status != "Deleted chat." {
 		t.Fatalf("conversation=%#v messages=%#v status=%q cmd=%v", model.conversation, model.messages, model.status, cmd)
@@ -1119,7 +1119,7 @@ func TestBubbleModelIgnoresMessageSubmitWhileSending(t *testing.T) {
 	model.sending = true
 	model.input.SetValue("second")
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil {
 		t.Fatal("expected no send command while response is pending")
@@ -1142,7 +1142,7 @@ func TestBubbleModelKeepsUserMessageVisibleAfterGenerationError(t *testing.T) {
 	}
 	model.input.SetValue("hi")
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd == nil {
 		t.Fatal("expected send command")
@@ -1182,7 +1182,7 @@ func TestBubblePickerHonorsQuitCommand(t *testing.T) {
 		t.Fatalf("mode = %v, want picker", model.mode)
 	}
 	model.input.SetValue(":quit")
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("expected quit command")
 	}
@@ -1203,7 +1203,7 @@ func TestBubbleEscapeBacksOutBeforeQuit(t *testing.T) {
 		t.Fatalf("newBubbleModel() error = %v", err)
 	}
 	model.input.SetValue("1")
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd != nil {
 		t.Fatal("expected no command while opening chat")
 	}
@@ -1212,7 +1212,7 @@ func TestBubbleEscapeBacksOutBeforeQuit(t *testing.T) {
 		t.Fatalf("mode = %v, want chat", model.mode)
 	}
 
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	model = updated.(bubbleModel)
 	if cmd != nil {
 		t.Fatal("expected first Escape from chat to avoid quitting")
@@ -1224,7 +1224,7 @@ func TestBubbleEscapeBacksOutBeforeQuit(t *testing.T) {
 		t.Fatalf("status = %q", model.status)
 	}
 
-	_, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if cmd == nil {
 		t.Fatal("expected second Escape to quit")
 	}
@@ -1238,7 +1238,7 @@ func TestBubbleEscapeWaitsForInFlightSend(t *testing.T) {
 		t.Fatalf("newBubbleModel() error = %v", err)
 	}
 	model.input.SetValue("hi")
-	updated, sendCmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, sendCmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if sendCmd == nil {
 		t.Fatal("expected send command")
@@ -1247,7 +1247,7 @@ func TestBubbleEscapeWaitsForInFlightSend(t *testing.T) {
 		t.Fatal("model was not marked sending")
 	}
 
-	updated, escCmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, escCmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	model = updated.(bubbleModel)
 	if escCmd != nil {
 		t.Fatal("expected Escape during send to avoid quitting")
@@ -1282,15 +1282,15 @@ func TestBubblePickerNewClearsCurrentChat(t *testing.T) {
 		t.Fatalf("newBubbleModel() error = %v", err)
 	}
 	model.input.SetValue("1")
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if model.conversation.ID == "" || len(model.messages) == 0 {
 		t.Fatalf("expected existing chat, got conversation=%#v messages=%#v", model.conversation, model.messages)
 	}
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	model = updated.(bubbleModel)
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil {
 		t.Fatal("expected no command while starting blank chat")
@@ -1315,16 +1315,16 @@ func TestBubblePickerFiltersRecentChats(t *testing.T) {
 		t.Fatalf("newBubbleModel() error = %v", err)
 	}
 	model.input.SetValue("1")
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if !strings.Contains(model.viewport.View(), "old transcript") {
 		t.Fatalf("expected old transcript in viewport: %q", model.viewport.View())
 	}
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	model = updated.(bubbleModel)
 	model.input.SetValue("missing")
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil {
 		t.Fatal("expected no command while filtering picker")
@@ -1333,7 +1333,7 @@ func TestBubblePickerFiltersRecentChats(t *testing.T) {
 		t.Fatalf("mode=%v status=%q", model.mode, model.status)
 	}
 	model.input.SetValue("existing")
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil {
 		t.Fatal("expected no command while opening filtered chat")
@@ -1371,7 +1371,7 @@ func TestBubblePickerSearchesNumericTitles(t *testing.T) {
 	}
 	model.input.SetValue("2026")
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(bubbleModel)
 	if cmd != nil {
 		t.Fatal("expected no command while opening numeric title")
@@ -1395,7 +1395,7 @@ func TestBubbleEscapeRequiresConfirmInPicker(t *testing.T) {
 		t.Fatalf("mode = %v, want picker", model.mode)
 	}
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	model = updated.(bubbleModel)
 	if cmd != nil {
 		t.Fatal("expected first Escape from picker to avoid quitting")
@@ -1404,7 +1404,7 @@ func TestBubbleEscapeRequiresConfirmInPicker(t *testing.T) {
 		t.Fatalf("status = %q", model.status)
 	}
 
-	_, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if cmd == nil {
 		t.Fatal("expected second Escape to quit")
 	}
@@ -1418,11 +1418,11 @@ func TestBubbleModelResizesViewportAndComposer(t *testing.T) {
 	}
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	model = updated.(bubbleModel)
-	if model.viewport.Width <= 0 || model.viewport.Height <= 0 {
-		t.Fatalf("viewport size = %dx%d", model.viewport.Width, model.viewport.Height)
+	if model.viewport.Width() <= 0 || model.viewport.Height() <= 0 {
+		t.Fatalf("viewport size = %dx%d", model.viewport.Width(), model.viewport.Height())
 	}
-	if model.input.Width <= 0 || model.input.Width >= model.contentWidth() {
-		t.Fatalf("input width = %d content = %d", model.input.Width, model.contentWidth())
+	if model.input.Width() <= 0 || model.input.Width() >= model.contentWidth() {
+		t.Fatalf("input width = %d content = %d", model.input.Width(), model.contentWidth())
 	}
 }
 
@@ -1458,7 +1458,7 @@ func TestBubbleFooterUsesCompactStatus(t *testing.T) {
 		t.Fatalf("footer is too loud: %q", model.footerStatus())
 	}
 	model = bubbleModel{status: "Ready."}
-	model.viewport = viewport.New(20, 2)
+	model.viewport = viewport.New(viewport.WithWidth(20), viewport.WithHeight(2))
 	model.viewport.SetContent(strings.Join([]string{"one", "two", "three", "four"}, "\n"))
 	if got := model.footerStatus(); got != "Ready  ·  top  ·  :help" {
 		t.Fatalf("footer = %q", got)

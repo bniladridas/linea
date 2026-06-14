@@ -9,11 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"linea/backend/internal/llm"
 	"linea/backend/internal/store"
@@ -84,7 +83,6 @@ func (a *App) runBubble(ctx context.Context) error {
 		model,
 		tea.WithInput(inFile),
 		tea.WithOutput(outFile),
-		tea.WithAltScreen(),
 	).Run()
 	return err
 }
@@ -96,11 +94,11 @@ func newBubbleModel(ctx context.Context, app *App) (bubbleModel, error) {
 	}
 	input := textinput.New()
 	input.CharLimit = maxPromptBytes
-	input.Width = 72
+	input.SetWidth(72)
 	input.Prompt = "Message › "
 	input.Placeholder = "Ask Linea"
 	input.Focus()
-	vp := viewport.New(88, 18)
+	vp := viewport.New(viewport.WithWidth(88), viewport.WithHeight(18))
 	mode := modeChat
 	status := "Ready."
 	if len(recent) > 0 {
@@ -126,7 +124,9 @@ func newBubbleModel(ctx context.Context, app *App) (bubbleModel, error) {
 }
 
 func (m bubbleModel) Init() tea.Cmd {
-	return textinput.Blink
+	return func() tea.Msg {
+		return textinput.Blink()
+	}
 }
 
 func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -137,10 +137,8 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize()
 		m.syncViewport()
 		return m, nil
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC:
-			return m, tea.Quit
+	case tea.KeyPressMsg:
+		switch msg.Code {
 		case tea.KeyEsc:
 			return m.pressEscape()
 		case tea.KeyEnter:
@@ -152,6 +150,9 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.submit(value)
 		default:
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
 			m.escPending = false
 		}
 	case sentMsg:
@@ -465,12 +466,17 @@ func (m bubbleModel) send(input string) tea.Cmd {
 	}
 }
 
-func (m bubbleModel) View() string {
+func (m bubbleModel) View() tea.View {
 	styles := m.styles()
+	var content string
 	if m.mode == modePick {
-		return m.viewPicker(styles)
+		content = m.viewPicker(styles)
+	} else {
+		content = m.viewChat(styles)
 	}
-	return m.viewChat(styles)
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
 }
 
 func (m bubbleModel) viewPicker(styles bubbleStyles) string {
@@ -498,7 +504,7 @@ func (m bubbleModel) viewPicker(styles bubbleStyles) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(styles.composer.Width(m.composerWidth()).Render(lipgloss.NewStyle().Width(m.input.Width).Render(m.input.View())))
+	b.WriteString(styles.composer.Width(m.composerWidth()).Render(lipgloss.NewStyle().Width(m.input.Width()).Render(m.input.View())))
 	b.WriteString("\n")
 	b.WriteString(styles.status.Render(m.pickerStatus()))
 	return styles.frame.Width(m.contentWidth()).Render(b.String())
@@ -522,7 +528,7 @@ func (m bubbleModel) viewChat(styles bubbleStyles) string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(styles.composer.Width(m.composerWidth()).Render(lipgloss.NewStyle().Width(m.input.Width).Render(m.input.View())))
+	b.WriteString(styles.composer.Width(m.composerWidth()).Render(lipgloss.NewStyle().Width(m.input.Width()).Render(m.input.View())))
 	b.WriteString("\n")
 	b.WriteString(styles.status.Render(m.footerStatus()))
 	return styles.frame.Width(m.contentWidth()).Render(b.String())
@@ -610,9 +616,9 @@ func (m bubbleModel) renderBubbleMessage(styles bubbleStyles, message store.Mess
 
 func (m *bubbleModel) resize() {
 	contentWidth := m.contentWidth()
-	m.input.Width = max(24, m.composerWidth()-6)
-	m.viewport.Width = contentWidth
-	m.viewport.Height = max(6, m.height-10)
+	m.input.SetWidth(max(24, m.composerWidth()-6))
+	m.viewport.SetWidth(contentWidth)
+	m.viewport.SetHeight(max(6, m.height-10))
 }
 
 func (m *bubbleModel) syncViewport() {
@@ -620,11 +626,8 @@ func (m *bubbleModel) syncViewport() {
 }
 
 func (m bubbleModel) styles() bubbleStyles {
-	renderer := lipgloss.NewRenderer(io.Discard)
-	renderer.SetColorProfile(termenv.ANSI256)
-	renderer.SetHasDarkBackground(true)
 	style := func() lipgloss.Style {
-		return lipgloss.NewStyle().Renderer(renderer)
+		return lipgloss.NewStyle()
 	}
 	return bubbleStyles{
 		frame:      style().Padding(1, 2),
