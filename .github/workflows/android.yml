@@ -68,7 +68,7 @@ jobs:
             export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           fi
           yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
-            "platforms;android-37" \
+            "platforms;android-36" \
             "build-tools;35.0.0" \
             "platform-tools" >/dev/null
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
