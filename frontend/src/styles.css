@@ -289,6 +289,8 @@ textarea {
   width: 32px;
   height: 32px;
   place-items: center;
+  border: none;
+  outline: none;
   border-radius: var(--md-shape-full);
   background: var(--md-sys-surface-container);
   color: var(--md-sys-on-surface-variant);
@@ -405,6 +407,94 @@ textarea {
 
 .about-report-link:hover,
 .about-report-link:focus-visible {
+  background: var(--md-sys-surface-container-high);
+  color: var(--md-sys-on-surface);
+}
+
+.connections-panel {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--md-shape-medium);
+  background: var(--md-sys-surface-container);
+  padding: 8px;
+}
+
+.connections-panel-title {
+  color: var(--md-sys-on-surface-variant);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.connections-loading,
+.connections-empty {
+  color: var(--md-sys-on-surface-variant);
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.connection-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.connection-card.disconnected {
+  opacity: 0.6;
+}
+
+.connection-info {
+  display: grid;
+  gap: 1px;
+}
+
+.connection-name {
+  color: var(--md-sys-on-surface);
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.connection-status {
+  color: var(--md-sys-on-surface-variant);
+  font-size: 10px;
+}
+
+.connection-action {
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: var(--md-sys-surface-container-high);
+  color: var(--md-sys-primary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.connection-action:hover:not(:disabled) {
+  background: var(--md-sys-primary-container);
+}
+
+.connection-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.connections-close {
+  justify-self: start;
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-sys-on-surface-variant);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-top: 4px;
+}
+
+.connections-close:hover {
   background: var(--md-sys-surface-container-high);
   color: var(--md-sys-on-surface);
 }
@@ -2645,6 +2735,8 @@ textarea {
 
 .icon-button.subtle {
   flex: 0 0 auto;
+  border: none;
+  outline: none;
   background: transparent;
   color: var(--md-sys-on-surface-variant);
 }
@@ -2800,6 +2892,8 @@ textarea:focus {
   .sidebar-close.icon-button {
     display: grid;
     flex: 0 0 auto;
+    border: none;
+    outline: none;
   }
 
   .chat {
@@ -2947,6 +3041,7 @@ textarea:focus {
 :root.linea-android-shell .dialog-panel,
 :root.linea-android-shell .settings-panel,
 :root.linea-android-shell .system-panel,
+:root.linea-android-shell .connections-panel,
 :root.linea-android-shell .theme-panel,
 :root.linea-android-shell .new-chat-menu {
   backdrop-filter: none !important;
@@ -2956,6 +3051,7 @@ textarea:focus {
 :root.linea-android-shell[data-theme="dark"] .sidebar,
 :root.linea-android-shell[data-theme="dark"] .sources-panel,
 :root.linea-android-shell[data-theme="dark"] .system-panel,
+:root.linea-android-shell[data-theme="dark"] .connections-panel,
 :root.linea-android-shell[data-theme="dark"] .theme-panel {
   background: var(--md-sys-surface-container);
 }
@@ -2974,6 +3070,7 @@ textarea:focus {
 :root.linea-android-shell[data-theme="light"] .chat-header,
 :root.linea-android-shell[data-theme="light"] .sources-panel,
 :root.linea-android-shell[data-theme="light"] .system-panel,
+:root.linea-android-shell[data-theme="light"] .connections-panel,
 :root.linea-android-shell[data-theme="light"] .theme-panel {
   background: var(--md-sys-surface-container);
 }
@@ -3075,6 +3172,7 @@ textarea:focus {
 :root[data-theme="light"] .attachments span,
 :root[data-theme="light"] .system-panel,
 :root[data-theme="light"] .theme-panel,
+:root[data-theme="light"] .connections-panel,
 :root[data-theme="light"] .settings-panel,
 :root[data-theme="light"] .agent-card,
 :root[data-theme="light"] .agent-loop-card,
@@ -3287,6 +3385,11 @@ textarea:focus {
 :root[data-theme="light"] .theme-panel label,
 :root[data-theme="light"] .about-report-link,
 :root[data-theme="light"] .settings-panel-title,
+:root[data-theme="light"] .connections-panel-title,
+:root[data-theme="light"] .connection-status,
+:root[data-theme="light"] .connections-loading,
+:root[data-theme="light"] .connections-empty,
+:root[data-theme="light"] .connections-close,
 :root[data-theme="light"] .settings-provider,
 :root[data-theme="light"] .settings-provider small,
 :root[data-theme="light"] .source-card small,
@@ -3336,8 +3439,6 @@ textarea:focus {
   border: 1px solid var(--md-sys-outline-variant);
 }
 
-:root[data-theme="light"] .system-button,
-:root[data-theme="light"] .icon-button,
 :root[data-theme="light"] .sources-toggle,
 :root[data-theme="light"] .send-button {
   border: 1px solid var(--md-sys-outline-variant);
