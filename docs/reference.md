@@ -13,11 +13,17 @@ This file keeps setup details out of the main README.
 
 # Install
 
-Homebrew formula: `Formula/linea.rb`
+Homebrew:
 
 ```sh
 brew tap bniladridas/linea
 brew install linea
+```
+
+npm:
+
+```sh
+npm install -g @bniladridas/linea
 ```
 
 ## Post-Install
@@ -200,11 +206,9 @@ macOS app: [macos.md](./macos.md).
 
 Push a tag named `v*`.
 
-The release workflow builds the frontend, builds the Apple Silicon binary, packages the DMG, and uploads checksums.
+The release workflow builds the frontend, builds the Apple Silicon binary, packages the DMG, updates `Formula/linea.rb` and `package.json` on a branch, opens a version update pull request, creates the release, and publishes to npm.
 
-After a release, `formula-sha.yml` opens a pull request for `Formula/linea.rb`.
-
-After the formula pull request is merged, `release-install-check.yml` runs `make install-check`.
+After the version update pull request is merged, `release-install-check.yml` runs `make install-check`.
 
 Run `make release-check` for a local end-to-end release check.
 

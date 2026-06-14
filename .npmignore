@@ -1,0 +1,11 @@
+.github/
+backend/
+frontend/
+android/
+ios/
+Formula/
+bin/
+*.go
+*.md
+AGENTS.md
+Makefile

@@ -8,6 +8,11 @@ on:
       - Formula/linea.rb
       - Makefile
       - .github/workflows/release-install-check.yml
+  pull_request:
+    paths:
+      - Formula/linea.rb
+      - Makefile
+      - .github/workflows/release-install-check.yml
   workflow_dispatch:
 
 permissions:

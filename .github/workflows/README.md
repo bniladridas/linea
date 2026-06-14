@@ -57,7 +57,7 @@ Runs the app checks on pull requests and pushes.
 
 Runs when a `v*` tag is pushed.
 
-Builds the Apple Silicon binary, packages the macOS DMG, builds iOS `.app`, builds Android debug APK, writes checksums, and publishes the GitHub release.
+Builds the Apple Silicon binary, packages the macOS DMG, builds iOS `.app`, builds Android debug APK, writes checksums, updates `Formula/linea.rb` and `package.json`, publishes the GitHub release, and publishes to npm.
 
 `nightly.yml`
 
@@ -113,8 +113,6 @@ Uses Linea bot token for comments.
 # Release path
 
 1. Push a version tag, for example `v0.1.2`.
-2. `release.yml` publishes the release assets.
-3. `formula-sha.yml` opens the formula SHA pull request.
-4. Merge the formula pull request.
-5. `release-install-check.yml` checks the published formula install path.
-6. Run `make release-check` for a local end-to-end release check.
+2. `release.yml` builds, updates `Formula/linea.rb` and `package.json` on a branch, opens a version update PR, creates the release, and publishes to npm.
+3. Merge the version update PR. `release-install-check.yml` runs when the formula changes on `main`.
+4. Run `make release-check` for a local end-to-end release check.

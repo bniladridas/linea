@@ -1,9 +1,6 @@
 name: formula sha
 
 on:
-  release:
-    types:
-      - published
   workflow_dispatch:
     inputs:
       tag:
@@ -17,7 +14,6 @@ permissions:
 
 jobs:
   update:
-    if: github.event_name != 'release' || github.event.release.prerelease == false
     runs-on: ubuntu-latest
 
     steps:
@@ -33,12 +29,7 @@ jobs:
 
       - name: Resolve tag
         id: tag
-        run: |
-          tag="${{ github.event.release.tag_name }}"
-          if [ -z "$tag" ]; then
-            tag="${{ inputs.tag }}"
-          fi
-          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+        run: printf 'tag=%s\n' "${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
 
       - name: Apply sha
         run: |
