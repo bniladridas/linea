@@ -28,5 +28,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: check
-        run: make install-check
+      - name: Setup tap
+        run: |
+          brew tap bniladridas/linea https://github.com/bniladridas/linea
+          git -C "$(brew --prefix)/Library/Taps/bniladridas/homebrew-linea" pull --ff-only
+
+      - name: Override formula for PR
+        if: github.event_name == 'pull_request'
+        run: |
+          cp Formula/linea.rb "$(brew --prefix)/Library/Taps/bniladridas/homebrew-linea/Formula/linea.rb"
+
+      - name: Install and test
+        run: |
+          if brew list --formula bniladridas/linea/linea >/dev/null 2>&1; then \
+            brew upgrade bniladridas/linea/linea || test "$(brew outdated --quiet bniladridas/linea/linea)" = ""; \
+          else \
+            brew install bniladridas/linea/linea; \
+          fi
+          brew link --overwrite bniladridas/linea/linea
+          brew trust bniladridas/linea 2>/dev/null || true
+          HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew test bniladridas/linea/linea
+          $(brew --prefix bniladridas/linea/linea)/bin/linea -version
