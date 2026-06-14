@@ -96,7 +96,7 @@ jobs:
           git diff --cached --quiet && echo "No changes" && exit 0
           git checkout -b "$branch"
           git commit -m "chore: update formula and package for ${version}"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/bniladridas/linea.git" "$branch"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/bniladridas/linea.git" "$branch"
           gh pr create \
             --base main \
             --head "$branch" \
