@@ -1,6 +1,6 @@
 {
   "name": "@bniladridas/linea",
-  "version": "0.0.0",
+  "version": "0.3.0",
   "description": "Local-first AI assistant",
   "bin": {
     "linea": "cli.js"
@@ -16,6 +16,11 @@
   "engines": {
     "node": ">=18"
   },
-  "os": ["darwin"],
-  "cpu": ["arm64", "x64"]
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ]
 }
