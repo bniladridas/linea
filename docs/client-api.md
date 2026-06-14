@@ -978,6 +978,70 @@ Streaming errors use an `error` event:
 
 Clients should keep the saved user message when a stream error happens.
 
+# OAuth
+
+`GET /api/oauth/providers`
+
+Returns configured OAuth providers and their connection status.
+
+```json
+[
+  {"id":"github","name":"GitHub","connected":false,"scopes":["repo","read:user"]}
+]
+```
+
+`GET /api/oauth/{provider}/auth`
+
+Starts the OAuth flow for a provider. Returns the authorization URL to redirect the user to.
+
+```json
+{"url":"https://github.com/login/oauth/authorize?..."}
+```
+
+`GET /api/oauth/{provider}/callback`
+
+OAuth provider callback endpoint. The provider redirects here after the user authorizes. The popup window closes and sends a `postMessage` to the opener.
+
+`GET /api/oauth/tokens`
+
+Returns saved OAuth tokens without sensitive data.
+
+```json
+[
+  {"id":"id","provider":"github","accountName":"user","accountId":"12345","createdAt":"2026-06-01T00:00:00Z"}
+]
+```
+
+`POST /api/oauth/tokens`
+
+Saves an OAuth token.
+
+```json
+{
+  "provider": "github",
+  "accountName": "user",
+  "accountId": "12345",
+  "accessToken": "base64-encrypted",
+  "refreshToken": "base64-encrypted"
+}
+```
+
+Returns:
+
+```json
+{
+  "id": "id",
+  "provider": "github",
+  "accountName": "user",
+  "accountId": "12345",
+  "createdAt": "2026-06-01T00:00:00Z"
+}
+```
+
+`DELETE /api/oauth/tokens/{id}`
+
+Deletes an OAuth token. Returns `204` when deleted.
+
 # Client Rules
 
 Create a conversation before sending a message.

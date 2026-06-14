@@ -24,6 +24,7 @@ import (
 	"linea/backend/internal/doctor"
 	"linea/backend/internal/llm"
 	"linea/backend/internal/migrate"
+	"linea/backend/internal/oauth"
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
 	"linea/backend/internal/tui"
@@ -128,7 +129,39 @@ func runServer() {
 		os.Exit(1)
 	}
 	llmClient := newRoutingAssistant(cfg, settingsStore)
-	agentRuntime := newAgentRuntime(cfg, llmEditPlanner{assistant: llmClient})
+
+	oauthProviders := map[oauth.Provider]string{}
+	oauthSecrets := map[oauth.Provider]string{}
+	if cfg.GitHubClientID != "" {
+		oauthProviders[oauth.ProviderGitHub] = cfg.GitHubClientID
+		oauthSecrets[oauth.ProviderGitHub] = cfg.GitHubClientSecret
+	}
+	oauthCallbackURL := "http://" + cfg.APIAddr
+	if host, _, err := net.SplitHostPort(cfg.APIAddr); err == nil {
+		if host == "" || host == "0.0.0.0" {
+			oauthCallbackURL = "http://localhost:" + cfg.APIAddr[strings.LastIndex(cfg.APIAddr, ":")+1:]
+		}
+	}
+	oauthRegistry := oauth.NewRegistry(oauthCallbackURL, cfg.OAuthEncryptionKey, oauthProviders, oauthSecrets)
+
+	tokenFn := func() (string, error) {
+		tokens, err := appStore.ListOAuthTokens(ctx)
+		if err != nil {
+			return "", err
+		}
+		for _, tok := range tokens {
+			if tok.Provider == "github" {
+				raw, err := oauthRegistry.DecryptToken(tok.AccessToken)
+				if err != nil {
+					return "", err
+				}
+				return raw, nil
+			}
+		}
+		return "", fmt.Errorf("github not connected")
+	}
+
+	agentRuntime := newAgentRuntime(cfg, llmEditPlanner{assistant: llmClient}, agent.WithIntegrationServer(agent.NewIntegrationServer(tokenFn)))
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -137,9 +170,12 @@ func runServer() {
 		}
 	}()
 
+	apiServer := api.NewServerWithAgentRuntime(appStore, llmClient, newSearchClient(cfg), staticFiles, cfg.WebOrigin, version, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime)
+	apiServer.SetOAuthRegistry(oauthRegistry)
+
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.NewServerWithAgentRuntime(appStore, llmClient, newSearchClient(cfg), staticFiles, cfg.WebOrigin, version, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime).Handler(),
+		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -340,7 +376,7 @@ func printAgentStatus(ctx context.Context, cfg config.Config, out io.Writer) err
 	return encoder.Encode(newAgentRuntime(cfg).Status(ctx))
 }
 
-func newAgentRuntime(cfg config.Config, planners ...agent.EditPlanner) *agent.Runtime {
+func newAgentRuntime(cfg config.Config, planners ...any) *agent.Runtime {
 	options := []func(*agent.Runtime){
 		agent.WithWorkspaceRoot(cfg.AgentWorkspaceDir),
 		agent.WithDeveloperMode(cfg.AgentDeveloperMode, cfg.AgentWorkspaceTrust),
@@ -348,8 +384,15 @@ func newAgentRuntime(cfg config.Config, planners ...agent.EditPlanner) *agent.Ru
 		agent.WithMCPConfigPath(cfg.AgentMCPConfig),
 		agent.WithCommandAllowlist(cfg.AgentCommandAllowlist),
 	}
-	if len(planners) > 0 && planners[0] != nil {
-		options = append(options, agent.WithEditPlanner(planners[0]))
+	for _, p := range planners {
+		switch v := p.(type) {
+		case agent.EditPlanner:
+			if v != nil {
+				options = append(options, agent.WithEditPlanner(v))
+			}
+		case func(*agent.Runtime):
+			options = append(options, v)
+		}
 	}
 	if cfg.AgentLSPCommand != "" {
 		options = append(options, agent.WithLSPCommand(cfg.AgentLSPCommand))

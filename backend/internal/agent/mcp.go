@@ -48,6 +48,12 @@ func WithMCPConfigPath(path string) func(*Runtime) {
 	}
 }
 
+func WithIntegrationServer(s *IntegrationServer) func(*Runtime) {
+	return func(r *Runtime) {
+		r.integrationServer = s
+	}
+}
+
 func (r *Runtime) ListMCPServers(ctx context.Context) []MCPServer {
 	return r.mcpServers(ctx)
 }
@@ -127,6 +133,31 @@ func (r *Runtime) CallMCPTool(ctx context.Context, input MCPCallInput) (MCPCall,
 	if toolID == "" {
 		return MCPCall{}, errors.New("MCP tool ID is required.")
 	}
+
+	if r.integrationServer != nil {
+		if output, err := r.integrationServer.CallTool(ctx, toolID, input.Arguments); err == nil {
+			call := MCPCall{
+				ID:        newTraceID(),
+				ToolID:    toolID,
+				ServerID:  r.integrationServer.ServerID,
+				Name:      toolID,
+				State:     "completed",
+				CreatedAt: time.Now().UTC(),
+				Output:    output,
+			}
+			return r.recordMCPCall(call, output, nil)
+		} else if !errors.Is(err, ErrToolNotFound) {
+			call := MCPCall{
+				ID:        newTraceID(),
+				ToolID:    toolID,
+				ServerID:  r.integrationServer.ServerID,
+				Name:      toolID,
+				CreatedAt: time.Now().UTC(),
+			}
+			return r.recordMCPCall(call, "", err)
+		}
+	}
+
 	config, ok := r.loadMCPConfig(ctx)
 	if !ok {
 		return MCPCall{}, errors.New("MCP config is not available.")
@@ -276,14 +307,22 @@ func (r *Runtime) recordMCPCall(call MCPCall, output string, err error) (MCPCall
 }
 
 func (r *Runtime) mcpServers(ctx context.Context) []MCPServer {
+	var servers []MCPServer
+	if r.integrationServer != nil {
+		servers = append(servers, MCPServer{
+			ID:    r.integrationServer.ServerID,
+			Name:  r.integrationServer.ServerName,
+			State: "active",
+		})
+	}
 	config, ok := r.loadMCPConfig(ctx)
 	if !ok {
 		if strings.TrimSpace(r.mcpConfigPath) == "" {
-			return []MCPServer{}
+			return servers
 		}
-		return []MCPServer{{ID: "mcp", Name: "MCP", State: "unavailable"}}
+		return append(servers, MCPServer{ID: "mcp", Name: "MCP", State: "unavailable"})
 	}
-	servers := mcpServersFromConfig(config)
+	servers = append(servers, mcpServersFromConfig(config)...)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for index := range servers {
@@ -295,11 +334,15 @@ func (r *Runtime) mcpServers(ctx context.Context) []MCPServer {
 }
 
 func (r *Runtime) mcpTools(ctx context.Context) []MCPTool {
-	config, ok := r.loadMCPConfig(ctx)
-	if !ok {
-		return []MCPTool{}
+	var tools []MCPTool
+	if r.integrationServer != nil {
+		tools = r.integrationServer.ToMCPTools()
 	}
-	return r.mcpToolsFromConfig(ctx, config, true)
+	config, ok := r.loadMCPConfig(ctx)
+	if ok {
+		tools = append(tools, r.mcpToolsFromConfig(ctx, config, true)...)
+	}
+	return tools
 }
 
 func (r *Runtime) mcpState(ctx context.Context) string {

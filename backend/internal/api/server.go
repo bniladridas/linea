@@ -17,6 +17,7 @@ import (
 
 	"linea/backend/internal/agent"
 	"linea/backend/internal/llm"
+	"linea/backend/internal/oauth"
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
 )
@@ -32,6 +33,7 @@ type Server struct {
 	agentProvider  AgentStatusProvider
 	agentRuntime   AgentRuntime
 	settingsStore  SettingsStore
+	oauthRegistry  *oauth.Registry
 }
 
 type Status struct {
@@ -190,6 +192,10 @@ func NewServerWithAgentStatus(
 	}
 }
 
+func (s *Server) SetOAuthRegistry(r *oauth.Registry) {
+	s.oauthRegistry = r
+}
+
 func NewServerWithAgentRuntime(
 	store store.Store,
 	llmClient Assistant,
@@ -275,6 +281,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/edit-proposals/{id}/apply", s.applyAgentEditProposal)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
+	mux.HandleFunc("GET /api/oauth/providers", s.listOAuthProviders)
+	mux.HandleFunc("GET /api/oauth/{provider}/auth", s.startOAuthFlow)
+	mux.HandleFunc("GET /api/oauth/{provider}/callback", s.handleOAuthCallback)
+	mux.HandleFunc("GET /api/oauth/tokens", s.listOAuthTokens)
+	mux.HandleFunc("POST /api/oauth/tokens", s.saveOAuthToken)
+	mux.HandleFunc("DELETE /api/oauth/tokens/{id}", s.deleteOAuthToken)
 	mux.HandleFunc("POST /api/chat/temp", s.createTemporaryMessage)
 	mux.HandleFunc("GET /api/users", s.listUsers)
 	mux.HandleFunc("POST /api/users", s.createUser)

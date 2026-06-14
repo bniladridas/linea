@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -4680,6 +4681,98 @@ func TestRuntimeCancelBackgroundJobNotRunning(t *testing.T) {
 	_, err = runtime.CancelBackgroundJob(context.Background(), job.ID)
 	if err == nil {
 		t.Fatal("second CancelBackgroundJob() error = nil, want error")
+	}
+}
+
+func TestIntegrationServerToMCPTools(t *testing.T) {
+	s := NewIntegrationServer(func() (string, error) { return "test-token", nil })
+	tools := s.ToMCPTools()
+	if len(tools) != 5 {
+		t.Fatalf("expected 5 tools, got %d", len(tools))
+	}
+	for _, tool := range tools {
+		if tool.ServerID != "integrations" {
+			t.Fatalf("expected server ID integrations, got %s", tool.ServerID)
+		}
+		if tool.State != "ready" {
+			t.Fatalf("expected ready state, got %s", tool.State)
+		}
+		if !strings.HasPrefix(tool.ID, "integrations/") {
+			t.Fatalf("expected ID to start with integrations/, got %s", tool.ID)
+		}
+	}
+}
+
+func TestIntegrationServerCallToolNotFound(t *testing.T) {
+	s := NewIntegrationServer(func() (string, error) { return "test-token", nil })
+	_, err := s.CallTool(context.Background(), "nonexistent", nil)
+	if !errors.Is(err, ErrToolNotFound) {
+		t.Fatalf("expected ErrToolNotFound, got %v", err)
+	}
+}
+
+func TestIntegrationServerCallToolTokenError(t *testing.T) {
+	s := NewIntegrationServer(func() (string, error) { return "", fmt.Errorf("no token") })
+	_, err := s.CallTool(context.Background(), "github_list_issues", map[string]any{
+		"owner": "o",
+		"repo":  "r",
+	})
+	if err == nil {
+		t.Fatal("expected error from token function")
+	}
+}
+
+func TestIntegrationServerWiredToRuntime(t *testing.T) {
+	s := NewIntegrationServer(func() (string, error) {
+		return "test-token", nil
+	})
+	runtime := NewRuntime("", WithIntegrationServer(s))
+
+	tools := runtime.ListMCPTools(context.Background())
+	found := false
+	for _, tool := range tools {
+		if tool.ID == "integrations/github_list_issues" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected integration tools in runtime MCP tools")
+	}
+
+	servers := runtime.ListMCPServers(context.Background())
+	foundServer := false
+	for _, srv := range servers {
+		if srv.ID == "integrations" {
+			foundServer = true
+			break
+		}
+	}
+	if !foundServer {
+		t.Fatal("expected integration server in runtime MCP servers")
+	}
+}
+
+func TestIntegrationServerHandlerErrorPropagatesViaRuntime(t *testing.T) {
+	s := NewIntegrationServer(func() (string, error) { return "", fmt.Errorf("no token") })
+	runtime := NewRuntime("", WithIntegrationServer(s))
+
+	call, err := runtime.CallMCPTool(context.Background(), MCPCallInput{
+		ToolID: "integrations/github_list_issues",
+		Arguments: map[string]any{
+			"owner": "o",
+			"repo":  "r",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if call.State != "failed" {
+		t.Fatalf("expected failed state, got %s", call.State)
+	}
+	calls := runtime.ListMCPCalls(context.Background())
+	if len(calls) != 1 || calls[0].State != "failed" {
+		t.Fatalf("expected 1 error call, got %#v", calls)
 	}
 }
 

@@ -277,6 +277,12 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/agent/edit-proposals/{id}/apply` |
 | `GET` | `/api/settings` |
 | `PATCH` | `/api/settings` |
+| `GET` | `/api/oauth/providers` |
+| `GET` | `/api/oauth/{provider}/auth` |
+| `GET` | `/api/oauth/{provider}/callback` |
+| `GET` | `/api/oauth/tokens` |
+| `POST` | `/api/oauth/tokens` |
+| `DELETE` | `/api/oauth/tokens/{id}` |
 | `POST` | `/api/chat/temp` |
 | `GET` | `/api/users` |
 | `POST` | `/api/users` |

@@ -35,6 +35,9 @@ type Config struct {
 	WebOrigin             string
 	SyncURL               string
 	SyncToken             string
+	OAuthEncryptionKey    string
+	GitHubClientID        string
+	GitHubClientSecret    string
 }
 
 func Load() Config {
@@ -68,6 +71,9 @@ func Load() Config {
 		WebOrigin:             env("WEB_ORIGIN", "http://localhost:5173"),
 		SyncURL:               os.Getenv("LINEA_SYNC_URL"),
 		SyncToken:             os.Getenv("LINEA_SYNC_TOKEN"),
+		OAuthEncryptionKey:    os.Getenv("LINEA_OAUTH_ENCRYPTION_KEY"),
+		GitHubClientID:        os.Getenv("LINEA_GITHUB_CLIENT_ID"),
+		GitHubClientSecret:    os.Getenv("LINEA_GITHUB_CLIENT_SECRET"),
 	}
 }
 

@@ -221,6 +221,71 @@ func (s *PostgresStore) ListUsers(ctx context.Context) ([]User, error) {
 	return users, rows.Err()
 }
 
+func (s *PostgresStore) SaveOAuthToken(ctx context.Context, token OAuthToken) error {
+	if token.ID == "" {
+		token.ID = NewID()
+	}
+	_, err := s.pool.Exec(ctx, `
+		insert into oauth_tokens (id, provider, account_name, account_id, access_token, refresh_token, expires_at)
+		values ($1, $2, $3, $4, $5, $6, $7)
+		on conflict (id) do update set
+			provider = excluded.provider,
+			account_name = excluded.account_name,
+			account_id = excluded.account_id,
+			access_token = excluded.access_token,
+			refresh_token = excluded.refresh_token,
+			expires_at = excluded.expires_at,
+			updated_at = now()`,
+		token.ID, token.Provider, token.AccountName, token.AccountID,
+		token.AccessToken, token.RefreshToken, token.ExpiresAt,
+	)
+	return err
+}
+
+func (s *PostgresStore) GetOAuthToken(ctx context.Context, id string) (OAuthToken, error) {
+	var token OAuthToken
+	err := s.pool.QueryRow(ctx, `
+		select id, provider, account_name, account_id, access_token, refresh_token, expires_at, created_at, updated_at
+		from oauth_tokens where id = $1`, id,
+	).Scan(&token.ID, &token.Provider, &token.AccountName, &token.AccountID,
+		&token.AccessToken, &token.RefreshToken, &token.ExpiresAt, &token.CreatedAt, &token.UpdatedAt)
+	if IsNoRows(err) {
+		return OAuthToken{}, ErrNotFound
+	}
+	return token, err
+}
+
+func (s *PostgresStore) ListOAuthTokens(ctx context.Context) ([]OAuthToken, error) {
+	rows, err := s.pool.Query(ctx, `
+		select id, provider, account_name, account_id, access_token, refresh_token, expires_at, created_at, updated_at
+		from oauth_tokens order by created_at desc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tokens := make([]OAuthToken, 0)
+	for rows.Next() {
+		var token OAuthToken
+		if err := rows.Scan(&token.ID, &token.Provider, &token.AccountName, &token.AccountID,
+			&token.AccessToken, &token.RefreshToken, &token.ExpiresAt, &token.CreatedAt, &token.UpdatedAt); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, token)
+	}
+	return tokens, rows.Err()
+}
+
+func (s *PostgresStore) DeleteOAuthToken(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from oauth_tokens where id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *PostgresStore) CreateUser(ctx context.Context, email, name string) (User, error) {
 	user := User{ID: NewID(), Email: email, Name: name}
 	err := s.pool.QueryRow(ctx, `

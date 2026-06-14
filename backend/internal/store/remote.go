@@ -120,6 +120,24 @@ func (s *RemoteStore) CreateUser(ctx context.Context, email, name string) (User,
 	return out, s.do(ctx, http.MethodPost, "/api/users", map[string]string{"email": email, "name": name}, &out)
 }
 
+func (s *RemoteStore) SaveOAuthToken(ctx context.Context, token OAuthToken) error {
+	return s.do(ctx, http.MethodPost, "/api/oauth/tokens", token, nil)
+}
+
+func (s *RemoteStore) GetOAuthToken(ctx context.Context, id string) (OAuthToken, error) {
+	var out OAuthToken
+	return out, s.do(ctx, http.MethodGet, "/api/oauth/tokens/"+id, nil, &out)
+}
+
+func (s *RemoteStore) ListOAuthTokens(ctx context.Context) ([]OAuthToken, error) {
+	var out []OAuthToken
+	return out, s.do(ctx, http.MethodGet, "/api/oauth/tokens", nil, &out)
+}
+
+func (s *RemoteStore) DeleteOAuthToken(ctx context.Context, id string) error {
+	return s.do(ctx, http.MethodDelete, "/api/oauth/tokens/"+id, nil, nil)
+}
+
 func (s *RemoteStore) Close() error { return nil }
 
 func (s *RemoteStore) AddAgentRun(ctx context.Context, state string, summary json.RawMessage) (AgentRun, error) {

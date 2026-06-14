@@ -51,6 +51,7 @@ type Runtime struct {
 	unrestricted         bool
 	backgroundJobs       []BackgroundJob
 	backgroundCancel     context.CancelFunc
+	integrationServer   *IntegrationServer
 }
 
 type ProviderInfo struct {

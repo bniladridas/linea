@@ -161,6 +161,7 @@ Active scope:
 * Deeper subagent orchestration
 * Background autonomous jobs
 * Unrestricted terminal autonomy
+* OAuth integrations (GitHub issues, PRs, search via MCP)
 
 ## Non-goals
 
@@ -412,3 +413,4 @@ Post-MVP success means Linea can also:
 * Run opt-in developer loops for local coding work
 * Run full terminal autonomy in per-session developer mode
 * Keep user-visible behavior simple
+* Connect OAuth integrations (GitHub) and use them as MCP tools

@@ -28,6 +28,7 @@ import {
   Palette,
   PanelRight,
   Paperclip,
+  Plug,
   PartyPopper,
   PenLine,
   Pencil,
@@ -511,6 +512,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !isNarrowViewport());
   const [isSystemPanelOpen, setIsSystemPanelOpen] = useState(false);
+  const [isConnectionsPanelOpen, setIsConnectionsPanelOpen] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
@@ -535,6 +537,7 @@ function App() {
   const [uiPrefs, setUIPrefs] = useState<UIPrefs>(() => loadUIPrefs());
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme());
   const [isThemePanelOpen, setIsThemePanelOpen] = useState(false);
+  const [connections, setConnections] = useState<Connection[] | null>(null);
   const [isSystemDetailsOpen, setIsSystemDetailsOpen] = useState(false);
   const [areTooltipsSuppressed, setAreTooltipsSuppressed] = useState(false);
   const sidebarFooterRef = useRef<HTMLDivElement | null>(null);
@@ -580,7 +583,7 @@ function App() {
     'shell',
     !isSidebarOpen ? 'sidebar-collapsed' : '',
     showSources ? 'sources-open' : '',
-    (areTooltipsSuppressed || isNewChatMenuOpen || isSystemPanelOpen || isThemePanelOpen)
+    (areTooltipsSuppressed || isNewChatMenuOpen || isSystemPanelOpen || isThemePanelOpen || isConnectionsPanelOpen)
       ? 'tooltips-suppressed'
       : '',
   ]
@@ -609,20 +612,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isSystemPanelOpen && !isThemePanelOpen) {
+    if (!isSystemPanelOpen && !isThemePanelOpen && !isConnectionsPanelOpen) {
       return;
     }
 
     const closeFooterPanels = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Element && sidebarFooterRef.current?.contains(target)) {
-        const interactiveFooterArea = target.closest('.system-panel, .theme-panel, .settings-panel, .footer-actions');
+        const interactiveFooterArea = target.closest('.system-panel, .theme-panel, .connections-panel, .settings-panel, .footer-actions');
         if (interactiveFooterArea && sidebarFooterRef.current.contains(interactiveFooterArea)) {
           return;
         }
       }
       setIsSystemPanelOpen(false);
       setIsThemePanelOpen(false);
+      setIsConnectionsPanelOpen(false);
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') {
@@ -630,6 +634,7 @@ function App() {
       }
       setIsSystemPanelOpen(false);
       setIsThemePanelOpen(false);
+      setIsConnectionsPanelOpen(false);
     };
 
     window.addEventListener('pointerdown', closeFooterPanels, true);
@@ -638,7 +643,7 @@ function App() {
       window.removeEventListener('pointerdown', closeFooterPanels, true);
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [isSystemPanelOpen, isThemePanelOpen]);
+  }, [isSystemPanelOpen, isThemePanelOpen, isConnectionsPanelOpen]);
 
   useEffect(() => {
     if (!areTooltipsSuppressed) {
@@ -753,6 +758,15 @@ function App() {
       setSystemStatus(data);
     } catch {
       setSystemStatus(null);
+    }
+  }
+
+  async function loadConnections() {
+    try {
+      const data = await request<Connection[]>('/api/oauth/providers');
+      setConnections(Array.isArray(data) ? data : []);
+    } catch {
+      setConnections([]);
     }
   }
 
@@ -2042,6 +2056,15 @@ function App() {
               />
             )}
             {isThemePanelOpen && <ThemePanel prefs={uiPrefs} systemTheme={systemTheme} onChange={setUIPrefs} />}
+            {isConnectionsPanelOpen && (
+              <ConnectionsPanel
+                connections={connections}
+                onRefresh={() => {
+                  void loadConnections();
+                }}
+                onClose={() => setIsConnectionsPanelOpen(false)}
+              />
+            )}
             <div className="footer-actions">
               <button
                 aria-label={isSystemPanelOpen ? 'Hide system status' : 'Show system status'}
@@ -2073,9 +2096,27 @@ function App() {
                 onClick={() => {
                   setIsThemePanelOpen((open) => !open);
                   setIsSystemPanelOpen(false);
+                  setIsConnectionsPanelOpen(false);
                 }}
               >
                 <Brush size={14} strokeWidth={ICON_STROKE} />
+              </button>
+              <button
+                aria-label={isConnectionsPanelOpen ? 'Hide connections' : 'Connections'}
+                className="system-button has-tooltip tooltip-above"
+                data-tooltip="Connections"
+                type="button"
+                onPointerDown={() => setAreTooltipsSuppressed(true)}
+                onClick={() => {
+                  setIsConnectionsPanelOpen((open) => !open);
+                  setIsSystemPanelOpen(false);
+                  setIsThemePanelOpen(false);
+                  if (connections === null) {
+                    void loadConnections();
+                  }
+                }}
+              >
+                <Plug size={14} strokeWidth={ICON_STROKE} />
               </button>
             </div>
           </div>
@@ -4752,6 +4793,108 @@ function ThemePanel({
         Report a problem
         <ArrowUpRight size={10} strokeWidth={2} />
       </a>
+    </div>
+  );
+}
+
+interface Connection {
+  id: string;
+  name: string;
+  connected: boolean;
+  scopes?: string[];
+}
+
+function ConnectionsPanel({
+  connections,
+  onRefresh,
+  onClose,
+}: {
+  connections: Connection[] | null;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+
+  return (
+    <div className="connections-panel" aria-label="Connections">
+      <span className="connections-panel-title">Connections</span>
+      {connections === null ? (
+        <div className="connections-loading">Loading...</div>
+      ) : connections.length === 0 ? (
+        <div className="connections-empty">No integrations configured.</div>
+      ) : (
+        connections.map((conn) => (
+          <div className={`connection-card ${conn.connected ? '' : 'disconnected'}`} key={conn.id}>
+            <div className="connection-info">
+              <span className="connection-name">{conn.name}</span>
+              <span className="connection-status">{conn.connected ? 'Connected' : 'Not connected'}</span>
+            </div>
+            {conn.connected ? (
+              <button
+                className="connection-action"
+                type="button"
+                disabled={disconnecting === conn.id}
+                onClick={async () => {
+                  setDisconnecting(conn.id);
+                  try {
+                    const tokens = await request<{ id: string; provider: string }[]>('/api/oauth/tokens');
+                    const token = tokens.find((t) => t.provider === conn.id);
+                    if (token) {
+                      await request(`/api/oauth/tokens/${token.id}`, { method: 'DELETE' });
+                    }
+                    onRefresh();
+                  } catch {
+                    // ignore
+                  }
+                  setDisconnecting(null);
+                }}
+              >
+                {disconnecting === conn.id ? '...' : 'Disconnect'}
+              </button>
+            ) : (
+              <button
+                className="connection-action"
+                type="button"
+                disabled={connecting === conn.id}
+                onClick={async () => {
+                  setConnecting(conn.id);
+                  try {
+                    const { url } = await request<{ url: string }>(`/api/oauth/${conn.id}/auth`);
+                    const popup = window.open(url, 'oauth-popup', 'width=600,height=700');
+                    if (!popup) {
+                      setConnecting(null);
+                      return;
+                    }
+                    const handleMessage = (event: MessageEvent) => {
+                      if (event.data?.type === 'oauth-callback') {
+                        window.removeEventListener('message', handleMessage);
+                        onRefresh();
+                        setConnecting(null);
+                      }
+                    };
+                    window.addEventListener('message', handleMessage);
+                    const timer = setInterval(() => {
+                      if (popup.closed) {
+                        clearInterval(timer);
+                        window.removeEventListener('message', handleMessage);
+                        setConnecting((prev) => prev === conn.id ? null : prev);
+                      }
+                    }, 500);
+                  } catch {
+                    setConnecting(null);
+                  }
+                }}
+              >
+                {connecting === conn.id ? '...' : 'Connect'}
+              </button>
+            )}
+          </div>
+        ))
+      )}
+      <button className="connections-close" type="button" onClick={onClose}>
+        Done
+      </button>
     </div>
   );
 }

@@ -45,6 +45,18 @@ type User struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type OAuthToken struct {
+	ID           string    `json:"id"`
+	Provider     string    `json:"provider"`
+	AccountName  string    `json:"accountName"`
+	AccountID    string    `json:"accountId"`
+	AccessToken  []byte    `json:"accessToken"`
+	RefreshToken []byte    `json:"refreshToken,omitempty"`
+	ExpiresAt    time.Time `json:"expiresAt,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
 type Store interface {
 	ListConversations(context.Context) ([]Conversation, error)
 	CreateConversation(context.Context, string) (Conversation, error)
@@ -56,6 +68,10 @@ type Store interface {
 	AddAgentRun(context.Context, string, json.RawMessage) (AgentRun, error)
 	ListUsers(context.Context) ([]User, error)
 	CreateUser(context.Context, string, string) (User, error)
+	SaveOAuthToken(context.Context, OAuthToken) error
+	GetOAuthToken(context.Context, string) (OAuthToken, error)
+	ListOAuthTokens(context.Context) ([]OAuthToken, error)
+	DeleteOAuthToken(context.Context, string) error
 	Close() error
 }
 
@@ -112,6 +128,7 @@ type MemoryStore struct {
 	messages      map[string][]Message
 	agentRuns     []AgentRun
 	users         map[string]User
+	oauthTokens   map[string]OAuthToken
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -119,6 +136,7 @@ func NewMemoryStore() *MemoryStore {
 		conversations: map[string]Conversation{},
 		messages:      map[string][]Message{},
 		users:         map[string]User{},
+		oauthTokens:   map[string]OAuthToken{},
 	}
 }
 
@@ -233,6 +251,50 @@ func (s *MemoryStore) CreateUser(_ context.Context, email, name string) (User, e
 	user := User{ID: NewID(), Email: email, Name: name, CreatedAt: now, UpdatedAt: now}
 	s.users[user.ID] = user
 	return user, nil
+}
+
+func (s *MemoryStore) SaveOAuthToken(_ context.Context, token OAuthToken) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if token.ID == "" {
+		token.ID = NewID()
+	}
+	token.UpdatedAt = time.Now().UTC()
+	if _, exists := s.oauthTokens[token.ID]; !exists {
+		token.CreatedAt = token.UpdatedAt
+	}
+	s.oauthTokens[token.ID] = token
+	return nil
+}
+
+func (s *MemoryStore) GetOAuthToken(_ context.Context, id string) (OAuthToken, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	token, ok := s.oauthTokens[id]
+	if !ok {
+		return OAuthToken{}, ErrNotFound
+	}
+	return token, nil
+}
+
+func (s *MemoryStore) ListOAuthTokens(_ context.Context) ([]OAuthToken, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	tokens := make([]OAuthToken, 0, len(s.oauthTokens))
+	for _, token := range s.oauthTokens {
+		tokens = append(tokens, token)
+	}
+	return tokens, nil
+}
+
+func (s *MemoryStore) DeleteOAuthToken(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.oauthTokens[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.oauthTokens, id)
+	return nil
 }
 
 func (s *MemoryStore) Close() error { return nil }
