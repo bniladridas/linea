@@ -112,7 +112,15 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/macos/Linea.dmg dist/ios/Linea-*.zip dist/checksums.txt --title "$GITHUB_REF_NAME" --generate-notes || echo "release already exists"
 
+      - name: Generate npm OIDC token
+        id: oidc-token
+        run: |
+          token=$(npm token create --oidc --read-only=false 2>/dev/null | grep -o 'npm_[A-Za-z0-9]\+' | head -1)
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
       - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ steps.oidc-token.outputs.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           if npm view "@bniladridas/linea@$version" version &>/dev/null; then
