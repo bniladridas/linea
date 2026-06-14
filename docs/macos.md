@@ -24,8 +24,6 @@ The Go backend stays the source of truth.
 
 No native rewrite yet.
 
-<img src="../.github/assets/linea-macos-window.png" alt="Linea macOS window" width="720">
-
 # App Shape
 
 Linea uses a shared daemon architecture. The Go binary runs as a persistent background daemon (LaunchAgent on macOS). All clients connect to it over HTTP.
