@@ -112,13 +112,19 @@ jobs:
         run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/macos/Linea.dmg dist/ios/Linea-*.zip dist/checksums.txt --title "$GITHUB_REF_NAME" --generate-notes || echo "release already exists"
 
       - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ""
         run: |
-          unset NODE_AUTH_TOKEN
           version="${GITHUB_REF_NAME#v}"
           if npm view "@bniladridas/linea@$version" version &>/dev/null; then
             echo "npm: $version already published"
           else
-            npm publish --access public --provenance 2>&1
+            echo "::group::OIDC Debug"
+            echo "has token: $([ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && echo yes || echo no)"
+            echo "npm version: $(npm --version)"
+            npm config list
+            echo "::endgroup::"
+            npm publish --access public --provenance --loglevel verbose 2>&1
           fi
 
   android:
