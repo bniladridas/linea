@@ -20,6 +20,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+          registry-url: 'https://registry.npmjs.org'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -118,7 +119,15 @@ jobs:
           if npm view "@bniladridas/linea@$version" version &>/dev/null; then
             echo "npm: $version already published"
           else
-            npm publish --access public --provenance
+            echo "::group::Environment"
+            echo "has OIDC token: $([ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && echo yes || echo no)"
+            echo "has OIDC URL: $([ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && echo yes || echo no)"
+            echo "npm version: $(npm --version)"
+            echo "registry: $(npm config get registry)"
+            echo "::endgroup::"
+            echo "::group::Publish"
+            npm publish --access public --provenance 2>&1
+            echo "::endgroup::"
           fi
 
   android:
