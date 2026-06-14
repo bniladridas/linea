@@ -120,12 +120,11 @@ jobs:
           if npm view "@bniladridas/linea@$version" version &>/dev/null; then
             echo "npm: $version already published"
           else
-            echo "::group::OIDC Debug"
-            echo "has token: $([ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && echo yes || echo no)"
-            echo "npm version: $(npm --version)"
-            npm config list
+            echo "::group::OIDC Token Exchange"
+            token=$(npm token create --read-only --publish --provenance 2>&1) || true
+            echo "$token"
             echo "::endgroup::"
-            npm publish --access public --provenance --loglevel verbose 2>&1
+            npm publish --access public --provenance 2>&1
           fi
 
   android:
