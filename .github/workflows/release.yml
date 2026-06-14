@@ -114,6 +114,7 @@ jobs:
 
       - name: Publish to npm
         run: |
+          npm install -g npm@latest
           version="${GITHUB_REF_NAME#v}"
           if npm view "@bniladridas/linea@$version" version &>/dev/null; then
             echo "npm: $version already published"
