@@ -101,7 +101,7 @@ jobs:
             --base main \
             --head "$branch" \
             --title "chore: update formula and package for ${version}" \
-            --body "Automated version update for ${version}." \
+            --body "${version}" \
             --label "formula" \
             || echo "PR may already exist"
 
