@@ -1,6 +1,6 @@
 {
   "name": "@bniladridas/linea",
-  "version": "0.3.6",
+  "version": "0.3.20",
   "description": "Local-first AI assistant",
   "bin": {
     "linea": "cli.js"
