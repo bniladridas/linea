@@ -34,9 +34,10 @@ type Server struct {
 	agentProvider  AgentStatusProvider
 	agentRuntime   AgentRuntime
 	settingsStore  SettingsStore
-	oauthRegistry  *oauth.Registry
-	enableAPI      bool
-	apiKey         string
+	oauthRegistry   *oauth.Registry
+	enableAPI       bool
+	apiKey          string
+	enableAccounts  bool
 }
 
 type Status struct {
@@ -290,23 +291,49 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/agent/edit-proposals", s.createAgentEditProposal)
 	mux.HandleFunc("PATCH /api/agent/edit-proposals/{id}", s.reviewAgentEditProposal)
 	mux.HandleFunc("POST /api/agent/edit-proposals/{id}/apply", s.applyAgentEditProposal)
-	mux.HandleFunc("GET /api/settings", s.getSettings)
-	mux.HandleFunc("PATCH /api/settings", s.updateSettings)
+	if s.enableAccounts {
+		sess := s.sessionAuth
+		mux.Handle("GET /api/settings", sess(http.HandlerFunc(s.getSettings)))
+		mux.Handle("PATCH /api/settings", sess(http.HandlerFunc(s.updateSettings)))
+	} else {
+		mux.HandleFunc("GET /api/settings", s.getSettings)
+		mux.HandleFunc("PATCH /api/settings", s.updateSettings)
+	}
 	mux.HandleFunc("GET /api/oauth/providers", s.listOAuthProviders)
 	mux.HandleFunc("GET /api/oauth/{provider}/auth", s.startOAuthFlow)
 	mux.HandleFunc("GET /api/oauth/{provider}/callback", s.handleOAuthCallback)
 	mux.HandleFunc("GET /api/oauth/tokens", s.listOAuthTokens)
 	mux.HandleFunc("POST /api/oauth/tokens", s.saveOAuthToken)
 	mux.HandleFunc("DELETE /api/oauth/tokens/{id}", s.deleteOAuthToken)
-	mux.HandleFunc("POST /api/chat/temp", s.createTemporaryMessage)
-	mux.HandleFunc("GET /api/users", s.listUsers)
-	mux.HandleFunc("POST /api/users", s.createUser)
-	mux.HandleFunc("GET /api/conversations", s.listConversations)
-	mux.HandleFunc("POST /api/conversations", s.createConversation)
-	mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
-	mux.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
-	mux.HandleFunc("GET /api/conversations/{id}/messages", s.listMessages)
-	mux.HandleFunc("POST /api/conversations/{id}/messages", s.createMessage)
+	if s.enableAccounts {
+		mux.HandleFunc("GET /api/auth/providers", s.listAuthProviders)
+		mux.HandleFunc("GET /api/auth/{provider}", s.startIdentityAuth)
+		mux.HandleFunc("GET /api/auth/{provider}/callback", s.handleIdentityCallback)
+		mux.HandleFunc("GET /api/auth/session", s.getSession)
+		mux.HandleFunc("POST /api/auth/logout", s.logout)
+	}
+	if s.enableAccounts {
+		sess := s.sessionAuth
+		mux.Handle("POST /api/chat/temp", sess(http.HandlerFunc(s.createTemporaryMessage)))
+		mux.Handle("GET /api/users", sess(http.HandlerFunc(s.listUsers)))
+		mux.Handle("POST /api/users", sess(http.HandlerFunc(s.createUser)))
+		mux.Handle("GET /api/conversations", sess(http.HandlerFunc(s.listConversations)))
+		mux.Handle("POST /api/conversations", sess(http.HandlerFunc(s.createConversation)))
+		mux.Handle("PATCH /api/conversations/{id}", sess(http.HandlerFunc(s.updateConversation)))
+		mux.Handle("DELETE /api/conversations/{id}", sess(http.HandlerFunc(s.deleteConversation)))
+		mux.Handle("GET /api/conversations/{id}/messages", sess(http.HandlerFunc(s.listMessages)))
+		mux.Handle("POST /api/conversations/{id}/messages", sess(http.HandlerFunc(s.createMessage)))
+	} else {
+		mux.HandleFunc("POST /api/chat/temp", s.createTemporaryMessage)
+		mux.HandleFunc("GET /api/users", s.listUsers)
+		mux.HandleFunc("POST /api/users", s.createUser)
+		mux.HandleFunc("GET /api/conversations", s.listConversations)
+		mux.HandleFunc("POST /api/conversations", s.createConversation)
+		mux.HandleFunc("PATCH /api/conversations/{id}", s.updateConversation)
+		mux.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
+		mux.HandleFunc("GET /api/conversations/{id}/messages", s.listMessages)
+		mux.HandleFunc("POST /api/conversations/{id}/messages", s.createMessage)
+	}
 	if s.enableAPI {
 		auth := s.apiAuth
 		mux.Handle("GET /api/v1/health", auth(http.HandlerFunc(s.health)))

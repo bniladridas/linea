@@ -12,11 +12,34 @@ import (
 	"time"
 )
 
+type contextKey string
+
+const contextKeyUserID contextKey = "userID"
+
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, contextKeyUserID, userID)
+}
+
+func UserIDFromContext(ctx context.Context) string {
+	userID, _ := ctx.Value(contextKeyUserID).(string)
+	return userID
+}
+
 var ErrNotFound = errors.New("not found")
 var ErrEmailExists = errors.New("email already exists")
+var ErrSessionNotFound = errors.New("session not found")
+
+type Session struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId"`
+	Token     string    `json:"token"`
+	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
 
 type Conversation struct {
 	ID        string    `json:"id"`
+	UserID    string    `json:"userId,omitempty"`
 	Title     string    `json:"title"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -68,10 +91,15 @@ type Store interface {
 	AddAgentRun(context.Context, string, json.RawMessage) (AgentRun, error)
 	ListUsers(context.Context) ([]User, error)
 	CreateUser(context.Context, string, string) (User, error)
+	GetUserByEmail(context.Context, string) (User, error)
+	GetUserByID(context.Context, string) (User, error)
 	SaveOAuthToken(context.Context, OAuthToken) error
 	GetOAuthToken(context.Context, string) (OAuthToken, error)
 	ListOAuthTokens(context.Context) ([]OAuthToken, error)
 	DeleteOAuthToken(context.Context, string) error
+	CreateSession(context.Context, string) (Session, error)
+	GetSessionByToken(context.Context, string) (Session, error)
+	DeleteSession(context.Context, string) error
 	Close() error
 }
 
@@ -129,22 +157,30 @@ type MemoryStore struct {
 	agentRuns     []AgentRun
 	users         map[string]User
 	oauthTokens   map[string]OAuthToken
+	sessions      map[string]Session
+	sessionByToken map[string]string
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		conversations: map[string]Conversation{},
-		messages:      map[string][]Message{},
-		users:         map[string]User{},
-		oauthTokens:   map[string]OAuthToken{},
+		conversations:  map[string]Conversation{},
+		messages:       map[string][]Message{},
+		users:          map[string]User{},
+		oauthTokens:    map[string]OAuthToken{},
+		sessions:       map[string]Session{},
+		sessionByToken: map[string]string{},
 	}
 }
 
-func (s *MemoryStore) ListConversations(context.Context) ([]Conversation, error) {
+func (s *MemoryStore) ListConversations(ctx context.Context) ([]Conversation, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	userID := UserIDFromContext(ctx)
 	items := make([]Conversation, 0, len(s.conversations))
 	for _, conversation := range s.conversations {
+		if userID != "" && conversation.UserID != "" && conversation.UserID != userID {
+			continue
+		}
 		for _, message := range s.messages[conversation.ID] {
 			if message.Role == "user" {
 				conversation.Title = displayTitle(conversation.Title, &message.Content)
@@ -159,20 +195,23 @@ func (s *MemoryStore) ListConversations(context.Context) ([]Conversation, error)
 	return items, nil
 }
 
-func (s *MemoryStore) CreateConversation(_ context.Context, title string) (Conversation, error) {
+func (s *MemoryStore) CreateConversation(ctx context.Context, title string) (Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC()
-	conversation := Conversation{ID: NewID(), Title: title, CreatedAt: now, UpdatedAt: now}
+	conversation := Conversation{ID: NewID(), Title: title, CreatedAt: now, UpdatedAt: now, UserID: UserIDFromContext(ctx)}
 	s.conversations[conversation.ID] = conversation
 	return conversation, nil
 }
 
-func (s *MemoryStore) UpdateConversationTitle(_ context.Context, conversationID, title string) (Conversation, error) {
+func (s *MemoryStore) UpdateConversationTitle(ctx context.Context, conversationID, title string) (Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	conversation, ok := s.conversations[conversationID]
 	if !ok {
+		return Conversation{}, ErrNotFound
+	}
+	if userID := UserIDFromContext(ctx); userID != "" && conversation.UserID != "" && conversation.UserID != userID {
 		return Conversation{}, ErrNotFound
 	}
 	conversation.Title = title
@@ -181,10 +220,14 @@ func (s *MemoryStore) UpdateConversationTitle(_ context.Context, conversationID,
 	return conversation, nil
 }
 
-func (s *MemoryStore) DeleteConversation(_ context.Context, conversationID string) error {
+func (s *MemoryStore) DeleteConversation(ctx context.Context, conversationID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.conversations[conversationID]; !ok {
+	conversation, ok := s.conversations[conversationID]
+	if !ok {
+		return ErrNotFound
+	}
+	if userID := UserIDFromContext(ctx); userID != "" && conversation.UserID != "" && conversation.UserID != userID {
 		return ErrNotFound
 	}
 	delete(s.conversations, conversationID)
@@ -192,10 +235,14 @@ func (s *MemoryStore) DeleteConversation(_ context.Context, conversationID strin
 	return nil
 }
 
-func (s *MemoryStore) ListMessages(_ context.Context, conversationID string) ([]Message, error) {
+func (s *MemoryStore) ListMessages(ctx context.Context, conversationID string) ([]Message, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if _, ok := s.conversations[conversationID]; !ok {
+	conversation, ok := s.conversations[conversationID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if userID := UserIDFromContext(ctx); userID != "" && conversation.UserID != "" && conversation.UserID != userID {
 		return nil, ErrNotFound
 	}
 	messages := append([]Message(nil), s.messages[conversationID]...)
@@ -205,11 +252,14 @@ func (s *MemoryStore) ListMessages(_ context.Context, conversationID string) ([]
 	return messages, nil
 }
 
-func (s *MemoryStore) AddMessage(_ context.Context, conversationID, role, content string) (Message, error) {
+func (s *MemoryStore) AddMessage(ctx context.Context, conversationID, role, content string) (Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	conversation, ok := s.conversations[conversationID]
 	if !ok {
+		return Message{}, ErrNotFound
+	}
+	if userID := UserIDFromContext(ctx); userID != "" && conversation.UserID != "" && conversation.UserID != userID {
 		return Message{}, ErrNotFound
 	}
 	now := nextTimestamp(conversation.UpdatedAt)
@@ -251,6 +301,73 @@ func (s *MemoryStore) CreateUser(_ context.Context, email, name string) (User, e
 	user := User{ID: NewID(), Email: email, Name: name, CreatedAt: now, UpdatedAt: now}
 	s.users[user.ID] = user
 	return user, nil
+}
+
+func (s *MemoryStore) GetUserByID(_ context.Context, id string) (User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	u, ok := s.users[id]
+	if !ok {
+		return User{}, ErrNotFound
+	}
+	return u, nil
+}
+
+func (s *MemoryStore) GetUserByEmail(_ context.Context, email string) (User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, u := range s.users {
+		if u.Email == email {
+			return u, nil
+		}
+	}
+	return User{}, ErrNotFound
+}
+
+func (s *MemoryStore) CreateSession(_ context.Context, userID string) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	token := NewID()
+	session := Session{
+		ID:        NewID(),
+		UserID:    userID,
+		Token:     token,
+		CreatedAt: now,
+		ExpiresAt: now.Add(30 * 24 * time.Hour),
+	}
+	s.sessions[session.ID] = session
+	s.sessionByToken[token] = session.ID
+	return session, nil
+}
+
+func (s *MemoryStore) GetSessionByToken(_ context.Context, token string) (Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.sessionByToken[token]
+	if !ok {
+		return Session{}, ErrSessionNotFound
+	}
+	session, ok := s.sessions[id]
+	if !ok {
+		return Session{}, ErrSessionNotFound
+	}
+	if time.Now().UTC().After(session.ExpiresAt) {
+		return Session{}, ErrSessionNotFound
+	}
+	return session, nil
+}
+
+func (s *MemoryStore) DeleteSession(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[id]
+	if !ok {
+		return ErrSessionNotFound
+	}
+	delete(s.sessions, id)
+	delete(s.sessionByToken, session.Token)
+	return nil
 }
 
 func (s *MemoryStore) SaveOAuthToken(_ context.Context, token OAuthToken) error {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -136,6 +137,35 @@ func (s *RemoteStore) ListOAuthTokens(ctx context.Context) ([]OAuthToken, error)
 
 func (s *RemoteStore) DeleteOAuthToken(ctx context.Context, id string) error {
 	return s.do(ctx, http.MethodDelete, "/api/oauth/tokens/"+id, nil, nil)
+}
+
+func (s *RemoteStore) GetUserByID(_ context.Context, id string) (User, error) {
+	return User{}, errors.New("remote store: GetUserByID not supported")
+}
+
+func (s *RemoteStore) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	var out []User
+	if err := s.do(ctx, http.MethodGet, "/api/users?email="+url.QueryEscape(email), nil, &out); err != nil {
+		return User{}, err
+	}
+	for _, u := range out {
+		if u.Email == email {
+			return u, nil
+		}
+	}
+	return User{}, ErrNotFound
+}
+
+func (s *RemoteStore) CreateSession(_ context.Context, _ string) (Session, error) {
+	return Session{}, errors.New("remote store: CreateSession not supported")
+}
+
+func (s *RemoteStore) GetSessionByToken(_ context.Context, _ string) (Session, error) {
+	return Session{}, errors.New("remote store: GetSessionByToken not supported")
+}
+
+func (s *RemoteStore) DeleteSession(_ context.Context, _ string) error {
+	return errors.New("remote store: DeleteSession not supported")
 }
 
 func (s *RemoteStore) Close() error { return nil }
