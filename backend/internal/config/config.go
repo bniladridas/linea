@@ -38,6 +38,10 @@ type Config struct {
 	OAuthEncryptionKey    string
 	GitHubClientID        string
 	GitHubClientSecret    string
+	GitLabClientID        string
+	GitLabClientSecret    string
+	GoogleClientID        string
+	GoogleClientSecret    string
 }
 
 func Load() Config {
@@ -74,6 +78,10 @@ func Load() Config {
 		OAuthEncryptionKey:    os.Getenv("LINEA_OAUTH_ENCRYPTION_KEY"),
 		GitHubClientID:        os.Getenv("LINEA_GITHUB_CLIENT_ID"),
 		GitHubClientSecret:    os.Getenv("LINEA_GITHUB_CLIENT_SECRET"),
+		GitLabClientID:        os.Getenv("LINEA_GITLAB_CLIENT_ID"),
+		GitLabClientSecret:    os.Getenv("LINEA_GITLAB_CLIENT_SECRET"),
+		GoogleClientID:        os.Getenv("LINEA_GOOGLE_CLIENT_ID"),
+		GoogleClientSecret:    os.Getenv("LINEA_GOOGLE_CLIENT_SECRET"),
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"linea/backend/internal/integrations/github"
+	"linea/backend/internal/integrations/gitlab"
+	"linea/backend/internal/integrations/google"
 	"linea/backend/internal/oauth"
 	"linea/backend/internal/store"
 )
@@ -34,6 +36,18 @@ func (s *Server) listOAuthProviders(w http.ResponseWriter, r *http.Request) {
 			"name":      "GitHub",
 			"connected": connected["github"],
 			"scopes":    []string{"repo", "read:user"},
+		},
+		{
+			"id":        "gitlab",
+			"name":      "GitLab",
+			"connected": connected["gitlab"],
+			"scopes":    []string{"api", "read_user", "read_repository"},
+		},
+		{
+			"id":        "google",
+			"name":      "Google",
+			"connected": connected["google"],
+			"scopes":    []string{"gmail.readonly", "gmail.send", "calendar", "drive.readonly"},
 		},
 	}
 	writeJSON(w, http.StatusOK, providers)
@@ -107,13 +121,29 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Populate account info from the provider's API
 	accessToken, err := s.oauthRegistry.DecryptToken(token.AccessToken)
 	if err == nil && accessToken != "" {
-		gh := github.NewClient(accessToken)
-		if user, err := gh.GetUser(r.Context()); err == nil {
-			token.AccountName = user.Login
-			token.AccountID = fmt.Sprintf("%d", user.ID)
+		switch string(provider) {
+		case "github":
+			gh := github.NewClient(accessToken)
+			if user, err := gh.GetUser(r.Context()); err == nil {
+				token.AccountName = user.Login
+				token.AccountID = fmt.Sprintf("%d", user.ID)
+			}
+		case "gitlab":
+			gl := gitlab.NewClient(accessToken)
+			if user, err := gl.GetUser(r.Context()); err == nil {
+				token.AccountName = user.Username
+				token.AccountID = fmt.Sprintf("%d", user.ID)
+			}
+		case "google":
+			gg := google.NewClient(accessToken)
+			if userInfo, err := gg.GetUserInfo(r.Context()); err == nil {
+				token.AccountName = userInfo.Email
+				token.AccountID = userInfo.ID
+			}
+		}
+		if token.AccountName != "" {
 			if err := s.store.SaveOAuthToken(r.Context(), *token); err != nil {
-				// Log but don't fail — token exchange succeeded
-				_ = err
+				slog.Error("failed to save enriched oauth token", "error", err)
 			}
 		}
 	}

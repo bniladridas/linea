@@ -4685,10 +4685,10 @@ func TestRuntimeCancelBackgroundJobNotRunning(t *testing.T) {
 }
 
 func TestIntegrationServerToMCPTools(t *testing.T) {
-	s := NewIntegrationServer(func() (string, error) { return "test-token", nil })
+	s := NewIntegrationServer(func(string) (string, error) { return "test-token", nil })
 	tools := s.ToMCPTools()
-	if len(tools) != 9 {
-		t.Fatalf("expected 9 tools, got %d", len(tools))
+	if len(tools) != 25 {
+		t.Fatalf("expected 25 tools, got %d", len(tools))
 	}
 	for _, tool := range tools {
 		if tool.ServerID != "integrations" {
@@ -4704,7 +4704,7 @@ func TestIntegrationServerToMCPTools(t *testing.T) {
 }
 
 func TestIntegrationServerCallToolNotFound(t *testing.T) {
-	s := NewIntegrationServer(func() (string, error) { return "test-token", nil })
+	s := NewIntegrationServer(func(string) (string, error) { return "test-token", nil })
 	_, err := s.CallTool(context.Background(), "nonexistent", nil)
 	if !errors.Is(err, ErrToolNotFound) {
 		t.Fatalf("expected ErrToolNotFound, got %v", err)
@@ -4712,7 +4712,7 @@ func TestIntegrationServerCallToolNotFound(t *testing.T) {
 }
 
 func TestIntegrationServerCallToolTokenError(t *testing.T) {
-	s := NewIntegrationServer(func() (string, error) { return "", fmt.Errorf("no token") })
+	s := NewIntegrationServer(func(string) (string, error) { return "", fmt.Errorf("no token") })
 	_, err := s.CallTool(context.Background(), "github_list_issues", map[string]any{
 		"owner": "o",
 		"repo":  "r",
@@ -4723,7 +4723,7 @@ func TestIntegrationServerCallToolTokenError(t *testing.T) {
 }
 
 func TestIntegrationServerWiredToRuntime(t *testing.T) {
-	s := NewIntegrationServer(func() (string, error) {
+	s := NewIntegrationServer(func(string) (string, error) {
 		return "test-token", nil
 	})
 	runtime := NewRuntime("", WithIntegrationServer(s))
@@ -4754,7 +4754,7 @@ func TestIntegrationServerWiredToRuntime(t *testing.T) {
 }
 
 func TestIntegrationServerHandlerErrorPropagatesViaRuntime(t *testing.T) {
-	s := NewIntegrationServer(func() (string, error) { return "", fmt.Errorf("no token") })
+	s := NewIntegrationServer(func(string) (string, error) { return "", fmt.Errorf("no token") })
 	runtime := NewRuntime("", WithIntegrationServer(s))
 
 	call, err := runtime.CallMCPTool(context.Background(), MCPCallInput{
