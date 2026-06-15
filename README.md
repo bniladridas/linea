@@ -6,7 +6,7 @@
   <img src="./assets/linea-route-dark.svg" width="24" height="24" alt="">
 </picture>
 
-<img src="./.github/assets/linea-macos-app.png" alt="Linea" width="720">
+<img src="./.github/assets/linea-mcp.png" alt="Linea" width="720">
 
 Local AI chat.
 
