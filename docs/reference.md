@@ -64,6 +64,8 @@ LINEA_GITLAB_CLIENT_ID=
 LINEA_GITLAB_CLIENT_SECRET=
 LINEA_GOOGLE_CLIENT_ID=
 LINEA_GOOGLE_CLIENT_SECRET=
+LINEA_ENABLE_API=false
+LINEA_API_KEY=
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
 BRAVE_SEARCH_API_KEY=
 SEARXNG_URL=
@@ -104,6 +106,8 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_GITLAB_CLIENT_SECRET` | GitLab OAuth App secret. |
 | `LINEA_GOOGLE_CLIENT_ID` | Google OAuth client ID. |
 | `LINEA_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
+| `LINEA_ENABLE_API` | Enables `/api/v1/*` endpoints with API key auth. Requires `LINEA_API_KEY`. |
+| `LINEA_API_KEY` | Bearer token for authenticating `/api/v1/*` requests. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `BRAVE_SEARCH_API_KEY` | Optional Brave Search API key. When set, Brave results are tried before free fallbacks. |
 | `SEARXNG_URL` | Optional self-hosted SearXNG base URL. When set, SearXNG results are tried before DuckDuckGo fallback. |
@@ -306,6 +310,18 @@ UI checks need Chrome. Message checks need one working text model.
 | `DELETE` | `/api/conversations/{id}` |
 | `GET` | `/api/conversations/{id}/messages` |
 | `POST` | `/api/conversations/{id}/messages` |
+| `GET` | `/api/v1/health` |
+| `GET` | `/api/v1/version` |
+| `GET` | `/api/v1/status` |
+| `GET` | `/api/v1/conversations` |
+| `POST` | `/api/v1/conversations` |
+| `PATCH` | `/api/v1/conversations/{id}` |
+| `DELETE` | `/api/v1/conversations/{id}` |
+| `GET` | `/api/v1/conversations/{id}/messages` |
+| `POST` | `/api/v1/conversations/{id}/messages` |
+| `POST` | `/api/v1/chat/temp` |
+| `GET` | `/api/v1/users` |
+| `POST` | `/api/v1/users` |
 
 Messages use `multipart/form-data` with `content` and optional `files`.
 

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const server = readFileSync('backend/internal/api/server.go', 'utf8');
 
-const backendRoutes = [...server.matchAll(/HandleFunc\("([^"]+)"/g)]
+const backendRoutes = [...server.matchAll(/(?:HandleFunc|Handle)\("([^"]+)"/g)]
   .map((match) => match[1])
   .filter((route) => route !== 'GET /')
   .sort();

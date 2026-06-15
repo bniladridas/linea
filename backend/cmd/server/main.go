@@ -203,6 +203,13 @@ func runServer() {
 
 	apiServer := api.NewServerWithAgentRuntime(appStore, llmClient, newSearchClient(cfg), staticFiles, cfg.WebOrigin, version, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime)
 	apiServer.SetOAuthRegistry(oauthRegistry)
+	if cfg.EnableAPI {
+		if cfg.APIKey == "" {
+			slog.Warn("LINEA_ENABLE_API is set but LINEA_API_KEY is empty; server continuing without /api/v1/* routes")
+		} else {
+			apiServer.EnableAPI(cfg.APIKey)
+		}
+	}
 
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
