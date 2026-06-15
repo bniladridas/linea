@@ -87,7 +87,7 @@ open dist/Linea.app
 ```
 
 The app starts the Go daemon automatically and opens the UI in its own
-window. Connects to `http://127.0.0.1:8080`.
+window. Connects to `http://localhost:8080`.
 
 ## 5. iOS (simulator)
 
@@ -109,7 +109,7 @@ xcrun simctl install booted ios/DerivedData/Build/Products/Debug-iphonesimulator
 xcrun simctl launch booted com.bniladridas.linea
 ```
 
-Connects to `http://127.0.0.1:8080` by default.
+Connects to `http://localhost:8080` by default.
 Override with `LINEA_SERVER_URL`.
 
 ## 6. Android (emulator)

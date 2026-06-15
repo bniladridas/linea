@@ -30,7 +30,7 @@ Linea uses a shared daemon architecture. The Go binary runs as a persistent back
 
 Process:
 
-* macOS app checks if the daemon is healthy at `http://127.0.0.1:8080/healthz`
+* macOS app checks if the daemon is healthy at `http://localhost:8080/healthz`
 * If not running, app spawns `linea daemon` from the bundled binary
 * App waits for `/healthz`
 * App opens the local UI in a WebView

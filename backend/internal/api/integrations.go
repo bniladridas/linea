@@ -99,6 +99,7 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Save the token before enriching with account info
 	if err := s.store.SaveOAuthToken(r.Context(), *token); err != nil {
+		slog.Error("oauth callback: save token", "error", err)
 		writeError(w, http.StatusInternalServerError, "Could not save token.")
 		return
 	}
@@ -117,23 +118,18 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	targetOrigin := s.origin
-	if targetOrigin == "" {
-		targetOrigin = "*"
-	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	jsProvider, _ := json.Marshal(string(provider))
 	jsTokenID, _ := json.Marshal(token.ID)
-	jsOrigin, _ := json.Marshal(targetOrigin)
 	fmt.Fprintf(w, `<!doctype html>
 <html><body><script>
 if (window.opener) {
-  window.opener.postMessage({type:"oauth-callback",provider:%s,status:"success",tokenId:%s},%s);
+  window.opener.postMessage({type:"oauth-callback",provider:%s,status:"success",tokenId:%s},"*");
   window.close();
 } else {
   document.write("OAuth connected. You may close this window.");
 }
-</script></body></html>`, jsProvider, jsTokenID, jsOrigin)
+</script></body></html>`, jsProvider, jsTokenID)
 }
 
 func (s *Server) saveOAuthToken(w http.ResponseWriter, r *http.Request) {

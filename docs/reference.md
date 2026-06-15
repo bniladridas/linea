@@ -175,7 +175,7 @@ Vite runs at `http://localhost:5173`.
 | Local tests | `make test` |
 | Homebrew formula | `make install-check` |
 | Release install | `make release-check` |
-| Server | `linea check-server http://127.0.0.1:8080` |
+| Server | `linea check-server http://localhost:8080` |
 | Daemon status | `linea status` |
 | Terminal chat | `linea tui` (`:new`, `:rename <title>`, `:share`, `:delete confirm`, `:attach <path>`, `:help`, `:agent status`, `:diag`, `:symbols [query]`, `:refs <identifier>`, `:mcp`, `:mcp calls`, `:mcp subscriptions`, `:mcp events`, `:mcp read <resource-id-or-uri>`, `:mcp subscribe <resource-id-or-uri>`, `:mcp unsubscribe <subscription-id>`, `:mcp prompt <prompt-id> [json]`, `:mcp call <tool-id> [json]`, `:subagent [id] [query]`, `:subagent plan <goal>`, `:subagent plans`, `:search <query>`, `:read <path>`, `:loop <goal>`, `:loop auto <goal>`, `:loop developer <goal>`, `:loop continue <id>`, `:loop cancel <id>`, `:check <command>`, `:checks`, `:approve <command>`, `:approvals`, `:run <command>`, `:runs`, `:auto-approve [categories...]`, `:trace <event> <state> [detail]`, `:hook-run <id> <state> [detail]`, `:hook <id> [command]`, `:skill <id> [command]`, `:proposal list`, `:proposal create <path> <content>`, `:proposal approve <id>`, `:proposal reject <id>`, `:proposal apply <id>`, `:quit`) |
 | Terminal smoke | `make tui-check` |

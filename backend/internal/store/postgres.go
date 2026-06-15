@@ -225,6 +225,12 @@ func (s *PostgresStore) SaveOAuthToken(ctx context.Context, token OAuthToken) er
 	if token.ID == "" {
 		token.ID = NewID()
 	}
+	if token.AccessToken == nil {
+		token.AccessToken = []byte{}
+	}
+	if token.RefreshToken == nil {
+		token.RefreshToken = []byte{}
+	}
 	_, err := s.pool.Exec(ctx, `
 		insert into oauth_tokens (id, provider, account_name, account_id, access_token, refresh_token, expires_at)
 		values ($1, $2, $3, $4, $5, $6, $7)
