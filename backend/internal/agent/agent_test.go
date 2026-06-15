@@ -4687,8 +4687,8 @@ func TestRuntimeCancelBackgroundJobNotRunning(t *testing.T) {
 func TestIntegrationServerToMCPTools(t *testing.T) {
 	s := NewIntegrationServer(func() (string, error) { return "test-token", nil })
 	tools := s.ToMCPTools()
-	if len(tools) != 5 {
-		t.Fatalf("expected 5 tools, got %d", len(tools))
+	if len(tools) != 9 {
+		t.Fatalf("expected 9 tools, got %d", len(tools))
 	}
 	for _, tool := range tools {
 		if tool.ServerID != "integrations" {

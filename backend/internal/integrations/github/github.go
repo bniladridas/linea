@@ -70,6 +70,16 @@ type Repo struct {
 	Fork        bool   `json:"fork"`
 }
 
+type CodeSearchResult struct {
+	TotalCount int `json:"total_count"`
+	Items      []struct {
+		Name       string `json:"name"`
+		Path       string `json:"path"`
+		HTMLURL    string `json:"html_url"`
+		Repository Repo   `json:"repository"`
+	} `json:"items"`
+}
+
 func NewClient(token string) *Client {
 	return &Client{
 		token:   token,
@@ -184,6 +194,17 @@ func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, state
 func (c *Client) GetPullRequest(ctx context.Context, owner, repo string, number int) (PullRequest, error) {
 	var pr PullRequest
 	return pr, c.do(ctx, fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, number), &pr)
+}
+
+func (c *Client) CreatePR(ctx context.Context, owner, repo, title, body, head, base string) (PullRequest, error) {
+	var pr PullRequest
+	payload := map[string]any{"title": title, "body": body, "head": head, "base": base}
+	return pr, c.doPost(ctx, fmt.Sprintf("/repos/%s/%s/pulls", owner, repo), payload, &pr)
+}
+
+func (c *Client) SearchCode(ctx context.Context, query string) (CodeSearchResult, error) {
+	var result CodeSearchResult
+	return result, c.do(ctx, fmt.Sprintf("/search/code?q=%s&per_page=10", url.QueryEscape(query)), &result)
 }
 
 func (c *Client) GetUser(ctx context.Context) (struct {

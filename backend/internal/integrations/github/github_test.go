@@ -224,6 +224,53 @@ func TestGetPullRequest(t *testing.T) {
 	}
 }
 
+func TestCreatePR(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/repos/o/r/pulls" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"number":42,"title":"New PR","state":"open","html_url":"https://github.com/o/r/pull/42","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z","user":{"login":"testuser"},"draft":false,"mergeable":true}`))
+	}))
+	defer ts.Close()
+
+	c := &Client{token: "t", baseURL: ts.URL, client: ts.Client()}
+	pr, err := c.CreatePR(context.Background(), "o", "r", "New PR", "Description", "feature-branch", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.Number != 42 || pr.Title != "New PR" || pr.State != "open" {
+		t.Fatalf("unexpected PR: %#v", pr)
+	}
+}
+
+func TestSearchCode(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/search/code") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"total_count":2,"items":[{"name":"main.go","path":"cmd/server/main.go","html_url":"https://github.com/o/r/blob/main/cmd/server/main.go","repository":{"full_name":"o/r","html_url":"https://github.com/o/r","description":"A repo","private":false,"fork":false}},{"name":"api.go","path":"internal/api/api.go","html_url":"https://github.com/o/r/blob/main/internal/api/api.go","repository":{"full_name":"o/r","html_url":"https://github.com/o/r","description":"A repo","private":false,"fork":false}}]}`))
+	}))
+	defer ts.Close()
+
+	c := &Client{token: "t", baseURL: ts.URL, client: ts.Client()}
+	result, err := c.SearchCode(context.Background(), "func main repo:o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TotalCount != 2 {
+		t.Fatalf("expected 2 results, got %d", result.TotalCount)
+	}
+	if result.Items[0].Name != "main.go" {
+		t.Fatalf("expected main.go, got %s", result.Items[0].Name)
+	}
+}
+
 func TestGetUser(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/user" {

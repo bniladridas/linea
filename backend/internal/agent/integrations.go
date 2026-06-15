@@ -198,6 +198,116 @@ func githubTools(tokenFn func() (string, error)) []IntegrationTool {
 				return out.String(), nil
 			},
 		},
+		{
+			Name:        "github_get_pull_request",
+			Description: "Get details of a specific GitHub pull request",
+			InputSchema: schema(map[string]any{
+				"owner":  strProp("Repository owner (user or org)"),
+				"repo":   strProp("Repository name"),
+				"number": map[string]any{"type": "integer", "description": "Pull request number"},
+			}, []string{"owner", "repo", "number"}),
+			Handler: func(ctx context.Context, args map[string]any) (string, error) {
+				token, err := tokenFn()
+				if err != nil {
+					return "", err
+				}
+				if err := requireArgs(args, "owner", "repo", "number"); err != nil {
+					return "", err
+				}
+				c := github.NewClient(token)
+				pr, err := c.GetPullRequest(ctx, stringArg(args, "owner"), stringArg(args, "repo"), intArg(args, "number"))
+				if err != nil {
+					return "", err
+				}
+				draft := ""
+				if pr.Draft {
+					draft = " [DRAFT]"
+				}
+				mergeable := "unknown"
+				if pr.Mergeable != nil {
+					if *pr.Mergeable {
+						mergeable = "yes"
+					} else {
+						mergeable = "no"
+					}
+				}
+				return fmt.Sprintf("#%d%s %s [%s]\nBy: @%s\nMergeable: %s\n\n%s\n\n%s", pr.Number, draft, pr.Title, pr.State, pr.User.Login, mergeable, pr.Body, pr.HTMLURL), nil
+			},
+		},
+		{
+			Name:        "github_create_pull_request",
+			Description: "Create a pull request on a GitHub repository",
+			InputSchema: schema(map[string]any{
+				"owner": strProp("Repository owner (user or org)"),
+				"repo":  strProp("Repository name"),
+				"title": strProp("Pull request title"),
+				"body":  strProp("Pull request body/description"),
+				"head":  strProp("The name of the branch where changes are implemented"),
+				"base":  strProp("The name of the branch you want the changes pulled into"),
+			}, []string{"owner", "repo", "title", "head", "base"}),
+			Handler: func(ctx context.Context, args map[string]any) (string, error) {
+				token, err := tokenFn()
+				if err != nil {
+					return "", err
+				}
+				if err := requireArgs(args, "owner", "repo", "title", "head", "base"); err != nil {
+					return "", err
+				}
+				c := github.NewClient(token)
+				pr, err := c.CreatePR(ctx, stringArg(args, "owner"), stringArg(args, "repo"), stringArg(args, "title"), stringArg(args, "body"), stringArg(args, "head"), stringArg(args, "base"))
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Created PR #%d: %s\n%s", pr.Number, pr.Title, pr.HTMLURL), nil
+			},
+		},
+		{
+			Name:        "github_search_code",
+			Description: "Search code across GitHub repositories",
+			InputSchema: schema(map[string]any{
+				"query": strProp("GitHub code search query (e.g. 'function repo:owner/repo')"),
+			}, []string{"query"}),
+			Handler: func(ctx context.Context, args map[string]any) (string, error) {
+				token, err := tokenFn()
+				if err != nil {
+					return "", err
+				}
+				if err := requireArgs(args, "query"); err != nil {
+					return "", err
+				}
+				c := github.NewClient(token)
+				result, err := c.SearchCode(ctx, stringArg(args, "query"))
+				if err != nil {
+					return "", err
+				}
+				if result.TotalCount == 0 {
+					return "No code results found.", nil
+				}
+				var out strings.Builder
+				fmt.Fprintf(&out, "Found %d results:\n\n", result.TotalCount)
+				for _, item := range result.Items {
+					fmt.Fprintf(&out, "%s/%s\n   %s\n\n", item.Repository.FullName, item.Path, item.HTMLURL)
+				}
+				return out.String(), nil
+			},
+		},
+		{
+			Name:        "github_get_user",
+			Description: "Get details of the authenticated GitHub user",
+			InputSchema: schema(nil, nil),
+			Handler: func(ctx context.Context, args map[string]any) (string, error) {
+				token, err := tokenFn()
+				if err != nil {
+					return "", err
+				}
+				c := github.NewClient(token)
+				user, err := c.GetUser(ctx)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("@%s (%s)\nID: %d\nAvatar: %s", user.Login, user.Name, user.ID, user.AvatarURL), nil
+			},
+		},
 	}
 }
 
