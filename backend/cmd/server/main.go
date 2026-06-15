@@ -249,32 +249,55 @@ func runServer() {
 }
 
 func buildStore(ctx context.Context, cfg config.Config) store.Store {
-	appStore := store.Store(store.NewMemoryStore())
-	if cfg.SyncURL != "" {
+	var appStore store.Store
+	if cfg.EnableSync && cfg.SyncURL != "" {
+		local := buildLocalStore(ctx, cfg, true)
+		remote, err := store.NewRemoteStore(cfg.SyncURL, cfg.SyncToken)
+		if err != nil {
+			slog.Error("sync remote store", "error", err)
+			return local
+		}
+		appStore = store.NewSyncStore(local, remote)
+		slog.Info("sync enabled", "remote", cfg.SyncURL)
+	} else if cfg.SyncURL != "" {
 		remote, err := store.NewRemoteStore(cfg.SyncURL, cfg.SyncToken)
 		if err != nil {
 			slog.Error("remote store", "error", err)
+			appStore = store.NewMemoryStore()
 		} else {
 			appStore = remote
 			slog.Info("using remote store", "url", cfg.SyncURL)
 		}
-	} else if cfg.DatabaseURL != "" {
+	} else {
+		appStore = buildLocalStore(ctx, cfg, false)
+	}
+	return appStore
+}
+
+func buildLocalStore(ctx context.Context, cfg config.Config, syncMode bool) store.Store {
+	if cfg.DatabaseURL != "" {
 		pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 		if err != nil {
 			slog.Error("connect postgres", "error", err)
+			if syncMode {
+				slog.Warn("sync: falling back to in-memory local store")
+				return store.NewMemoryStore()
+			}
 			os.Exit(1)
 		}
 		if err := pool.Ping(ctx); err != nil {
 			slog.Error("ping postgres", "error", err)
+			if syncMode {
+				pool.Close()
+				slog.Warn("sync: falling back to in-memory local store")
+				return store.NewMemoryStore()
+			}
 			os.Exit(1)
 		}
-		appStore = store.NewPostgresStore(pool)
-	} else {
-		if cfg.SyncURL == "" {
-			slog.Warn("DATABASE_URL not set; using in-memory storage")
-		}
+		return store.NewPostgresStore(pool)
 	}
-	return appStore
+	slog.Warn("DATABASE_URL not set; using in-memory storage")
+	return store.NewMemoryStore()
 }
 
 func runDaemonCmd() {
@@ -662,9 +685,16 @@ func providerStatuses(ctx context.Context, cfg config.Config, settings api.Setti
 
 func appStatus(ctx context.Context, cfg config.Config, settings api.Settings) api.Status {
 	storage := "PostgreSQL"
-	if cfg.SyncURL != "" {
+	switch {
+	case cfg.EnableSync && cfg.SyncURL != "":
+		if cfg.DatabaseURL == "" {
+			storage = "Syncing (memory)"
+		} else {
+			storage = "Syncing"
+		}
+	case cfg.SyncURL != "":
 		storage = "Remote"
-	} else if cfg.DatabaseURL == "" {
+	case cfg.DatabaseURL == "":
 		storage = "Memory"
 	}
 	return api.Status{

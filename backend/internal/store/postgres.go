@@ -74,7 +74,11 @@ func (s *PostgresStore) ListConversations(ctx context.Context) ([]Conversation, 
 
 func (s *PostgresStore) CreateConversation(ctx context.Context, title string) (Conversation, error) {
 	userID := UserIDFromContext(ctx)
-	conversation := Conversation{ID: NewID(), Title: title}
+	id := NewID()
+	if override := ConversationIDFromContext(ctx); override != "" {
+		id = override
+	}
+	conversation := Conversation{ID: id, Title: title}
 	var dbUserID *string
 	err := s.pool.QueryRow(ctx, `
 		insert into conversations (id, title, user_id)

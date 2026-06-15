@@ -83,7 +83,11 @@ func (s *RemoteStore) ListConversations(ctx context.Context) ([]Conversation, er
 
 func (s *RemoteStore) CreateConversation(ctx context.Context, title string) (Conversation, error) {
 	var out Conversation
-	return out, s.do(ctx, http.MethodPost, "/api/conversations", map[string]string{"title": title}, &out)
+	body := map[string]string{"title": title}
+	if id := ConversationIDFromContext(ctx); id != "" {
+		body["id"] = id
+	}
+	return out, s.do(ctx, http.MethodPost, "/api/conversations", body, &out)
 }
 
 func (s *RemoteStore) UpdateConversationTitle(ctx context.Context, id, title string) (Conversation, error) {

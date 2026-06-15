@@ -45,6 +45,7 @@ type Config struct {
 	EnableAPI             bool
 	APIKey                string
 	EnableAccounts        bool
+	EnableSync            bool
 }
 
 func Load() Config {
@@ -88,6 +89,7 @@ func Load() Config {
 		EnableAPI:             envBool("LINEA_ENABLE_API", false),
 		APIKey:                os.Getenv("LINEA_API_KEY"),
 		EnableAccounts:        envBool("LINEA_ENABLE_ACCOUNTS", false),
+		EnableSync:            envBool("LINEA_ENABLE_SYNC", false),
 	}
 }
 
