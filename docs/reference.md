@@ -108,6 +108,7 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
 | `LINEA_ENABLE_API` | Enables `/api/v1/*` endpoints with API key auth. Requires `LINEA_API_KEY`. |
 | `LINEA_API_KEY` | Bearer token for authenticating `/api/v1/*` requests. |
+| `LINEA_ENABLE_ACCOUNTS` | Enables optional user accounts via OAuth identity providers. Reuses `LINEA_GITHUB_CLIENT_ID`, `LINEA_GOOGLE_CLIENT_ID`, etc. for login. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `BRAVE_SEARCH_API_KEY` | Optional Brave Search API key. When set, Brave results are tried before free fallbacks. |
 | `SEARXNG_URL` | Optional self-hosted SearXNG base URL. When set, SearXNG results are tried before DuckDuckGo fallback. |
@@ -301,6 +302,11 @@ UI checks need Chrome. Message checks need one working text model.
 | `GET` | `/api/oauth/tokens` |
 | `POST` | `/api/oauth/tokens` |
 | `DELETE` | `/api/oauth/tokens/{id}` |
+| `GET` | `/api/auth/providers` |
+| `GET` | `/api/auth/{provider}` |
+| `GET` | `/api/auth/{provider}/callback` |
+| `GET` | `/api/auth/session` |
+| `POST` | `/api/auth/logout` |
 | `POST` | `/api/chat/temp` |
 | `GET` | `/api/users` |
 | `POST` | `/api/users` |

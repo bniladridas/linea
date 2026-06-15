@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -20,16 +21,28 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 }
 
 func (s *PostgresStore) ListConversations(ctx context.Context) ([]Conversation, error) {
-	rows, err := s.pool.Query(ctx, `
-		select c.id, c.title, c.created_at, c.updated_at, (
+	userID := UserIDFromContext(ctx)
+	query := `
+		select c.id, c.title, c.created_at, c.updated_at, c.user_id, (
 			select m.content
 			from messages m
 			where m.conversation_id = c.id and m.role = 'user'
 			order by m.created_at asc
 			limit 1
 		)
-		from conversations c
-		order by c.updated_at desc`)
+		from conversations c`
+	if userID != "" {
+		query += ` where (c.user_id = $1 or c.user_id is null)`
+	}
+	query += ` order by c.updated_at desc`
+
+	var rows pgx.Rows
+	var err error
+	if userID != "" {
+		rows, err = s.pool.Query(ctx, query, userID)
+	} else {
+		rows, err = s.pool.Query(ctx, query)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -39,14 +52,19 @@ func (s *PostgresStore) ListConversations(ctx context.Context) ([]Conversation, 
 	for rows.Next() {
 		var conversation Conversation
 		var firstUserMessage *string
+		var dbUserID *string
 		if err := rows.Scan(
 			&conversation.ID,
 			&conversation.Title,
 			&conversation.CreatedAt,
 			&conversation.UpdatedAt,
+			&dbUserID,
 			&firstUserMessage,
 		); err != nil {
 			return nil, err
+		}
+		if dbUserID != nil {
+			conversation.UserID = *dbUserID
 		}
 		conversation.Title = displayTitle(conversation.Title, firstUserMessage)
 		conversations = append(conversations, conversation)
@@ -55,33 +73,53 @@ func (s *PostgresStore) ListConversations(ctx context.Context) ([]Conversation, 
 }
 
 func (s *PostgresStore) CreateConversation(ctx context.Context, title string) (Conversation, error) {
+	userID := UserIDFromContext(ctx)
 	conversation := Conversation{ID: NewID(), Title: title}
+	var dbUserID *string
 	err := s.pool.QueryRow(ctx, `
-		insert into conversations (id, title)
-		values ($1, $2)
-		returning id, title, created_at, updated_at`,
-		conversation.ID, conversation.Title,
-	).Scan(&conversation.ID, &conversation.Title, &conversation.CreatedAt, &conversation.UpdatedAt)
+		insert into conversations (id, title, user_id)
+		values ($1, $2, nullif($3, ''))
+		returning id, title, user_id, created_at, updated_at`,
+		conversation.ID, conversation.Title, userID,
+	).Scan(&conversation.ID, &conversation.Title, &dbUserID, &conversation.CreatedAt, &conversation.UpdatedAt)
+	if dbUserID != nil {
+		conversation.UserID = *dbUserID
+	}
 	return conversation, err
 }
 
 func (s *PostgresStore) UpdateConversationTitle(ctx context.Context, conversationID, title string) (Conversation, error) {
+	userID := UserIDFromContext(ctx)
 	var conversation Conversation
-	err := s.pool.QueryRow(ctx, `
-		update conversations
+	var dbUserID *string
+	query := `update conversations
 		set title = $2, updated_at = now()
-		where id = $1
-		returning id, title, created_at, updated_at`,
-		conversationID, title,
-	).Scan(&conversation.ID, &conversation.Title, &conversation.CreatedAt, &conversation.UpdatedAt)
+		where id = $1`
+	args := []any{conversationID, title}
+	if userID != "" {
+		query += ` and (user_id = $3 or user_id is null)`
+		args = append(args, userID)
+	}
+	query += ` returning id, title, user_id, created_at, updated_at`
+	err := s.pool.QueryRow(ctx, query, args...).Scan(&conversation.ID, &conversation.Title, &dbUserID, &conversation.CreatedAt, &conversation.UpdatedAt)
 	if IsNoRows(err) {
 		return Conversation{}, ErrNotFound
+	}
+	if dbUserID != nil {
+		conversation.UserID = *dbUserID
 	}
 	return conversation, err
 }
 
 func (s *PostgresStore) DeleteConversation(ctx context.Context, conversationID string) error {
-	tag, err := s.pool.Exec(ctx, `delete from conversations where id = $1`, conversationID)
+	userID := UserIDFromContext(ctx)
+	query := `delete from conversations where id = $1`
+	args := []any{conversationID}
+	if userID != "" {
+		query += ` and (user_id = $2 or user_id is null)`
+		args = append(args, userID)
+	}
+	tag, err := s.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -92,11 +130,14 @@ func (s *PostgresStore) DeleteConversation(ctx context.Context, conversationID s
 }
 
 func (s *PostgresStore) ListMessages(ctx context.Context, conversationID string) ([]Message, error) {
+	userID := UserIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx, `
-		select id, conversation_id, role, content, created_at
-		from messages
-		where conversation_id = $1
-		order by created_at asc`, conversationID)
+		select m.id, m.conversation_id, m.role, m.content, m.created_at
+		from messages m
+		join conversations c on c.id = m.conversation_id
+		where m.conversation_id = $1
+		  and ($2 = '' or c.user_id = $2 or c.user_id is null)
+		order by m.created_at asc`, conversationID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -114,14 +155,7 @@ func (s *PostgresStore) ListMessages(ctx context.Context, conversationID string)
 		return nil, err
 	}
 	if len(messages) == 0 {
-		var exists bool
-		err := s.pool.QueryRow(ctx, `select exists(select 1 from conversations where id = $1)`, conversationID).Scan(&exists)
-		if err != nil {
-			return nil, err
-		}
-		if !exists {
-			return nil, ErrNotFound
-		}
+		return nil, ErrNotFound
 	}
 	return messages, nil
 }
@@ -133,8 +167,16 @@ func (s *PostgresStore) AddMessage(ctx context.Context, conversationID, role, co
 	}
 	defer tx.Rollback(ctx)
 
+	userID := UserIDFromContext(ctx)
+	existsQuery := `select exists(select 1 from conversations where id = $1`
+	existsArgs := []any{conversationID}
+	if userID != "" {
+		existsQuery += ` and (user_id = $2 or user_id is null)`
+		existsArgs = append(existsArgs, userID)
+	}
+	existsQuery += `)`
 	var exists bool
-	if err := tx.QueryRow(ctx, `select exists(select 1 from conversations where id = $1)`, conversationID).Scan(&exists); err != nil {
+	if err := tx.QueryRow(ctx, existsQuery, existsArgs...).Scan(&exists); err != nil {
 		return Message{}, err
 	}
 	if !exists {
@@ -308,6 +350,70 @@ func (s *PostgresStore) CreateUser(ctx context.Context, email, name string) (Use
 		return User{}, err
 	}
 	return user, nil
+}
+
+func (s *PostgresStore) GetUserByID(ctx context.Context, id string) (User, error) {
+	var u User
+	err := s.pool.QueryRow(ctx, `
+		select id, email, name, created_at, updated_at
+		from users where id = $1`, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.CreatedAt, &u.UpdatedAt)
+	if IsNoRows(err) {
+		return User{}, ErrNotFound
+	}
+	return u, err
+}
+
+func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	var u User
+	err := s.pool.QueryRow(ctx, `
+		select id, email, name, created_at, updated_at
+		from users where email = $1`, email,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.CreatedAt, &u.UpdatedAt)
+	if IsNoRows(err) {
+		return User{}, ErrNotFound
+	}
+	return u, err
+}
+
+func (s *PostgresStore) CreateSession(ctx context.Context, userID string) (Session, error) {
+	now := time.Now().UTC()
+	id := NewID()
+	token := NewID()
+	session := Session{ID: id, UserID: userID, Token: token, CreatedAt: now, ExpiresAt: now.Add(30 * 24 * time.Hour)}
+	_, err := s.pool.Exec(ctx, `
+		insert into sessions (id, user_id, token, expires_at)
+		values ($1, $2, $3, $4)`,
+		session.ID, session.UserID, session.Token, session.ExpiresAt,
+	)
+	if err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+func (s *PostgresStore) GetSessionByToken(ctx context.Context, token string) (Session, error) {
+	var session Session
+	err := s.pool.QueryRow(ctx, `
+		select id, user_id, token, created_at, expires_at
+		from sessions
+		where token = $1 and expires_at > now()`, token,
+	).Scan(&session.ID, &session.UserID, &session.Token, &session.CreatedAt, &session.ExpiresAt)
+	if IsNoRows(err) {
+		return Session{}, ErrSessionNotFound
+	}
+	return session, err
+}
+
+func (s *PostgresStore) DeleteSession(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from sessions where id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSessionNotFound
+	}
+	return nil
 }
 
 func (s *PostgresStore) Close() error { s.pool.Close(); return nil }

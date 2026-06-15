@@ -210,6 +210,12 @@ func runServer() {
 			apiServer.EnableAPI(cfg.APIKey)
 		}
 	}
+	if cfg.EnableAccounts {
+		if cfg.OAuthEncryptionKey == "" {
+			slog.Warn("LINEA_ENABLE_ACCOUNTS: set LINEA_OAUTH_ENCRYPTION_KEY if using OAuth provider tools with accounts")
+		}
+		apiServer.EnableAccounts()
+	}
 
 	server := &http.Server{
 		Addr:              cfg.APIAddr,

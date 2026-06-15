@@ -44,6 +44,7 @@ type Config struct {
 	GoogleClientSecret    string
 	EnableAPI             bool
 	APIKey                string
+	EnableAccounts        bool
 }
 
 func Load() Config {
@@ -86,6 +87,7 @@ func Load() Config {
 		GoogleClientSecret:    os.Getenv("LINEA_GOOGLE_CLIENT_SECRET"),
 		EnableAPI:             envBool("LINEA_ENABLE_API", false),
 		APIKey:                os.Getenv("LINEA_API_KEY"),
+		EnableAccounts:        envBool("LINEA_ENABLE_ACCOUNTS", false),
 	}
 }
 

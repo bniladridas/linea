@@ -1044,6 +1044,46 @@ Returns:
 
 Deletes an OAuth token. Returns `204` when deleted.
 
+# Authentication (User Accounts)
+
+User accounts are off by default. Set `LINEA_ENABLE_ACCOUNTS=true` and configure at least one OAuth provider (`LINEA_GITHUB_CLIENT_ID` / `LINEA_GITHUB_CLIENT_SECRET`, etc.) to enable.
+
+`GET /api/auth/providers`
+
+Returns available login providers.
+
+```json
+[{"id":"github","name":"GitHub"}]
+```
+
+`GET /api/auth/{provider}`
+
+Returns the authorization URL to redirect the user to for login.
+
+```json
+{"url":"https://github.com/login/oauth/authorize?..."}
+```
+
+`GET /api/auth/{provider}/callback`
+
+OAuth callback for identity. On success returns a session token.
+
+```json
+{"token":"session-token","userId":"id","email":"user@example.com","name":"User","expires":"2026-07-16T01:00:00Z"}
+```
+
+`GET /api/auth/session`
+
+Validates the current session. Requires `Authorization: Bearer <session-token>` header.
+
+```json
+{"userId":"id","email":"user@example.com","name":"User"}
+```
+
+`POST /api/auth/logout`
+
+Deletes the current session. Requires `Authorization: Bearer <session-token>` header. Returns `204` on success.
+
 # Public API v1
 
 The `/api/v1/*` endpoints are disabled by default. Set `LINEA_ENABLE_API=true` and `LINEA_API_KEY=your-secret` to enable.
