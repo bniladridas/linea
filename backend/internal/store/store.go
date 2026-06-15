@@ -16,6 +16,8 @@ type contextKey string
 
 const contextKeyUserID contextKey = "userID"
 
+const contextKeyConversationID contextKey = "conversationID"
+
 func WithUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, contextKeyUserID, userID)
 }
@@ -23,6 +25,15 @@ func WithUserID(ctx context.Context, userID string) context.Context {
 func UserIDFromContext(ctx context.Context) string {
 	userID, _ := ctx.Value(contextKeyUserID).(string)
 	return userID
+}
+
+func WithConversationID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, contextKeyConversationID, id)
+}
+
+func ConversationIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(contextKeyConversationID).(string)
+	return id
 }
 
 var ErrNotFound = errors.New("not found")
@@ -198,8 +209,12 @@ func (s *MemoryStore) ListConversations(ctx context.Context) ([]Conversation, er
 func (s *MemoryStore) CreateConversation(ctx context.Context, title string) (Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	id := NewID()
+	if override := ConversationIDFromContext(ctx); override != "" {
+		id = override
+	}
 	now := time.Now().UTC()
-	conversation := Conversation{ID: NewID(), Title: title, CreatedAt: now, UpdatedAt: now, UserID: UserIDFromContext(ctx)}
+	conversation := Conversation{ID: id, Title: title, CreatedAt: now, UpdatedAt: now, UserID: UserIDFromContext(ctx)}
 	s.conversations[conversation.ID] = conversation
 	return conversation, nil
 }

@@ -109,6 +109,9 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_ENABLE_API` | Enables `/api/v1/*` endpoints with API key auth. Requires `LINEA_API_KEY`. |
 | `LINEA_API_KEY` | Bearer token for authenticating `/api/v1/*` requests. |
 | `LINEA_ENABLE_ACCOUNTS` | Enables optional user accounts via OAuth identity providers. Reuses `LINEA_GITHUB_CLIENT_ID`, `LINEA_GOOGLE_CLIENT_ID`, etc. for login. |
+| `LINEA_SYNC_URL` | Remote Linea instance URL for sync. Works with `LINEA_ENABLE_SYNC`. |
+| `LINEA_SYNC_TOKEN` | Bearer token for authenticating with the sync remote. |
+| `LINEA_ENABLE_SYNC` | Enables dual-write sync to a remote Linea instance. Requires `LINEA_SYNC_URL`. Strongly recommended with a local database (`DATABASE_URL`) — in-memory local store loses synced data on restart. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `BRAVE_SEARCH_API_KEY` | Optional Brave Search API key. When set, Brave results are tried before free fallbacks. |
 | `SEARXNG_URL` | Optional self-hosted SearXNG base URL. When set, SearXNG results are tried before DuckDuckGo fallback. |

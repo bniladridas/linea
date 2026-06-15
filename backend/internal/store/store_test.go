@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -214,6 +216,242 @@ func TestMemoryStoreUsers(t *testing.T) {
 	if _, err := s.CreateUser(ctx, "alice@example.com", "Alice 2"); err == nil || err.Error() != "email already exists" {
 		t.Fatalf("CreateUser(duplicate) error = %v, want 'email already exists'", err)
 	}
+}
+
+func TestSyncStoreConversationIDMatchesBothSides(t *testing.T) {
+	ctx := context.Background()
+	local := NewMemoryStore()
+
+	remoteServer := newTestSyncServer()
+	defer remoteServer.Close()
+	remote, err := NewRemoteStore(remoteServer.URL(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewSyncStore(local, remote)
+	defer s.Close()
+
+	c, err := s.CreateConversation(ctx, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lc, err := local.ListConversations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lc) != 1 || lc[0].ID != c.ID {
+		t.Fatalf("local conversation ID = %q, want %q", lc[0].ID, c.ID)
+	}
+
+	m, err := s.AddMessage(ctx, c.ID, "user", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ConversationID != c.ID {
+		t.Fatalf("message ConversationID = %q, want %q", m.ConversationID, c.ID)
+	}
+
+	msgs, err := s.ListMessages(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].ID != m.ID {
+		t.Fatalf("ListMessages returned %#v", msgs)
+	}
+}
+
+func TestSyncStoreReadsFromLocal(t *testing.T) {
+	ctx := context.Background()
+	local := NewMemoryStore()
+	localC, _ := local.CreateConversation(ctx, "local-only")
+	local.AddMessage(ctx, localC.ID, "user", "data")
+
+	remoteServer := newTestSyncServer()
+	defer remoteServer.Close()
+	remote, err := NewRemoteStore(remoteServer.URL(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewSyncStore(local, remote)
+	defer s.Close()
+
+	convs, err := s.ListConversations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(convs) != 1 || convs[0].ID != localC.ID {
+		t.Fatalf("expected local conversation, got %#v", convs)
+	}
+
+	msgs, err := s.ListMessages(ctx, localC.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+}
+
+func TestSyncStoreDataReachesRemote(t *testing.T) {
+	ctx := context.Background()
+	local := NewMemoryStore()
+
+	rs := newTestSyncServer()
+	defer rs.Close()
+	remote, err := NewRemoteStore(rs.URL(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewSyncStore(local, remote)
+	defer s.Close()
+
+	c, err := s.CreateConversation(ctx, "e2e-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = s.AddMessage(ctx, c.ID, "user", "hello from sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rconvs, err := rs.store.ListConversations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rconvs) != 1 || rconvs[0].ID != c.ID {
+		t.Fatalf("remote conversations = %#v, want conversation %q", rconvs, c.ID)
+	}
+	if rconvs[0].Title != "e2e-test" {
+		t.Fatalf("remote conversation title = %q, want %q", rconvs[0].Title, "e2e-test")
+	}
+
+	rm, err := rs.store.ListMessages(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("remote should have messages for conversation %q: %v", c.ID, err)
+	}
+	if len(rm) != 1 || rm[0].Content != "hello from sync" || rm[0].ConversationID != c.ID {
+		t.Fatalf("remote messages = %#v", rm)
+	}
+}
+
+func TestSyncStoreRemoteFailureIsolated(t *testing.T) {
+	ctx := context.Background()
+	local := NewMemoryStore()
+
+	remoteServer := newTestSyncServer()
+	remoteServer.Close()
+	remote, err := NewRemoteStore(remoteServer.URL(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewSyncStore(local, remote)
+	defer s.Close()
+
+	c, err := s.CreateConversation(ctx, "test")
+	if err != nil {
+		t.Fatalf("CreateConversation should succeed despite remote failure: %v", err)
+	}
+	if c.Title != "test" {
+		t.Fatalf("unexpected conversation: %#v", c)
+	}
+
+	convs, err := s.ListConversations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(convs) != 1 {
+		t.Fatalf("expected 1 local conversation, got %d", len(convs))
+	}
+}
+
+type remoteSyncStore struct {
+	store *MemoryStore
+	server *httptest.Server
+}
+
+func newTestSyncServer() *remoteSyncStore {
+	rs := &remoteSyncStore{store: NewMemoryStore()}
+	rs.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/conversations":
+			var req struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			storeCtx := WithConversationID(context.Background(), req.ID)
+			rs.store.CreateConversation(storeCtx, req.Title)
+			resp := Conversation{ID: req.ID, Title: req.Title}
+			writeJSON(w, http.StatusCreated, resp)
+		case r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/api/conversations/"):
+			parts := strings.Split(r.URL.Path, "/")
+			id := parts[len(parts)-1]
+			var req struct {
+				Title string `json:"title"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			c, err := rs.store.UpdateConversationTitle(context.Background(), id, req.Title)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			writeJSON(w, http.StatusOK, c)
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/api/conversations/"):
+			parts := strings.Split(r.URL.Path, "/")
+			id := parts[len(parts)-1]
+			if err := rs.store.DeleteConversation(context.Background(), id); err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/messages"):
+			var req struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			parts := strings.Split(r.URL.Path, "/")
+			convID := parts[len(parts)-2]
+			msg, err := rs.store.AddMessage(context.Background(), convID, req.Role, req.Content)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			writeJSON(w, http.StatusCreated, msg)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	return rs
+}
+
+func (r *remoteSyncStore) Close() {
+	r.server.Close()
+}
+
+func (r *remoteSyncStore) URL() string {
+	return r.server.URL
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
 }
 
 func TestTitleFromMessage(t *testing.T) {

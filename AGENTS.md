@@ -90,11 +90,7 @@ MVP:
 
 Post-MVP:
 
-* Optional user accounts
-* Optional cloud synchronization
 * Optional multi-device support
-
-Authentication and sync are active targets.
 
 ## Stack
 
@@ -157,18 +153,19 @@ Initial scope:
 Active scope:
 
 * Android app
-* Optional sync
 * Deeper subagent orchestration
 * Background autonomous jobs
 * Unrestricted terminal autonomy
 
 Completed:
 
+* Optional API key auth + `/api/v1/*` routing for programmatic access
+* Optional user accounts via identity OAuth (GitHub, GitLab, Google)
+* Optional cloud sync (dual-write to remote Linea instance)
 * OAuth integrations (GitHub, GitLab, Google: issues, PRs, merge requests, email, calendar, drive, search via MCP)
 
 Planned:
 
-* Optional API key auth + `/api/v1/*` routing for programmatic access
 * Potential hosted SaaS extending the local-first app
 
 ## Non-goals

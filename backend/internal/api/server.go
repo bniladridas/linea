@@ -1324,6 +1324,7 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		ID       string `json:"id"`
 		Title    string `json:"title"`
 		Messages []struct {
 			Role    string `json:"role"`
@@ -1336,6 +1337,9 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.Title) == "" {
 		req.Title = "Untitled"
+	}
+	if req.ID != "" {
+		r = r.WithContext(store.WithConversationID(r.Context(), req.ID))
 	}
 	type importedMessage struct {
 		role    string
