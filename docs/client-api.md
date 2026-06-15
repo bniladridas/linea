@@ -9,7 +9,7 @@ Linea serves the API from a single persistent Go daemon process. All clients con
 Default base URL:
 
 ```sh
-http://127.0.0.1:8080
+http://localhost:8080
 ```
 
 Android emulator connects to `http://10.0.2.2:8080` (host loopback).

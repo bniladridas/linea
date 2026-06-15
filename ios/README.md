@@ -19,5 +19,5 @@ xcrun simctl launch booted com.bniladridas.linea
 open -a Simulator
 ```
 
-The app connects to `http://127.0.0.1:8080` by default.
+The app connects to `http://localhost:8080` by default.
 Set `LINEA_SERVER_URL` to point at a different host.

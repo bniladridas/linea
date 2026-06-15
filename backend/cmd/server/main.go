@@ -138,7 +138,7 @@ func runServer() {
 	}
 	oauthCallbackURL := "http://" + cfg.APIAddr
 	if host, _, err := net.SplitHostPort(cfg.APIAddr); err == nil {
-		if host == "" || host == "0.0.0.0" {
+		if host == "" || host == "0.0.0.0" || host == "127.0.0.1" {
 			oauthCallbackURL = "http://localhost:" + cfg.APIAddr[strings.LastIndex(cfg.APIAddr, ":")+1:]
 		}
 	}

@@ -174,6 +174,9 @@ func (r *Registry) Exchange(ctx context.Context, provider Provider, code string,
 			return nil, fmt.Errorf("encrypt refresh token: %w", err)
 		}
 	}
+	if encRefresh == nil {
+		encRefresh = []byte{}
+	}
 
 	tokenID := existingID
 	if tokenID == "" {
