@@ -57,6 +57,13 @@ LINEA_SKILLS_DIR=
 LINEA_WORKSPACE_DIR=
 LINEA_MCP_CONFIG=
 LINEA_COMMAND_ALLOWLIST=
+LINEA_OAUTH_ENCRYPTION_KEY=
+LINEA_GITHUB_CLIENT_ID=
+LINEA_GITHUB_CLIENT_SECRET=
+LINEA_GITLAB_CLIENT_ID=
+LINEA_GITLAB_CLIENT_SECRET=
+LINEA_GOOGLE_CLIENT_ID=
+LINEA_GOOGLE_CLIENT_SECRET=
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
 BRAVE_SEARCH_API_KEY=
 SEARXNG_URL=
@@ -90,6 +97,13 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_COMMAND_ALLOWLIST` | Comma-separated exact commands allowed for agent checks. Commands are classified by category (read, inspect, write, destructive) and flagged when destructive. Empty means none. |
 | `LINEA_AUTO_APPROVE_CATEGORIES` | Comma-separated command categories (read, write, inspect, destructive) that skip per-command approval. Empty means none. |
 | `LINEA_AUDIT_LOG_PATH` | Path to audit log (JSON lines). Rotates at 10 MB. Empty string disables logging. Defaults to `~/.cache/linea/audit.jsonl`. |
+| `LINEA_OAUTH_ENCRYPTION_KEY` | AES-256-GCM key for encrypting OAuth tokens at rest. |
+| `LINEA_GITHUB_CLIENT_ID` | GitHub OAuth App client ID. |
+| `LINEA_GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret. |
+| `LINEA_GITLAB_CLIENT_ID` | GitLab OAuth App application ID. |
+| `LINEA_GITLAB_CLIENT_SECRET` | GitLab OAuth App secret. |
+| `LINEA_GOOGLE_CLIENT_ID` | Google OAuth client ID. |
+| `LINEA_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `BRAVE_SEARCH_API_KEY` | Optional Brave Search API key. When set, Brave results are tried before free fallbacks. |
 | `SEARXNG_URL` | Optional self-hosted SearXNG base URL. When set, SearXNG results are tried before DuckDuckGo fallback. |

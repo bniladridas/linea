@@ -986,7 +986,9 @@ Returns configured OAuth providers and their connection status.
 
 ```json
 [
-  {"id":"github","name":"GitHub","connected":false,"scopes":["repo","read:user"]}
+  {"id":"github","name":"GitHub","connected":false,"scopes":["repo","read:user"]},
+  {"id":"gitlab","name":"GitLab","connected":false,"scopes":["api","read_user","read_repository"]},
+  {"id":"google","name":"Google","connected":false,"scopes":["gmail.readonly","gmail.send","calendar","drive.readonly"]}
 ]
 ```
 

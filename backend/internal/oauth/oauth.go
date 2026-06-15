@@ -23,6 +23,8 @@ type Provider string
 
 const (
 	ProviderGitHub Provider = "github"
+	ProviderGitLab Provider = "gitlab"
+	ProviderGoogle Provider = "google"
 )
 
 type ProviderConfig struct {
@@ -63,6 +65,8 @@ func NewRegistry(callbackBaseURL string, encKey string, clientIDs, clientSecrets
 		scopes   []string
 	}{
 		{ProviderGitHub, "https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", []string{"repo", "read:user"}},
+		{ProviderGitLab, "https://gitlab.com/oauth/authorize", "https://gitlab.com/oauth/token", []string{"api", "read_user", "read_repository"}},
+		{ProviderGoogle, "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token", []string{"https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/drive.readonly"}},
 	} {
 		clientID := clientIDs[p.provider]
 		clientSecret := clientSecrets[p.provider]
@@ -108,6 +112,10 @@ func (r *Registry) AuthURL(provider Provider) (string, string, error) {
 	v.Set("scope", strings.Join(cfg.Scopes, " "))
 	v.Set("response_type", "code")
 
+	if provider == ProviderGoogle {
+		v.Set("access_type", "offline")
+	}
+
 	return cfg.AuthURL + "?" + v.Encode(), state, nil
 }
 
@@ -122,6 +130,7 @@ func (r *Registry) Exchange(ctx context.Context, provider Provider, code string,
 	v.Set("client_secret", cfg.ClientSecret)
 	v.Set("code", code)
 	v.Set("redirect_uri", cfg.RedirectURL)
+	v.Set("grant_type", "authorization_code")
 
 	req, err := http.NewRequestWithContext(ctx, "POST", cfg.TokenURL, strings.NewReader(v.Encode()))
 	if err != nil {
@@ -202,6 +211,81 @@ func (r *Registry) VerifyState(state string) (Provider, error) {
 	}
 	delete(r.states, state)
 	return Provider(provider), nil
+}
+
+func (r *Registry) RefreshToken(ctx context.Context, provider Provider, encryptedRefresh []byte) (newAccessToken []byte, newRefreshToken []byte, expiresAt time.Time, err error) {
+	r.mu.RLock()
+	cfg, ok := r.providers[provider]
+	r.mu.RUnlock()
+	if !ok {
+		return nil, nil, time.Time{}, fmt.Errorf("oauth provider %q not configured", provider)
+	}
+	refreshRaw, err := r.decrypt(encryptedRefresh)
+	if err != nil {
+		return nil, nil, time.Time{}, fmt.Errorf("decrypt refresh token: %w", err)
+	}
+	if len(refreshRaw) == 0 {
+		return nil, nil, time.Time{}, errors.New("no refresh token available")
+	}
+
+	v := url.Values{}
+	v.Set("client_id", cfg.ClientID)
+	v.Set("client_secret", cfg.ClientSecret)
+	v.Set("refresh_token", string(refreshRaw))
+	v.Set("grant_type", "refresh_token")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", cfg.TokenURL, strings.NewReader(v.Encode()))
+	if err != nil {
+		return nil, nil, time.Time{}, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, nil, time.Time{}, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, time.Time{}, err
+	}
+
+	var tokenResponse struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token,omitempty"`
+		ExpiresIn    int    `json:"expires_in,omitempty"`
+		Error        string `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(body, &tokenResponse); err != nil {
+		return nil, nil, time.Time{}, fmt.Errorf("parse refresh response: %w", err)
+	}
+	if tokenResponse.Error != "" {
+		return nil, nil, time.Time{}, fmt.Errorf("token refresh error: %s", tokenResponse.Error)
+	}
+	if tokenResponse.AccessToken == "" {
+		return nil, nil, time.Time{}, errors.New("empty access token in refresh response")
+	}
+
+	encAccess, err := r.encrypt([]byte(tokenResponse.AccessToken))
+	if err != nil {
+		return nil, nil, time.Time{}, fmt.Errorf("encrypt refreshed access token: %w", err)
+	}
+
+	if tokenResponse.RefreshToken != "" {
+		newRefreshToken, err = r.encrypt([]byte(tokenResponse.RefreshToken))
+		if err != nil {
+			return nil, nil, time.Time{}, fmt.Errorf("encrypt refreshed refresh token: %w", err)
+		}
+	}
+
+	if tokenResponse.ExpiresIn > 0 {
+		expiresAt = time.Now().UTC().Add(time.Duration(tokenResponse.ExpiresIn) * time.Second)
+	}
+
+	return encAccess, newRefreshToken, expiresAt, nil
 }
 
 func (r *Registry) DecryptToken(encrypted []byte) (string, error) {

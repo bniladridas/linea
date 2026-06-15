@@ -136,6 +136,14 @@ func runServer() {
 		oauthProviders[oauth.ProviderGitHub] = cfg.GitHubClientID
 		oauthSecrets[oauth.ProviderGitHub] = cfg.GitHubClientSecret
 	}
+	if cfg.GitLabClientID != "" {
+		oauthProviders[oauth.ProviderGitLab] = cfg.GitLabClientID
+		oauthSecrets[oauth.ProviderGitLab] = cfg.GitLabClientSecret
+	}
+	if cfg.GoogleClientID != "" {
+		oauthProviders[oauth.ProviderGoogle] = cfg.GoogleClientID
+		oauthSecrets[oauth.ProviderGoogle] = cfg.GoogleClientSecret
+	}
 	oauthCallbackURL := "http://" + cfg.APIAddr
 	if host, _, err := net.SplitHostPort(cfg.APIAddr); err == nil {
 		if host == "" || host == "0.0.0.0" || host == "127.0.0.1" {
@@ -144,13 +152,36 @@ func runServer() {
 	}
 	oauthRegistry := oauth.NewRegistry(oauthCallbackURL, cfg.OAuthEncryptionKey, oauthProviders, oauthSecrets)
 
-	tokenFn := func() (string, error) {
+	var tokenMu sync.Mutex
+
+	tokenFn := func(provider string) (string, error) {
+		tokenMu.Lock()
+		defer tokenMu.Unlock()
+
 		tokens, err := appStore.ListOAuthTokens(ctx)
 		if err != nil {
 			return "", err
 		}
 		for _, tok := range tokens {
-			if tok.Provider == "github" {
+			if tok.Provider == provider {
+				// Refresh if the token is expired and a refresh token exists
+				if !tok.ExpiresAt.IsZero() && tok.ExpiresAt.Before(time.Now().UTC()) && len(tok.RefreshToken) > 0 {
+					newAccess, newRefresh, newExpiry, err := oauthRegistry.RefreshToken(ctx, oauth.Provider(provider), tok.RefreshToken)
+					if err != nil {
+						slog.Warn("token refresh failed, using stored token", "provider", provider, "error", err)
+					} else {
+						tok.AccessToken = newAccess
+						if !newExpiry.IsZero() {
+							tok.ExpiresAt = newExpiry
+						}
+						if len(newRefresh) > 0 {
+							tok.RefreshToken = newRefresh
+						}
+						if err := appStore.SaveOAuthToken(ctx, tok); err != nil {
+							slog.Warn("token refresh: failed to save updated token", "error", err)
+						}
+					}
+				}
 				raw, err := oauthRegistry.DecryptToken(tok.AccessToken)
 				if err != nil {
 					return "", err
@@ -158,7 +189,7 @@ func runServer() {
 				return raw, nil
 			}
 		}
-		return "", fmt.Errorf("github not connected")
+		return "", fmt.Errorf("%s not connected", provider)
 	}
 
 	agentRuntime := newAgentRuntime(cfg, llmEditPlanner{assistant: llmClient}, agent.WithIntegrationServer(agent.NewIntegrationServer(tokenFn)))
