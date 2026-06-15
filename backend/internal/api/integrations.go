@@ -212,26 +212,6 @@ func (s *Server) listOAuthTokens(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, safe)
 }
 
-func (s *Server) getOAuthToken(w http.ResponseWriter, r *http.Request) {
-	if s.oauthRegistry == nil {
-		writeError(w, http.StatusNotFound, "OAuth is not configured.")
-		return
-	}
-	token, err := s.store.GetOAuthToken(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeError(w, http.StatusNotFound, "Token not found.")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          token.ID,
-		"provider":    token.Provider,
-		"accountName": token.AccountName,
-		"accountId":   token.AccountID,
-		"expiresAt":   token.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
-		"createdAt":   token.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-	})
-}
-
 func (s *Server) deleteOAuthToken(w http.ResponseWriter, r *http.Request) {
 	if s.oauthRegistry == nil {
 		writeError(w, http.StatusNotFound, "OAuth is not configured.")
