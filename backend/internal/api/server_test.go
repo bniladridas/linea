@@ -2736,3 +2736,113 @@ func TestAgentBackgroundJobReturns404WhenRuntimeNil(t *testing.T) {
 		t.Fatalf("POST cancel status = %d, want %d: %s", res.Code, http.StatusNotFound, res.Body.String())
 	}
 }
+
+func TestAPIV1DisabledByDefault(t *testing.T) {
+	server := newV1TestServer()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("GET /api/v1/health = %d, want 404", res.Code)
+	}
+}
+
+func TestAPIV1RequiresAuth(t *testing.T) {
+	server := newV1TestServer("test-key")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/v1/health without auth = %d, want 401", res.Code)
+	}
+}
+
+func TestAPIV1RequiresBearerToken(t *testing.T) {
+	server := newV1TestServer("test-key")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.Header.Set("Authorization", "Basic dGVzdDp0ZXN0")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/v1/health with Basic auth = %d, want 401", res.Code)
+	}
+}
+
+func TestAPIV1RejectsWrongKey(t *testing.T) {
+	server := newV1TestServer("test-key")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.Header.Set("Authorization", "Bearer wrong-key")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/v1/health with wrong key = %d, want 401", res.Code)
+	}
+}
+
+func TestAPIV1HealthWithValidKey(t *testing.T) {
+	server := newV1TestServer("test-key")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/health = %d, want 200: %s", res.Code, res.Body.String())
+	}
+	var body map[string]string
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("status = %q, want ok", body["status"])
+	}
+}
+
+func TestAPIV1VersionWithValidKey(t *testing.T) {
+	server := newV1TestServer("test-key")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/version = %d, want 200: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestAPIV1ConversationsWithValidKey(t *testing.T) {
+	server := newV1TestServer("test-key")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/conversations = %d, want 200: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestAPIV1UsersWithValidKey(t *testing.T) {
+	server := newV1TestServer("test-key")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/users = %d, want 200: %s", res.Code, res.Body.String())
+	}
+}
+
+func newV1TestServer(keys ...string) http.Handler {
+	s := NewServerWithAgentRuntime(
+		store.NewMemoryStore(),
+		fakeAssistant{chunks: []string{"hello"}},
+		nil,
+		testFiles(),
+		"", "",
+		func(context.Context) Status { return Status{Storage: "memory"} },
+		nil,
+		nil,
+	)
+	if len(keys) > 0 && keys[0] != "" {
+		s.EnableAPI(keys[0])
+	}
+	return s.Handler()
+}

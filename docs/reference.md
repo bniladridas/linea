@@ -104,6 +104,8 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_GITLAB_CLIENT_SECRET` | GitLab OAuth App secret. |
 | `LINEA_GOOGLE_CLIENT_ID` | Google OAuth client ID. |
 | `LINEA_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
+| `LINEA_ENABLE_API` | Enables `/api/v1/*` endpoints with API key auth. Requires `LINEA_API_KEY`. |
+| `LINEA_API_KEY` | Bearer token for authenticating `/api/v1/*` requests. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `BRAVE_SEARCH_API_KEY` | Optional Brave Search API key. When set, Brave results are tried before free fallbacks. |
 | `SEARXNG_URL` | Optional self-hosted SearXNG base URL. When set, SearXNG results are tried before DuckDuckGo fallback. |

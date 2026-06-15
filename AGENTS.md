@@ -161,7 +161,15 @@ Active scope:
 * Deeper subagent orchestration
 * Background autonomous jobs
 * Unrestricted terminal autonomy
-* OAuth integrations (GitHub issues, PRs, search via MCP)
+
+Completed:
+
+* OAuth integrations (GitHub, GitLab, Google: issues, PRs, merge requests, email, calendar, drive, search via MCP)
+
+Planned:
+
+* Optional API key auth + `/api/v1/*` routing for programmatic access
+* Potential hosted SaaS extending the local-first app
 
 ## Non-goals
 

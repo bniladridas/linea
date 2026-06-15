@@ -1044,6 +1044,64 @@ Returns:
 
 Deletes an OAuth token. Returns `204` when deleted.
 
+# Public API v1
+
+The `/api/v1/*` endpoints are disabled by default. Set `LINEA_ENABLE_API=true` and `LINEA_API_KEY=your-secret` to enable.
+
+All requests require an `Authorization: Bearer <key>` header.
+
+`GET /api/v1/health`
+
+```json
+{"status":"ok"}
+```
+
+`GET /api/v1/version`
+
+```json
+{"version": "0.1.8"}
+```
+
+`GET /api/v1/status`
+
+Returns the full server status.
+
+`GET /api/v1/conversations`
+
+Returns all conversations.
+
+`POST /api/v1/conversations`
+
+Creates a conversation.
+
+`PATCH /api/v1/conversations/{id}`
+
+Updates a conversation title.
+
+`DELETE /api/v1/conversations/{id}`
+
+Deletes a conversation.
+
+`GET /api/v1/conversations/{id}/messages`
+
+Returns messages for a conversation.
+
+`POST /api/v1/conversations/{id}/messages`
+
+Sends a message and streams a response. Uses `multipart/form-data` with the same fields as the chat endpoint.
+
+`POST /api/v1/chat/temp`
+
+Temporary chat without saving a conversation. Same `multipart/form-data` fields as the chat endpoint.
+
+`GET /api/v1/users`
+
+Returns all users.
+
+`POST /api/v1/users`
+
+Creates a user.
+
 # Client Rules
 
 Create a conversation before sending a message.

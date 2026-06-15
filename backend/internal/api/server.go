@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,8 @@ type Server struct {
 	agentRuntime   AgentRuntime
 	settingsStore  SettingsStore
 	oauthRegistry  *oauth.Registry
+	enableAPI      bool
+	apiKey         string
 }
 
 type Status struct {
@@ -196,6 +199,14 @@ func (s *Server) SetOAuthRegistry(r *oauth.Registry) {
 	s.oauthRegistry = r
 }
 
+func (s *Server) EnableAPI(key string) {
+	if key == "" {
+		return
+	}
+	s.enableAPI = true
+	s.apiKey = key
+}
+
 func NewServerWithAgentRuntime(
 	store store.Store,
 	llmClient Assistant,
@@ -296,6 +307,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
 	mux.HandleFunc("GET /api/conversations/{id}/messages", s.listMessages)
 	mux.HandleFunc("POST /api/conversations/{id}/messages", s.createMessage)
+	if s.enableAPI {
+		auth := s.apiAuth
+		mux.Handle("GET /api/v1/health", auth(http.HandlerFunc(s.health)))
+		mux.Handle("GET /api/v1/version", auth(http.HandlerFunc(s.getVersion)))
+		mux.Handle("GET /api/v1/status", auth(http.HandlerFunc(s.getStatus)))
+		mux.Handle("GET /api/v1/conversations", auth(http.HandlerFunc(s.listConversations)))
+		mux.Handle("POST /api/v1/conversations", auth(http.HandlerFunc(s.createConversation)))
+		mux.Handle("PATCH /api/v1/conversations/{id}", auth(http.HandlerFunc(s.updateConversation)))
+		mux.Handle("DELETE /api/v1/conversations/{id}", auth(http.HandlerFunc(s.deleteConversation)))
+		mux.Handle("GET /api/v1/conversations/{id}/messages", auth(http.HandlerFunc(s.listMessages)))
+		mux.Handle("POST /api/v1/conversations/{id}/messages", auth(http.HandlerFunc(s.createMessage)))
+		mux.Handle("POST /api/v1/chat/temp", auth(http.HandlerFunc(s.createTemporaryMessage)))
+		mux.Handle("GET /api/v1/users", auth(http.HandlerFunc(s.listUsers)))
+		mux.Handle("POST /api/v1/users", auth(http.HandlerFunc(s.createUser)))
+	}
 	mux.HandleFunc("GET /", s.serveWebApp)
 	return s.cors(mux)
 }
@@ -2159,9 +2185,33 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Vary", "Origin")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) apiAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			writeError(w, http.StatusUnauthorized, "Missing or invalid Authorization header.")
+			return
+		}
+		token := auth[len("Bearer "):]
+		if token == "" {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			writeError(w, http.StatusUnauthorized, "Missing or invalid Authorization header.")
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.apiKey)) != 1 {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			slog.Warn("api v1 auth failed", "ip", r.RemoteAddr)
+			writeError(w, http.StatusUnauthorized, "Invalid API key.")
 			return
 		}
 		next.ServeHTTP(w, r)

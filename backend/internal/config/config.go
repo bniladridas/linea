@@ -42,6 +42,8 @@ type Config struct {
 	GitLabClientSecret    string
 	GoogleClientID        string
 	GoogleClientSecret    string
+	EnableAPI             bool
+	APIKey                string
 }
 
 func Load() Config {
@@ -82,6 +84,8 @@ func Load() Config {
 		GitLabClientSecret:    os.Getenv("LINEA_GITLAB_CLIENT_SECRET"),
 		GoogleClientID:        os.Getenv("LINEA_GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:    os.Getenv("LINEA_GOOGLE_CLIENT_SECRET"),
+		EnableAPI:             envBool("LINEA_ENABLE_API", false),
+		APIKey:                os.Getenv("LINEA_API_KEY"),
 	}
 }
 
