@@ -64,6 +64,8 @@ LINEA_GITLAB_CLIENT_ID=
 LINEA_GITLAB_CLIENT_SECRET=
 LINEA_GOOGLE_CLIENT_ID=
 LINEA_GOOGLE_CLIENT_SECRET=
+LINEA_ENABLE_API=false
+LINEA_API_KEY=
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
 BRAVE_SEARCH_API_KEY=
 SEARXNG_URL=
@@ -308,6 +310,18 @@ UI checks need Chrome. Message checks need one working text model.
 | `DELETE` | `/api/conversations/{id}` |
 | `GET` | `/api/conversations/{id}/messages` |
 | `POST` | `/api/conversations/{id}/messages` |
+| `GET` | `/api/v1/health` |
+| `GET` | `/api/v1/version` |
+| `GET` | `/api/v1/status` |
+| `GET` | `/api/v1/conversations` |
+| `POST` | `/api/v1/conversations` |
+| `PATCH` | `/api/v1/conversations/{id}` |
+| `DELETE` | `/api/v1/conversations/{id}` |
+| `GET` | `/api/v1/conversations/{id}/messages` |
+| `POST` | `/api/v1/conversations/{id}/messages` |
+| `POST` | `/api/v1/chat/temp` |
+| `GET` | `/api/v1/users` |
+| `POST` | `/api/v1/users` |
 
 Messages use `multipart/form-data` with `content` and optional `files`.
 
