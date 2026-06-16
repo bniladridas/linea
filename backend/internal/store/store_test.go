@@ -371,7 +371,7 @@ func TestSyncStoreRemoteFailureIsolated(t *testing.T) {
 }
 
 type remoteSyncStore struct {
-	store *MemoryStore
+	store  *MemoryStore
 	server *httptest.Server
 }
 
@@ -452,6 +452,83 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func TestMemoryStoreSaasAPIKeys(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+
+	key1 := SaasAPIKey{KeyHash: "hash1", UserID: "u1", Name: "key1"}
+	saved1, err := s.CreateSaasAPIKey(ctx, key1)
+	if err != nil {
+		t.Fatalf("CreateSaasAPIKey(key1) error = %v", err)
+	}
+	if saved1.ID == "" {
+		t.Fatal("CreateSaasAPIKey returned empty ID")
+	}
+	if saved1.KeyHash != "hash1" || saved1.UserID != "u1" || saved1.Name != "key1" {
+		t.Fatalf("unexpected key: %+v", saved1)
+	}
+
+	key2 := SaasAPIKey{KeyHash: "hash2", UserID: "u2", Name: "key2"}
+	saved2, err := s.CreateSaasAPIKey(ctx, key2)
+	if err != nil {
+		t.Fatalf("CreateSaasAPIKey(key2) error = %v", err)
+	}
+	if saved2.ID == "" {
+		t.Fatal("CreateSaasAPIKey returned empty ID")
+	}
+
+	got1, err := s.GetSaasAPIKeyByHash(ctx, "hash1")
+	if err != nil {
+		t.Fatalf("GetSaasAPIKeyByHash(hash1) error = %v", err)
+	}
+	if got1.ID != saved1.ID || got1.Name != "key1" {
+		t.Fatalf("got key = %+v, want %+v", got1, saved1)
+	}
+
+	got2, err := s.GetSaasAPIKeyByHash(ctx, "hash2")
+	if err != nil {
+		t.Fatalf("GetSaasAPIKeyByHash(hash2) error = %v", err)
+	}
+	if got2.ID != saved2.ID {
+		t.Fatalf("got key ID = %q, want %q", got2.ID, saved2.ID)
+	}
+
+	keys, err := s.ListSaasAPIKeys(ctx)
+	if err != nil {
+		t.Fatalf("ListSaasAPIKeys() error = %v", err)
+	}
+	if len(keys) != 2 {
+		t.Fatalf("ListSaasAPIKeys() length = %d, want 2", len(keys))
+	}
+
+	if err := s.DeleteSaasAPIKey(ctx, saved1.ID); err != nil {
+		t.Fatalf("DeleteSaasAPIKey() error = %v", err)
+	}
+
+	if _, err := s.GetSaasAPIKeyByHash(ctx, "hash1"); err != ErrKeyNotFound {
+		t.Fatalf("GetSaasAPIKeyByHash(deleted) error = %v, want ErrKeyNotFound", err)
+	}
+
+	if _, err := s.GetSaasAPIKeyByHash(ctx, "missing"); err != ErrKeyNotFound {
+		t.Fatalf("GetSaasAPIKeyByHash(missing) error = %v, want ErrKeyNotFound", err)
+	}
+
+	if err := s.DeleteSaasAPIKey(ctx, "missing-id"); err != ErrKeyNotFound {
+		t.Fatalf("DeleteSaasAPIKey(missing) error = %v, want ErrKeyNotFound", err)
+	}
+
+	keys, err = s.ListSaasAPIKeys(ctx)
+	if err != nil {
+		t.Fatalf("ListSaasAPIKeys() error = %v", err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("ListSaasAPIKeys() after delete length = %d, want 1", len(keys))
+	}
+	if keys[0].ID != saved2.ID {
+		t.Fatalf("remaining key ID = %q, want %q", keys[0].ID, saved2.ID)
+	}
 }
 
 func TestTitleFromMessage(t *testing.T) {

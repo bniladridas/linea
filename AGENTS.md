@@ -156,6 +156,7 @@ Active scope:
 * Deeper subagent orchestration
 * Background autonomous jobs
 * Unrestricted terminal autonomy
+* Potential hosted SaaS extending the local-first app
 
 Completed:
 
@@ -163,10 +164,11 @@ Completed:
 * Optional user accounts via identity OAuth (GitHub, GitLab, Google)
 * Optional cloud sync (dual-write to remote Linea instance)
 * OAuth integrations (GitHub, GitLab, Google: issues, PRs, merge requests, email, calendar, drive, search via MCP)
-
-Planned:
-
-* Potential hosted SaaS extending the local-first app
+* vLLM, MLX, and generic OpenAI-compatible providers as local model backends
+* Multi-tenant SaaS mode (`LINEA_SAAS_MODE=true`) with API key auth, user management, admin endpoints, and data isolation via store user ID scoping
+* Production hardening (replace placeholder crypto, fix dead code, consistent error handling)
+* Workspace-level isolation (multi-tenant workspaces) — workspaces, workspace members, workspace-scoped API keys, data isolation via workspace context, full management API
+* SaaS sync round-trip verification
 
 ## Non-goals
 

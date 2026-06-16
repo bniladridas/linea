@@ -121,6 +121,9 @@ func TestLoadDefaultsAPIAddrToLoopback(t *testing.T) {
 }
 
 func TestLoadDefaults(t *testing.T) {
+	t.Setenv("SAMBANOVA_ENABLED", "")
+	t.Setenv("CEREBRAS_ENABLED", "")
+	t.Setenv("OLLAMA_FALLBACK", "")
 	cfg := Load()
 
 	if cfg.APIAddr != "127.0.0.1:8080" {

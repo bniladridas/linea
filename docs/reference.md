@@ -64,6 +64,8 @@ LINEA_GITLAB_CLIENT_ID=
 LINEA_GITLAB_CLIENT_SECRET=
 LINEA_GOOGLE_CLIENT_ID=
 LINEA_GOOGLE_CLIENT_SECRET=
+LINEA_SAAS_MODE=false
+LINEA_SAAS_ADMIN_KEY=
 LINEA_ENABLE_API=false
 LINEA_API_KEY=
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
@@ -118,6 +120,8 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
 | `LINEA_ENABLE_API` | Enables `/api/v1/*` endpoints with API key auth. Requires `LINEA_API_KEY`. |
 | `LINEA_API_KEY` | Bearer token for authenticating `/api/v1/*` requests. |
+| `LINEA_SAAS_MODE` | Enables multi-tenant SaaS mode. API keys map to users; `/api/v1/*` routes use SaaS middleware instead of static API key auth. |
+| `LINEA_SAAS_ADMIN_KEY` | Optional bearer token for SaaS management endpoints. When empty, management endpoints are open (dev/setup only). |
 | `LINEA_ENABLE_ACCOUNTS` | Enables optional user accounts via OAuth identity providers. Reuses `LINEA_GITHUB_CLIENT_ID`, `LINEA_GOOGLE_CLIENT_ID`, etc. for login. |
 | `LINEA_SYNC_URL` | Remote Linea instance URL for sync. Works with `LINEA_ENABLE_SYNC`. |
 | `LINEA_SYNC_TOKEN` | Bearer token for authenticating with the sync remote. |
@@ -351,6 +355,16 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/v1/chat/temp` |
 | `GET` | `/api/v1/users` |
 | `POST` | `/api/v1/users` |
+| `POST` | `/api/saas/users` |
+| `GET` | `/api/saas/users` |
+| `POST` | `/api/saas/keys` |
+| `GET` | `/api/saas/keys` |
+| `DELETE` | `/api/saas/keys/{id}` |
+| `POST` | `/api/saas/workspaces` |
+| `GET` | `/api/saas/workspaces` |
+| `POST` | `/api/saas/workspaces/{id}/members` |
+| `DELETE` | `/api/saas/workspaces/{id}/members/{userId}` |
+| `GET` | `/api/saas/workspaces/{id}/members` |
 
 Messages use `multipart/form-data` with `content` and optional `files`.
 

@@ -34,10 +34,11 @@ type Server struct {
 	agentProvider  AgentStatusProvider
 	agentRuntime   AgentRuntime
 	settingsStore  SettingsStore
-	oauthRegistry   *oauth.Registry
-	enableAPI       bool
-	apiKey          string
-	enableAccounts  bool
+	oauthRegistry  *oauth.Registry
+	enableAPI      bool
+	apiKey         string
+	enableAccounts bool
+	enableSaaS     bool
 }
 
 type Status struct {
@@ -208,6 +209,14 @@ func (s *Server) EnableAPI(key string) {
 	s.apiKey = key
 }
 
+func (s *Server) EnableAPIRoutes() {
+	s.enableAPI = true
+}
+
+func (s *Server) EnableSaaS() {
+	s.enableSaaS = true
+}
+
 func NewServerWithAgentRuntime(
 	store store.Store,
 	llmClient Assistant,
@@ -335,19 +344,34 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /api/conversations/{id}/messages", s.createMessage)
 	}
 	if s.enableAPI {
-		auth := s.apiAuth
-		mux.Handle("GET /api/v1/health", auth(http.HandlerFunc(s.health)))
-		mux.Handle("GET /api/v1/version", auth(http.HandlerFunc(s.getVersion)))
-		mux.Handle("GET /api/v1/status", auth(http.HandlerFunc(s.getStatus)))
-		mux.Handle("GET /api/v1/conversations", auth(http.HandlerFunc(s.listConversations)))
-		mux.Handle("POST /api/v1/conversations", auth(http.HandlerFunc(s.createConversation)))
-		mux.Handle("PATCH /api/v1/conversations/{id}", auth(http.HandlerFunc(s.updateConversation)))
-		mux.Handle("DELETE /api/v1/conversations/{id}", auth(http.HandlerFunc(s.deleteConversation)))
-		mux.Handle("GET /api/v1/conversations/{id}/messages", auth(http.HandlerFunc(s.listMessages)))
-		mux.Handle("POST /api/v1/conversations/{id}/messages", auth(http.HandlerFunc(s.createMessage)))
-		mux.Handle("POST /api/v1/chat/temp", auth(http.HandlerFunc(s.createTemporaryMessage)))
-		mux.Handle("GET /api/v1/users", auth(http.HandlerFunc(s.listUsers)))
-		mux.Handle("POST /api/v1/users", auth(http.HandlerFunc(s.createUser)))
+		if s.enableSaaS {
+			mux.HandleFunc("GET /api/v1/health", s.health)
+			mux.HandleFunc("GET /api/v1/version", s.getVersion)
+			mux.HandleFunc("GET /api/v1/status", s.getStatus)
+			mux.HandleFunc("GET /api/v1/conversations", s.listConversations)
+			mux.HandleFunc("POST /api/v1/conversations", s.createConversation)
+			mux.HandleFunc("PATCH /api/v1/conversations/{id}", s.updateConversation)
+			mux.HandleFunc("DELETE /api/v1/conversations/{id}", s.deleteConversation)
+			mux.HandleFunc("GET /api/v1/conversations/{id}/messages", s.listMessages)
+			mux.HandleFunc("POST /api/v1/conversations/{id}/messages", s.createMessage)
+			mux.HandleFunc("POST /api/v1/chat/temp", s.createTemporaryMessage)
+			mux.HandleFunc("GET /api/v1/users", s.listUsers)
+			mux.HandleFunc("POST /api/v1/users", s.createUser)
+		} else {
+			auth := s.apiAuth
+			mux.Handle("GET /api/v1/health", auth(http.HandlerFunc(s.health)))
+			mux.Handle("GET /api/v1/version", auth(http.HandlerFunc(s.getVersion)))
+			mux.Handle("GET /api/v1/status", auth(http.HandlerFunc(s.getStatus)))
+			mux.Handle("GET /api/v1/conversations", auth(http.HandlerFunc(s.listConversations)))
+			mux.Handle("POST /api/v1/conversations", auth(http.HandlerFunc(s.createConversation)))
+			mux.Handle("PATCH /api/v1/conversations/{id}", auth(http.HandlerFunc(s.updateConversation)))
+			mux.Handle("DELETE /api/v1/conversations/{id}", auth(http.HandlerFunc(s.deleteConversation)))
+			mux.Handle("GET /api/v1/conversations/{id}/messages", auth(http.HandlerFunc(s.listMessages)))
+			mux.Handle("POST /api/v1/conversations/{id}/messages", auth(http.HandlerFunc(s.createMessage)))
+			mux.Handle("POST /api/v1/chat/temp", auth(http.HandlerFunc(s.createTemporaryMessage)))
+			mux.Handle("GET /api/v1/users", auth(http.HandlerFunc(s.listUsers)))
+			mux.Handle("POST /api/v1/users", auth(http.HandlerFunc(s.createUser)))
+		}
 	}
 	mux.HandleFunc("GET /", s.serveWebApp)
 	return s.cors(mux)
@@ -1430,19 +1454,34 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "Message must be multipart form data.")
-		return
+	var rawContent string
+	var attachments []llm.Attachment
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		var body struct {
+			Content string `json:"content"`
+			Role    string `json:"role,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		rawContent = body.Content
+	} else {
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			writeError(w, http.StatusBadRequest, "Message must be multipart form data or JSON.")
+			return
+		}
+		rawContent = r.FormValue("content")
+		var err error
+		attachments, err = readAttachments(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
-	rawContent := r.FormValue("content")
 	content := strings.TrimSpace(rawContent)
 	if content == "" {
 		writeError(w, http.StatusBadRequest, "Message content is required.")
-		return
-	}
-	attachments, err := readAttachments(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
