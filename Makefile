@@ -1,13 +1,16 @@
-.PHONY: build build-backend test check run start stop install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full android-check
+.PHONY: build build-backend test check run start stop install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full android-check site-dates
 
-run: build
+site-dates:
+	@python3 scripts/update-dates.py
+
+run: site-dates build
 	@if [ ! -f .env ]; then echo "!! .env not found"; exit 1; fi
 	@pkill -f "bin/linea" 2>/dev/null || true
 	export $$(grep -v '^#' .env | xargs) && nohup bin/linea > /tmp/linea.log 2>&1 &
 	@sleep 2
 	@curl -s http://127.0.0.1:8080/healthz && echo ""
 
-start: build-backend
+start: site-dates build-backend
 	ANDROID=$(ANDROID) IOS=$(IOS) MACOS=$(MACOS) NODB=$(NODB) ./scripts/start.sh
 
 stop:

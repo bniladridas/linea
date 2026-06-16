@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Linea architecture.">
+    <title>Architecture</title>
+    <link rel="stylesheet" href="../styles.css">
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f0f0f0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='24' height='24' rx='6' fill='%23151514' stroke='none'/%3E%3Ccircle cx='6' cy='19' r='3'/%3E%3Cpath d='M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15'/%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3C/svg%3E"
+    >
+  </head>
+  <body>
+    <main class="page">
+      <header class="site-header" aria-label="Linea">
+        <a class="home-link" href="../index.html">
+          <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="6" cy="19" r="3"></circle>
+            <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"></path>
+            <circle cx="18" cy="5" r="3"></circle>
+          </svg>
+          <span>Linea</span>
+        </a>
+        <button id="tbtn" class="theme-toggle" aria-label="Toggle theme"></button>
+      </header>
+
+      <article class="article">
+        <p class="kicker">16 Jun 2026</p>
+        <h1>Architecture</h1>
+
+        <p>
+          One Go process serves everything. The React frontend is compiled to static files and embedded via <code>go:embed</code>. No separate server for the UI.
+        </p>
+
+        <p>
+          <strong>Backend</strong> (<code>backend/</code>): Go server with HTTP API, SSE streaming, PostgreSQL or in-memory storage. CLI subcommands for daemon, TUI, migrations, health checks.
+        </p>
+
+        <p>
+          <strong>Frontend</strong> (<code>frontend/</code>): React app built with Vite. Compiled to <code>dist/</code> and embedded into the Go binary. The web UI, macOS app, iOS app, and Android app all use the same API contract.
+        </p>
+
+        <p>
+          <strong>Providers</strong>: Gemini (primary). Cerebras, SambaNova, vLLM, MLX, and generic OpenAI-compatible (secondary). Ollama (local fallback). The runtime picks the first enabled provider in configured order.
+        </p>
+
+        <p>
+          <strong>Store</strong> (<code>backend/internal/store/</code>): <code>Store</code> interface with MemoryStore, PostgresStore, SyncStore (dual-write), RemoteStore (HTTP passthrough). The interface handles conversations, messages, users, API keys, workspaces, and background job records.
+        </p>
+
+        <p>
+          <strong>Agent</strong> (<code>backend/internal/agent/</code>): local agent runtime with guided, auto, and developer loop modes. Tools for file read, search, diagnostics, symbols, references, edit proposals, and command execution. Subagents for isolated work. MCP tools/resources/prompts/subscriptions through stdio servers. Background jobs for persistent autonomous loops.
+        </p>
+
+        <p>
+          <strong>CLI</strong> (<code>linea</code>): server, daemon, install, uninstall, status, tui, migrate, check, version. Same binary, different entry points.
+        </p>
+
+        <p>
+          Layer dependencies: frontend → API → services → store. The Go binary is the single source of truth. All clients connect over HTTP.
+        </p>
+      </article>
+    </main>
+    <script src="/theme.js"></script>
+  </body>
+</html>
