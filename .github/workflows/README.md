@@ -1,6 +1,6 @@
 # GitHub Actions
 
-Updated 12 Jun 2026.
+Updated 17 Jun 2026.
 
 # Required secrets
 
@@ -57,7 +57,7 @@ Runs the app checks on pull requests and pushes.
 
 Runs when a `v*` tag is pushed.
 
-Builds the Apple Silicon binary, packages the macOS DMG, builds iOS `.app`, builds Android debug APK, writes checksums, updates `Formula/linea.rb` and `package.json`, publishes the GitHub release, and publishes to npm.
+Builds the Apple Silicon binary, packages the macOS DMG, builds iOS `.app` (skips without blocking the release on failure), builds Android debug APK, writes checksums, updates `Formula/linea.rb` and `package.json`, publishes the GitHub release, and publishes to npm.
 
 `nightly.yml`
 
