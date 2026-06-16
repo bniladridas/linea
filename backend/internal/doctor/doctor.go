@@ -274,7 +274,7 @@ func CheckVLLMLocalModel(ctx context.Context, cfg config.Config) Result {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.VLLMBaseURL, "/")+"/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.VLLMBaseURL, "/")+"/models", nil)
 	if err != nil {
 		return Result{Name: "vllm local model", Status: Warn, Message: err.Error()}
 	}
@@ -366,7 +366,7 @@ func CheckMLXLocalModel(ctx context.Context, cfg config.Config) Result {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.MLXBaseURL, "/")+"/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.MLXBaseURL, "/")+"/models", nil)
 	if err != nil {
 		return Result{Name: "mlx local model", Status: Warn, Message: err.Error()}
 	}
