@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"linea/backend/internal/llm"
+	"linea/backend/internal/store"
 
 	"github.com/evanw/esbuild/pkg/api"
 )
@@ -3263,31 +3265,50 @@ func (r *Runtime) StartBackgroundJob(ctx context.Context, input BackgroundJobInp
 	}
 	r.mu.Lock()
 	r.backgroundJobs = append(r.backgroundJobs, job)
+	storer := r.backgroundJobStorer
 	r.mu.Unlock()
+	if storer != nil {
+		record := store.BackgroundJobRecord{
+			ID:            job.ID,
+			Goal:          job.Goal,
+			Mode:          input.Mode,
+			State:         "running",
+			MaxIterations: input.MaxIterations,
+			AutoApply:     input.AutoApply,
+		}
+		if _, err := storer.CreateBackgroundJobRecord(ctx, record); err != nil {
+			slog.Warn("persist background job", "error", err)
+		}
+	}
 	return job, nil
 }
 
 func (r *Runtime) CancelBackgroundJob(ctx context.Context, id string) (BackgroundJob, error) {
 	r.mu.Lock()
-	job, loopID, err := func() (BackgroundJob, string, error) {
+	job, loopID, storer, err := func() (BackgroundJob, string, BackgroundJobStorer, error) {
 		for i := range r.backgroundJobs {
 			if r.backgroundJobs[i].ID == id {
 				if r.backgroundJobs[i].State != "running" {
-					return BackgroundJob{}, "", errors.New("Background job is not running.")
+					return BackgroundJob{}, "", nil, errors.New("Background job is not running.")
 				}
 				r.backgroundJobs[i].State = "cancelled"
 				r.backgroundJobs[i].UpdatedAt = time.Now().UTC()
 				job := r.backgroundJobs[i]
-				return job, job.LoopID, nil
+				return job, job.LoopID, r.backgroundJobStorer, nil
 			}
 		}
-		return BackgroundJob{}, "", errors.New("Background job not found.")
+		return BackgroundJob{}, "", nil, errors.New("Background job not found.")
 	}()
 	r.mu.Unlock()
 	if err != nil {
 		return BackgroundJob{}, err
 	}
 	r.CancelAgentLoop(ctx, loopID)
+	if storer != nil {
+		if err := storer.UpdateBackgroundJobRecordState(ctx, id, "cancelled", job.Summary); err != nil {
+			slog.Warn("persist background job cancellation", "error", err)
+		}
+	}
 	return job, nil
 }
 
@@ -3325,34 +3346,50 @@ func (r *Runtime) tickBackgroundJobs(ctx context.Context) {
 			active = append(active, job)
 		}
 	}
+	storer := r.backgroundJobStorer
 	r.mu.RUnlock()
 	for _, job := range active {
 		loop, err := r.ContinueAgentLoop(ctx, job.LoopID, AgentLoopContinueInput{})
 		if err != nil {
+			var wasUpdated bool
 			r.mu.Lock()
 			for i := range r.backgroundJobs {
-				if r.backgroundJobs[i].ID == job.ID {
+				if r.backgroundJobs[i].ID == job.ID && r.backgroundJobs[i].State == "running" {
 					r.backgroundJobs[i].State = "failed"
 					r.backgroundJobs[i].Summary = err.Error()
 					r.backgroundJobs[i].UpdatedAt = time.Now().UTC()
+					wasUpdated = true
 				}
 			}
 			r.mu.Unlock()
+			if storer != nil && wasUpdated {
+				if err := storer.UpdateBackgroundJobRecordState(ctx, job.ID, "failed", err.Error()); err != nil {
+					slog.Warn("persist background job state", "error", err)
+				}
+			}
 			continue
 		}
 		r.mu.Lock()
+		newState := ""
 		for i := range r.backgroundJobs {
-			if r.backgroundJobs[i].ID == job.ID {
+			if r.backgroundJobs[i].ID == job.ID && r.backgroundJobs[i].State == "running" {
 				r.backgroundJobs[i].Summary = loop.Summary
 				r.backgroundJobs[i].UpdatedAt = time.Now().UTC()
 				switch loop.State {
 				case "completed":
 					r.backgroundJobs[i].State = "completed"
+					newState = "completed"
 				case "canceled":
 					r.backgroundJobs[i].State = "cancelled"
+					newState = "cancelled"
 				}
 			}
 		}
 		r.mu.Unlock()
+		if storer != nil && newState != "" {
+			if err := storer.UpdateBackgroundJobRecordState(ctx, job.ID, newState, loop.Summary); err != nil {
+				slog.Warn("persist background job state", "error", err)
+			}
+		}
 	}
 }

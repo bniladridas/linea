@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"linea/backend/internal/store"
 )
 
 type Runtime struct {
@@ -51,7 +53,9 @@ type Runtime struct {
 	unrestricted         bool
 	backgroundJobs       []BackgroundJob
 	backgroundCancel     context.CancelFunc
-	integrationServer   *IntegrationServer
+	integrationServer    *IntegrationServer
+	customSubagents       map[string]Subagent
+	backgroundJobStorer   BackgroundJobStorer
 }
 
 type ProviderInfo struct {
@@ -74,6 +78,12 @@ func (r *Runtime) SetActiveProvider(info ProviderInfo) {
 	if len(r.traces) > 50 {
 		r.traces = r.traces[:50]
 	}
+}
+
+func (r *Runtime) SetBackgroundJobStorer(storer BackgroundJobStorer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.backgroundJobStorer = storer
 }
 
 func (r *Runtime) SetUnrestricted(unrestricted bool) {
@@ -329,6 +339,13 @@ type SubagentPlanInput struct {
 	SubagentIDs []string `json:"subagentIds,omitempty"`
 }
 
+type RegisterSubagentInput struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name,omitempty"`
+	Purpose string   `json:"purpose,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
+}
+
 type SubagentPlanRun struct {
 	ID          string        `json:"id"`
 	Goal        string        `json:"goal"`
@@ -524,11 +541,12 @@ func NewRuntime(rulesPath string, options ...func(*Runtime)) *Runtime {
 	}
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	runtime := &Runtime{
-		shutdownCtx:    shutdownCtx,
-		shutdownCancel: shutdownCancel,
-		rulesPath:      rulesPath,
-		mcpSessions:    map[string]*mcpSession{},
-		mcpListeners:   map[string]func(MCPEvent){},
+		shutdownCtx:      shutdownCtx,
+		shutdownCancel:   shutdownCancel,
+		rulesPath:        rulesPath,
+		mcpSessions:      map[string]*mcpSession{},
+		mcpListeners:     map[string]func(MCPEvent){},
+		customSubagents:  map[string]Subagent{},
 	}
 	for _, option := range options {
 		if option != nil {
@@ -607,7 +625,45 @@ func (r *Runtime) Status(ctx context.Context) Status {
 }
 
 func (r *Runtime) ListSubagents(context.Context) []Subagent {
-	return defaultSubagents()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	all := make([]Subagent, 0, len(defaultSubagents())+len(r.customSubagents))
+	all = append(all, defaultSubagents()...)
+	for _, sa := range r.customSubagents {
+		all = append(all, sa)
+	}
+	return all
+}
+
+func (r *Runtime) RegisterSubagent(_ context.Context, input RegisterSubagentInput) (Subagent, error) {
+	id := strings.TrimSpace(input.ID)
+	if id == "" {
+		return Subagent{}, ErrSubagentIDRequired
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = id
+	}
+	sa := Subagent{
+		ID:      id,
+		Name:    name,
+		Purpose: strings.TrimSpace(input.Purpose),
+		State:   "ready",
+		Tools:   input.Tools,
+	}
+	if len(sa.Tools) == 0 {
+		sa.Tools = []string{"read_file", "search_files"}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.customSubagents[id]; ok {
+		return Subagent{}, ErrSubagentIDExists
+	}
+	if _, ok := findSubagent(id); ok {
+		return Subagent{}, ErrSubagentIDExists
+	}
+	r.customSubagents[id] = sa
+	return sa, nil
 }
 
 func (r *Runtime) RunSummary(context.Context) RunSummary {
@@ -1196,6 +1252,18 @@ func newTraceID() string {
 		return strings.ReplaceAll(time.Now().UTC().Format(time.RFC3339Nano), ":", "")
 	}
 	return hex.EncodeToString(b[:])
+}
+
+type BackgroundJobStorer interface {
+	ListBackgroundJobRecords(ctx context.Context) ([]store.BackgroundJobRecord, error)
+	CreateBackgroundJobRecord(ctx context.Context, job store.BackgroundJobRecord) (store.BackgroundJobRecord, error)
+	UpdateBackgroundJobRecordState(ctx context.Context, id, state, summary string) error
+}
+
+func WithBackgroundJobStorer(storer BackgroundJobStorer) func(*Runtime) {
+	return func(r *Runtime) {
+		r.backgroundJobStorer = storer
+	}
 }
 
 func WithAuditLogPath(path string) func(*Runtime) {
