@@ -23,6 +23,7 @@
           <span>Linea</span>
         </a>
         <a class="plain-link" href="../edits/index.html">Edits</a>
+        <button id="tbtn" class="theme-toggle" aria-label="Toggle theme"></button>
       </header>
 
       <article class="article">
@@ -30,15 +31,23 @@
         <h1>Agents</h1>
 
         <p>
-          Agent loops read, edit, run, call MCP tools.
+          Agent loops read, edit, run, call MCP tools. Subagents handle isolated work.
         </p>
 
         <p>
-          <strong>Modes</strong>: <code>guided</code> pauses every step. <code>auto</code> applies safe edits. <code>developer</code> uses blocklist instead of allowlist.
+          <strong>Modes</strong>: <code>guided</code> pauses every step. <code>auto</code> applies safe edits. <code>developer</code> uses blocklist instead of allowlist. <code>LINEA_AGENT_UNRESTRICTED=1</code> at startup enables full terminal autonomy with extended timeouts.
         </p>
 
         <p>
           <strong>Commands</strong>: categories <code>read</code>, <code>inspect</code>, <code>write</code>, <code>destructive</code>. Auto-approve skips approval. Audit log records everything.
+        </p>
+
+        <p>
+          <strong>Subagents</strong>: built-in roles (review, search, docs, test). Custom subagents registered at runtime via <code>POST /api/agent/subagents/register</code>. Subagent plans run subagents in parallel.
+        </p>
+
+        <p>
+          <strong>Background jobs</strong>: persistent autonomous loops via <code>POST /api/agent/background-jobs</code>. Job state is persisted to the database and survives restarts.
         </p>
 
         <p>
@@ -61,9 +70,18 @@ PATCH /api/agent/edit-proposals/{id} {"status": "approved"}
 # Apply
 POST /api/agent/edit-proposals/{id}/apply
 
-# Background job
+# Background job (persisted)
 POST /api/agent/background-jobs {"goal": "run tests", "mode": "auto"}
 POST /api/agent/background-jobs/{id}/cancel
+
+# Custom subagent
+POST /api/agent/subagents/register {"id": "my-checker", "tools": ["read_file"]}
+
+# Subagent plan (parallel)
+POST /api/agent/subagents/run {"goal": "review", "subagentIds": ["review", "docs"]}
+
+# Unrestricted mode
+POST /api/agent/unrestricted {"unrestricted": true}
 
 # Command check
 POST /api/agent/command-checks {"command": "make test"}
@@ -76,12 +94,14 @@ GET /api/agent/auto-approve-categories
 PUT /api/agent/auto-approve-categories {"categories": ["read", "inspect"]}
 
 # List state
+GET /api/agent/subagents
+GET /api/agent/subagent-plans
 GET /api/agent/command-checks
 GET /api/agent/command-approvals
 GET /api/agent/command-runs</pre>
 
         <p>
-          <strong>Config</strong>: <code>LINEA_WORKSPACE_DIR</code>, <code>LINEA_AGENT_DEVELOPER_MODE</code>, <code>LINEA_AUTO_APPROVE_CATEGORIES</code>, <code>LINEA_AUDIT_LOG_PATH</code>, <code>LINEA_COMMAND_ALLOWLIST</code>.
+          <strong>Config</strong>: <code>LINEA_WORKSPACE_DIR</code>, <code>LINEA_AGENT_DEVELOPER_MODE</code>, <code>LINEA_AGENT_UNRESTRICTED</code>, <code>LINEA_LSP_COMMAND</code>, <code>LINEA_AUTO_APPROVE_CATEGORIES</code>, <code>LINEA_AUDIT_LOG_PATH</code>, <code>LINEA_COMMAND_ALLOWLIST</code>.
         </p>
 
         <p>
@@ -89,9 +109,10 @@ GET /api/agent/command-runs</pre>
         </p>
 
         <p>
-          <strong>TUI</strong>: <code>linea -tui</code>. Commands: <code>:loop &lt;goal&gt;</code>, <code>:loop auto &lt;goal&gt;</code>, <code>:loop developer &lt;goal&gt;</code>, <code>:proposal create &lt;path&gt; &lt;content&gt;</code>, <code>:agent</code>, <code>:checks</code>, <code>:approvals</code>, <code>:runs</code>, <code>:auto-approve &lt;categories...&gt;</code>.
+          <strong>TUI</strong>: <code>linea -tui</code>. Commands: <code>:loop &lt;goal&gt;</code>, <code>:loop auto &lt;goal&gt;</code>, <code>:loop developer &lt;goal&gt;</code>, <code>:proposal create &lt;path&gt; &lt;content&gt;</code>, <code>:subagent [id] [query]</code>, <code>:subagent plan &lt;goal&gt;</code>, <code>:agent</code>, <code>:checks</code>, <code>:approvals</code>, <code>:runs</code>, <code>:auto-approve &lt;categories...&gt;</code>.
         </p>
       </article>
     </main>
+    <script src="/theme.js"></script>
   </body>
 </html>

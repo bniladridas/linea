@@ -19,6 +19,16 @@
   }
 }
 
+html.solarized {
+  color-scheme: light;
+  --background: #fdf6e3;
+  --text: #657b83;
+  --muted: #93a1a1;
+  --line: #eee8d5;
+  --soft: #eee8d5;
+  --accent: #002b36;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -48,6 +58,11 @@ code {
   font-size: 0.92em;
 }
 
+img {
+  max-width: 100%;
+  height: auto;
+}
+
 pre:not(.diff) {
   margin: 0 0 28px;
   padding: 16px;
@@ -57,6 +72,7 @@ pre:not(.diff) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   overflow-x: auto;
+  max-width: 100%;
 }
 
 pre:not(.diff) code {
@@ -87,6 +103,25 @@ pre:not(.diff) code {
   align-items: center;
   gap: 12px;
   text-decoration: none;
+}
+
+.theme-toggle {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  border-color: var(--text);
 }
 
 .plain-link {
@@ -253,28 +288,48 @@ h1 {
 @media (max-width: 640px) {
   body {
     font-size: 17px;
+    -webkit-text-size-adjust: 100%;
   }
 
   .page {
     width: min(100% - 32px, 760px);
-    padding-top: 32px;
+    padding: 24px 0 48px;
   }
 
   .site-header {
-    margin-bottom: 72px;
+    margin-bottom: 48px;
+    min-height: 44px;
+  }
+
+  .site-header a,
+  .site-header span {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
   }
 
   h1 {
-    font-size: 42px;
+    font-size: 36px;
   }
 
   .intro p:not(.kicker) {
     font-size: 19px;
   }
 
+  .intro {
+    max-width: 100%;
+  }
+
   .note-link {
     grid-template-columns: 1fr;
     gap: 4px;
+    padding: 18px 0;
+    min-height: 44px;
+  }
+
+  pre:not(.diff) {
+    padding: 12px;
+    font-size: 13px;
   }
 
   .diff {
@@ -289,5 +344,19 @@ h1 {
 
   .diff-card h3 {
     padding: 10px 12px;
+  }
+
+  code {
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 400px) {
+  h1 {
+    font-size: 28px;
+  }
+
+  .page {
+    padding-top: 16px;
   }
 }
