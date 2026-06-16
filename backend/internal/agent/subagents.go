@@ -5,7 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
+)
+
+var (
+	ErrSubagentIDRequired    = errors.New("Subagent ID is required.")
+	ErrSubagentIDExists      = errors.New("Subagent ID already exists.")
+	ErrSubagentUnknown       = errors.New("Unknown subagent ID.")
+	ErrSubagentPlanDepth     = errors.New("Subagent plan depth limit reached.")
+	ErrSubagentPlanGoal      = errors.New("Subagent plan goal or query is required.")
 )
 
 const (
@@ -16,9 +25,9 @@ const (
 )
 
 func (r *Runtime) RunSubagent(ctx context.Context, subagentID string, input SubagentRunInput) (SubagentRun, error) {
-	subagent, ok := findSubagent(subagentID)
+	subagent, ok := r.findSubagentCustom(subagentID)
 	if !ok {
-		return SubagentRun{}, errors.New("Unknown subagent ID.")
+		return SubagentRun{}, ErrSubagentUnknown
 	}
 	subCtx, cancel := context.WithTimeout(ctx, maxSubagentDuration)
 	defer cancel()
@@ -126,26 +135,39 @@ func (r *Runtime) ListSubagentPlans(context.Context) []SubagentPlanRun {
 }
 
 func (r *Runtime) RunSubagentPlan(ctx context.Context, input SubagentPlanInput) (SubagentPlanRun, error) {
-	ids, err := selectSubagentPlan(input, 0)
+	customSubagents := r.copyCustomSubagents()
+	ids, err := selectSubagentPlan(input, customSubagents, 0)
 	if err != nil {
 		return SubagentPlanRun{}, err
 	}
-	runs := make([]SubagentRun, 0, len(ids))
+	runs := make([]SubagentRun, len(ids))
+	parts := make([]string, len(ids))
 	state := "completed"
-	parts := make([]string, 0, len(ids))
-	for _, id := range ids {
-		run, runErr := r.RunSubagent(ctx, id, SubagentRunInput{Goal: input.Goal, Query: input.Query})
-		if runErr != nil {
-			return SubagentPlanRun{}, runErr
-		}
-		runs = append(runs, run)
-		parts = append(parts, fmt.Sprintf("%s %s", run.SubagentID, run.State))
-		if run.State == "blocked" {
-			state = "blocked"
-		} else if state == "completed" && (run.State == "waiting_input" || run.State == "attention") {
-			state = "attention"
-		}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Add(1)
+		go func(index int, subagentID string) {
+			defer wg.Done()
+			run, runErr := r.RunSubagent(ctx, subagentID, SubagentRunInput{Goal: input.Goal, Query: input.Query})
+			mu.Lock()
+			defer mu.Unlock()
+			if runErr != nil {
+				runs[index] = SubagentRun{ID: newTraceID(), SubagentID: subagentID, State: "blocked", Summary: runErr.Error(), CreatedAt: time.Now().UTC()}
+				parts[index] = fmt.Sprintf("%s blocked", subagentID)
+				state = "blocked"
+			} else {
+				runs[index] = run
+				parts[index] = fmt.Sprintf("%s %s", run.SubagentID, run.State)
+				if run.State == "blocked" {
+					state = "blocked"
+				} else if state == "completed" && (run.State == "waiting_input" || run.State == "attention") {
+					state = "attention"
+				}
+			}
+		}(i, id)
 	}
+	wg.Wait()
 	goal := strings.TrimSpace(input.Goal)
 	if goal == "" {
 		goal = strings.TrimSpace(input.Query)
@@ -171,6 +193,16 @@ func (r *Runtime) RunSubagentPlan(ctx context.Context, input SubagentPlanInput) 
 	return plan, nil
 }
 
+func (r *Runtime) copyCustomSubagents() map[string]Subagent {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	m := make(map[string]Subagent, len(r.customSubagents))
+	for k, v := range r.customSubagents {
+		m[k] = v
+	}
+	return m
+}
+
 func (r *Runtime) statusSubagentPlans() []SubagentPlanRun {
 	items := r.ListSubagentPlans(context.Background())
 	if len(items) > 5 {
@@ -179,9 +211,9 @@ func (r *Runtime) statusSubagentPlans() []SubagentPlanRun {
 	return items
 }
 
-func selectSubagentPlan(input SubagentPlanInput, depth int) ([]string, error) {
+func selectSubagentPlan(input SubagentPlanInput, customSubagents map[string]Subagent, depth int) ([]string, error) {
 	if depth > 3 {
-		return nil, errors.New("Subagent plan depth limit reached.")
+		return nil, ErrSubagentPlanDepth
 	}
 	seen := map[string]bool{}
 	ids := []string{}
@@ -191,7 +223,9 @@ func selectSubagentPlan(input SubagentPlanInput, depth int) ([]string, error) {
 			return nil
 		}
 		if _, ok := findSubagent(id); !ok {
-			return errors.New("Unknown subagent ID.")
+			if _, ok := customSubagents[id]; !ok {
+				return ErrSubagentUnknown
+			}
 		}
 		if len(ids) >= maxSubagentPlanChildren {
 			return nil
@@ -210,7 +244,7 @@ func selectSubagentPlan(input SubagentPlanInput, depth int) ([]string, error) {
 	}
 	goal := strings.ToLower(strings.TrimSpace(input.Goal + " " + input.Query))
 	if goal == "" {
-		return nil, errors.New("Subagent plan goal or query is required.")
+		return nil, ErrSubagentPlanGoal
 	}
 	if strings.Contains(goal, "review") || strings.Contains(goal, "diagnostic") || strings.Contains(goal, "fix") || strings.Contains(goal, "test") || strings.Contains(goal, "check") {
 		if err := add("review"); err != nil {
@@ -246,6 +280,20 @@ func findSubagent(id string) (Subagent, bool) {
 		}
 	}
 	return Subagent{}, false
+}
+
+func (r *Runtime) findSubagentCustom(id string) (Subagent, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Subagent{}, false
+	}
+	r.mu.RLock()
+	sa, ok := r.customSubagents[id]
+	r.mu.RUnlock()
+	if ok {
+		return sa, true
+	}
+	return findSubagent(id)
 }
 
 func subagentStateForError(err error) string {

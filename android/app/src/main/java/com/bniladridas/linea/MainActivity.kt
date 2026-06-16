@@ -1,6 +1,7 @@
 package com.bniladridas.linea
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.ViewGroup
@@ -9,26 +10,28 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
  * Linea Android app.
  *
- * The bundled Go server binary (jniLibs/arm64-v8a/liblinea.so) is extracted
- * by the Android package manager at install time. This activity spawns it as
- * a subprocess, waits for it to become healthy, then loads the React UI in a
- * WebView - mirroring the macOS Swift wrapper.
+ * Bundles the Go server binary as an asset (assets/linea-android-arm64).
+ * On launch, extracts it to internal storage, spawns it as a subprocess,
+ * waits for it to become healthy, then loads the React UI in a WebView.
  *
  * Build with `make android-check` or manually:
  *   cd android && GOOS=android GOARCH=arm64 CGO_ENABLED=0 \
- *     go build -o app/src/main/jniLibs/arm64-v8a/liblinea.so ../backend/cmd/server
+ *     go build -o app/src/main/assets/linea-android-arm64 ../backend/cmd/server
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    private var serverProcess: java.lang.Process? = null
 
-    private val serverUrl = "http://10.0.2.2:8080"
+    private val serverPort = 8080
+    private val serverUrl get() = "http://127.0.0.1:$serverPort"
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,7 +47,7 @@ class MainActivity : AppCompatActivity() {
                     request: WebResourceRequest
                 ): Boolean {
                     val host = request.url.host ?: return true
-                    return host != "10.0.2.2"
+                    return host != "127.0.0.1"
                 }
                 override fun onPageFinished(view: WebView, url: String) {
                     view.evaluateJavascript(
@@ -63,8 +66,11 @@ class MainActivity : AppCompatActivity() {
         }
         setContentView(root)
 
-        // Connect to the host Go server (same instance as iOS).
         Thread {
+            val binary = extractBinary()
+            if (binary != null) {
+                startServer(binary)
+            }
             val ready = waitForServer()
             runOnUiThread {
                 if (ready) {
@@ -94,11 +100,50 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        serverProcess?.destroy()
         webView.destroy()
         super.onDestroy()
     }
 
     // ── private helpers ────────────────────────────────────────────────────
+
+    /** Extract the bundled Go binary from assets to internal storage. */
+    private fun extractBinary(): File? {
+        val assetName = "linea-android-arm64"
+        val binary = File(filesDir, assetName)
+        if (binary.exists()) {
+            return binary
+        }
+        return try {
+            assets.open(assetName).use { input ->
+                binary.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            binary.setExecutable(true)
+            binary
+        } catch (e: Exception) {
+            android.util.Log.e("Linea", "Failed to extract binary", e)
+            null
+        }
+    }
+
+    /** Start the bundled Linea server as a subprocess. */
+    private fun startServer(binary: File) {
+        try {
+            val pb = java.lang.ProcessBuilder(
+                binary.absolutePath,
+                "server",
+                "--addr", "127.0.0.1:$serverPort"
+            )
+            pb.directory(filesDir)
+            pb.environment()["LINEA_ENV_FILE"] = "/dev/null"
+            pb.environment()["LINEA_AGENT_DEVELOPER_MODE"] = "0"
+            serverProcess = pb.start()
+        } catch (e: Exception) {
+            android.util.Log.e("Linea", "Failed to start server", e)
+        }
+    }
 
     /** Poll /healthz for up to 20 seconds, matching the macOS wrapper. */
     private fun waitForServer(): Boolean {

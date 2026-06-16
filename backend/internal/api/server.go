@@ -72,6 +72,7 @@ type AgentRuntime interface {
 	ListSubagentPlans(context.Context) []agent.SubagentPlanRun
 	RunSubagent(context.Context, string, agent.SubagentRunInput) (agent.SubagentRun, error)
 	RunSubagentPlan(context.Context, agent.SubagentPlanInput) (agent.SubagentPlanRun, error)
+	RegisterSubagent(context.Context, agent.RegisterSubagentInput) (agent.Subagent, error)
 	ListMCPServers(context.Context) []agent.MCPServer
 	ListMCPTools(context.Context) []agent.MCPTool
 	ListMCPResources(context.Context) []agent.MCPResource
@@ -255,6 +256,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/agent/subagent-plans", s.listAgentSubagentPlans)
 	mux.HandleFunc("POST /api/agent/subagents/run", s.runAgentSubagentPlan)
 	mux.HandleFunc("POST /api/agent/subagents/{id}/run", s.runAgentSubagent)
+	mux.HandleFunc("POST /api/agent/subagents/register", s.registerAgentSubagent)
 	mux.HandleFunc("GET /api/agent/mcp-servers", s.listAgentMCPServers)
 	mux.HandleFunc("GET /api/agent/mcp-tools", s.listAgentMCPTools)
 	mux.HandleFunc("GET /api/agent/mcp-resources", s.listAgentMCPResources)
@@ -488,6 +490,29 @@ func (s *Server) runAgentSubagentPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAgentTrace(r.Context(), "subagent plan", plan.State, strings.Join(plan.SubagentIDs, ","))
 	writeJSON(w, http.StatusCreated, plan)
+}
+
+func (s *Server) registerAgentSubagent(w http.ResponseWriter, r *http.Request) {
+	if s.agentRuntime == nil {
+		writeError(w, http.StatusNotFound, "Agent subagents are not available.")
+		return
+	}
+	var input agent.RegisterSubagentInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
+	}
+	sa, err := s.agentRuntime.RegisterSubagent(r.Context(), input)
+	if err != nil {
+		if errors.Is(err, agent.ErrSubagentIDExists) {
+			writeError(w, http.StatusConflict, err.Error())
+		} else {
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	s.recordAgentTrace(r.Context(), "subagent register", "ready", sa.ID)
+	writeJSON(w, http.StatusCreated, sa)
 }
 
 func (s *Server) runAgentSubagent(w http.ResponseWriter, r *http.Request) {

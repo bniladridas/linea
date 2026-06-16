@@ -573,6 +573,58 @@ func (s *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID st
 	return items, rows.Err()
 }
 
+func (s *PostgresStore) ListBackgroundJobRecords(ctx context.Context) ([]BackgroundJobRecord, error) {
+	rows, err := s.pool.Query(ctx, `
+		select id, goal, mode, state, summary, max_iterations, auto_apply, created_by, workspace_id, created_at, updated_at
+		from background_jobs
+		order by created_at desc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BackgroundJobRecord
+	for rows.Next() {
+		var j BackgroundJobRecord
+		if err := rows.Scan(&j.ID, &j.Goal, &j.Mode, &j.State, &j.Summary, &j.MaxIterations, &j.AutoApply, &j.CreatedBy, &j.WorkspaceID, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, j)
+	}
+	return items, rows.Err()
+}
+
+func (s *PostgresStore) CreateBackgroundJobRecord(ctx context.Context, job BackgroundJobRecord) (BackgroundJobRecord, error) {
+	if job.ID == "" {
+		job.ID = NewID()
+	}
+	if job.State == "" {
+		job.State = "pending"
+	}
+	if job.Mode == "" {
+		job.Mode = "auto"
+	}
+	err := s.pool.QueryRow(ctx, `
+		insert into background_jobs (id, goal, mode, state, summary, max_iterations, auto_apply, created_by, workspace_id)
+		values ($1, $2, $3, $4, $5, $6, $7, nullif($8, ''), nullif($9, ''))
+		returning id, goal, mode, state, summary, max_iterations, auto_apply, created_by, workspace_id, created_at, updated_at`,
+		job.ID, job.Goal, job.Mode, job.State, job.Summary, job.MaxIterations, job.AutoApply, job.CreatedBy, job.WorkspaceID,
+	).Scan(&job.ID, &job.Goal, &job.Mode, &job.State, &job.Summary, &job.MaxIterations, &job.AutoApply, &job.CreatedBy, &job.WorkspaceID, &job.CreatedAt, &job.UpdatedAt)
+	return job, err
+}
+
+func (s *PostgresStore) UpdateBackgroundJobRecordState(ctx context.Context, id, state, summary string) error {
+	tag, err := s.pool.Exec(ctx, `
+		update background_jobs set state = $1, summary = $2, updated_at = now()
+		where id = $3`, state, summary, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *PostgresStore) Close() error { s.pool.Close(); return nil }
 
 func IsNoRows(err error) bool {

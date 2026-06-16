@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"linea/backend/internal/store"
 )
 
 func TestMain(m *testing.M) {
@@ -2370,6 +2372,170 @@ func TestRuntimeSubagentPlanHonorsExplicitIDs(t *testing.T) {
 	}
 }
 
+func TestRegisterSubagent(t *testing.T) {
+	runtime := NewRuntime("")
+
+	t.Run("basic registration", func(t *testing.T) {
+		sa, err := runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{
+			ID:      "my-agent",
+			Name:    "My Agent",
+			Purpose: "Does something useful",
+			Tools:   []string{"read_file"},
+		})
+		if err != nil {
+			t.Fatalf("RegisterSubagent() error = %v", err)
+		}
+		if sa.ID != "my-agent" {
+			t.Fatalf("ID = %q, want %q", sa.ID, "my-agent")
+		}
+		if sa.Name != "My Agent" {
+			t.Fatalf("Name = %q, want %q", sa.Name, "My Agent")
+		}
+		if sa.Purpose != "Does something useful" {
+			t.Fatalf("Purpose = %q", sa.Purpose)
+		}
+		if sa.State != "ready" {
+			t.Fatalf("State = %q, want ready", sa.State)
+		}
+		if len(sa.Tools) != 1 || sa.Tools[0] != "read_file" {
+			t.Fatalf("Tools = %#v", sa.Tools)
+		}
+	})
+
+	t.Run("empty ID returns error", func(t *testing.T) {
+		_, err := runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{
+			ID:   "  ",
+			Name: "Bad",
+		})
+		if err == nil {
+			t.Fatal("expected error for empty ID")
+		}
+	})
+
+	t.Run("duplicate ID returns error", func(t *testing.T) {
+		_, err := runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{
+			ID: "my-agent",
+		})
+		if err == nil {
+			t.Fatal("expected error for duplicate ID")
+		}
+	})
+
+	t.Run("built-in ID returns error", func(t *testing.T) {
+		_, err := runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{
+			ID: "review",
+		})
+		if err == nil {
+			t.Fatal("expected error for built-in ID")
+		}
+		_, err = runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{
+			ID: "search",
+		})
+		if err == nil {
+			t.Fatal("expected error for built-in ID")
+		}
+	})
+
+	t.Run("name defaults to ID", func(t *testing.T) {
+		sa, err := runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{
+			ID: "name-default",
+		})
+		if err != nil {
+			t.Fatalf("RegisterSubagent() error = %v", err)
+		}
+		if sa.Name != "name-default" {
+			t.Fatalf("Name = %q, want %q", sa.Name, "name-default")
+		}
+	})
+
+	t.Run("empty tools gets defaults", func(t *testing.T) {
+		sa, err := runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{
+			ID: "no-tools",
+		})
+		if err != nil {
+			t.Fatalf("RegisterSubagent() error = %v", err)
+		}
+		if len(sa.Tools) != 2 || sa.Tools[0] != "read_file" || sa.Tools[1] != "search_files" {
+			t.Fatalf("Tools = %#v, want default tools", sa.Tools)
+		}
+	})
+
+	t.Run("custom appears in ListSubagents", func(t *testing.T) {
+		all := runtime.ListSubagents(context.Background())
+		found := false
+		for _, sa := range all {
+			if sa.ID == "my-agent" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("custom subagent not found in ListSubagents")
+		}
+	})
+}
+
+func TestRunSubagentPlanWithCustomSubagent(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
+	runtime := NewRuntime("", WithWorkspaceRoot(root))
+
+	_, err := runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{
+		ID:      "custom-checker",
+		Purpose: "Custom code checker",
+		Tools:   []string{"read_file"},
+	})
+	if err != nil {
+		t.Fatalf("RegisterSubagent() error = %v", err)
+	}
+
+	plan, err := runtime.RunSubagentPlan(context.Background(), SubagentPlanInput{
+		Goal:        "run custom checker",
+		SubagentIDs: []string{"custom-checker", "search"},
+	})
+	if err != nil {
+		t.Fatalf("RunSubagentPlan() error = %v", err)
+	}
+	if len(plan.SubagentIDs) != 2 {
+		t.Fatalf("plan ids = %#v, want 2", plan.SubagentIDs)
+	}
+	if plan.SubagentIDs[0] != "custom-checker" {
+		t.Fatalf("first id = %q, want custom-checker", plan.SubagentIDs[0])
+	}
+	if plan.SubagentIDs[1] != "search" {
+		t.Fatalf("second id = %q, want search", plan.SubagentIDs[1])
+	}
+}
+
+func TestFindSubagentCustom(t *testing.T) {
+	runtime := NewRuntime("")
+
+	// Custom subagent found
+	runtime.RegisterSubagent(context.Background(), RegisterSubagentInput{ID: "my-finder"})
+	sa, ok := runtime.findSubagentCustom("my-finder")
+	if !ok {
+		t.Fatal("findSubagentCustom(my-finder) = false, want true")
+	}
+	if sa.ID != "my-finder" {
+		t.Fatalf("ID = %q", sa.ID)
+	}
+
+	// Default subagent found via fallback
+	sa, ok = runtime.findSubagentCustom("review")
+	if !ok {
+		t.Fatal("findSubagentCustom(review) = false, want true")
+	}
+	if sa.ID != "review" {
+		t.Fatalf("ID = %q", sa.ID)
+	}
+
+	// Unknown ID not found
+	_, ok = runtime.findSubagentCustom("nonexistent")
+	if ok {
+		t.Fatal("findSubagentCustom(nonexistent) = true, want false")
+	}
+}
+
 func TestRuntimeListsWorkspaceSymbols(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nvar Foo, Bar int\ntype App struct{}\nfunc Run() {}\n")
@@ -4681,6 +4847,70 @@ func TestRuntimeCancelBackgroundJobNotRunning(t *testing.T) {
 	_, err = runtime.CancelBackgroundJob(context.Background(), job.ID)
 	if err == nil {
 		t.Fatal("second CancelBackgroundJob() error = nil, want error")
+	}
+}
+
+func TestRuntimeStartBackgroundJobPersistsToStorer(t *testing.T) {
+	ms := store.NewMemoryStore()
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+	runtime.SetBackgroundJobStorer(ms)
+
+	job, err := runtime.StartBackgroundJob(context.Background(), BackgroundJobInput{Goal: "persist test"})
+	if err != nil {
+		t.Fatalf("StartBackgroundJob() error = %v", err)
+	}
+
+	records, _ := ms.ListBackgroundJobRecords(context.Background())
+	if len(records) != 1 {
+		t.Fatalf("storer records = %d, want 1", len(records))
+	}
+	if records[0].ID != job.ID {
+		t.Fatalf("record ID = %q, want %q", records[0].ID, job.ID)
+	}
+	if records[0].Goal != "persist test" {
+		t.Fatalf("record Goal = %q, want %q", records[0].Goal, "persist test")
+	}
+	if records[0].State != "running" {
+		t.Fatalf("record State = %q, want %q", records[0].State, "running")
+	}
+}
+
+func TestRuntimeCancelBackgroundJobUpdatesStorer(t *testing.T) {
+	ms := store.NewMemoryStore()
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()))
+	runtime.SetBackgroundJobStorer(ms)
+
+	job, err := runtime.StartBackgroundJob(context.Background(), BackgroundJobInput{Goal: "cancel persist"})
+	if err != nil {
+		t.Fatalf("StartBackgroundJob() error = %v", err)
+	}
+
+	_, err = runtime.CancelBackgroundJob(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("CancelBackgroundJob() error = %v", err)
+	}
+
+	records, _ := ms.ListBackgroundJobRecords(context.Background())
+	if len(records) != 1 {
+		t.Fatalf("storer records = %d, want 1", len(records))
+	}
+	if records[0].State != "cancelled" {
+		t.Fatalf("record State = %q, want %q", records[0].State, "cancelled")
+	}
+}
+
+func TestRuntimeWithBackgroundJobStorerOption(t *testing.T) {
+	ms := store.NewMemoryStore()
+	runtime := NewRuntime("", WithWorkspaceRoot(t.TempDir()), WithBackgroundJobStorer(ms))
+
+	_, err := runtime.StartBackgroundJob(context.Background(), BackgroundJobInput{Goal: "option test"})
+	if err != nil {
+		t.Fatalf("StartBackgroundJob() error = %v", err)
+	}
+
+	records, _ := ms.ListBackgroundJobRecords(context.Background())
+	if len(records) != 1 {
+		t.Fatalf("storer records = %d, want 1", len(records))
 	}
 }
 

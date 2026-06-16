@@ -208,6 +208,18 @@ func (s *RemoteStore) ListWorkspaceMembers(_ context.Context, _ string) ([]Works
 	return nil, errors.New("remote store: ListWorkspaceMembers not supported")
 }
 
+func (s *RemoteStore) ListBackgroundJobRecords(_ context.Context) ([]BackgroundJobRecord, error) {
+	return nil, errors.New("remote store: ListBackgroundJobRecords not supported")
+}
+
+func (s *RemoteStore) CreateBackgroundJobRecord(_ context.Context, _ BackgroundJobRecord) (BackgroundJobRecord, error) {
+	return BackgroundJobRecord{}, errors.New("remote store: CreateBackgroundJobRecord not supported")
+}
+
+func (s *RemoteStore) UpdateBackgroundJobRecordState(_ context.Context, _, _, _ string) error {
+	return errors.New("remote store: UpdateBackgroundJobRecordState not supported")
+}
+
 func (s *RemoteStore) Close() error { return nil }
 
 func (s *RemoteStore) AddAgentRun(ctx context.Context, state string, summary json.RawMessage) (AgentRun, error) {

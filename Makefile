@@ -96,4 +96,6 @@ ui-check-full:
 	node scripts/ui-smoke.mjs --send --search-sources --attachment --light-theme --mobile
 
 android-check:
+	cd backend && GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(VERSION)" -o ../android/app/src/main/assets/linea-android-arm64 ./cmd/server
 	cd android && ./gradlew assembleDebug
+	@echo "APK at android/app/build/outputs/apk/debug/app-debug.apk"

@@ -17,6 +17,11 @@ func NewHandler(mgr *Manager) *Handler {
 	return &Handler{mgr: mgr}
 }
 
+type RegisterResult struct {
+	User   store.User `json:"user"`
+	APIKey APIKey     `json:"apiKey"`
+}
+
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/saas/users", h.createUser)
 	mux.HandleFunc("GET /api/saas/users", h.listUsers)
@@ -28,6 +33,46 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/saas/workspaces/{id}/members", h.addWorkspaceMember)
 	mux.HandleFunc("DELETE /api/saas/workspaces/{id}/members/{userId}", h.removeWorkspaceMember)
 	mux.HandleFunc("GET /api/saas/workspaces/{id}/members", h.listWorkspaceMembers)
+}
+
+func (h *Handler) RegisterPublic(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/auth/register", h.registerUser)
+}
+
+func (h *Handler) registerUser(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Email == "" {
+		writeError(w, http.StatusBadRequest, "email is required")
+		return
+	}
+	if body.Name == "" {
+		body.Name = body.Email
+	}
+
+	user, err := h.mgr.CreateUser(r.Context(), body.Email, body.Name)
+	if err != nil {
+		if errors.Is(err, ErrEmailExists) {
+			writeError(w, http.StatusConflict, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	key, err := h.mgr.CreateKey(r.Context(), user.ID, "default", "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, RegisterResult{User: user, APIKey: key})
 }
 
 func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {

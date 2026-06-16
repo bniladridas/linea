@@ -288,6 +288,21 @@ Runs a bounded subagent plan. Linea selects up to three relevant subagents from 
 }
 ```
 
+`POST /api/agent/subagents/register`
+
+Registers a custom bounded subagent at runtime. The subagent appears in the agent subagents list immediately and can be used in subsequent subagent plans.
+
+```json
+{
+  "id": "custom-checker",
+  "name": "Custom Checker",
+  "purpose": "Checks code for issues.",
+  "tools": ["read_file", "search_files"]
+}
+```
+
+`id` is required. `name` defaults to `id` when empty. `tools` defaults to `["read_file", "search_files"]` when empty. Returns `201` on success, `409` if the ID already exists.
+
 `GET /api/agent/subagent-plans`
 
 Returns recent bounded subagent plan runs.
@@ -1217,6 +1232,27 @@ Removes a member from a workspace. Returns `204` on success, `404` if not found.
 `GET /api/saas/workspaces/{id}/members`
 
 Returns all members of a workspace.
+
+## SaaS Self-Service Signup
+
+`POST /api/v1/auth/register`
+
+Creates a user and API key in one call. This endpoint is public (no auth required) and intended for self-service signup flows.
+
+```json
+{"email":"user@example.com","name":"User"}
+```
+
+`email` is required. `name` defaults to `email` when empty. Returns `201` with both the user and the raw API key:
+
+```json
+{
+  "user": {"id":"user-id","email":"user@example.com","name":"User","createdAt":"...","updatedAt":"..."},
+  "apiKey": {"id":"key-id","key":"lin_...","userId":"user-id","name":"default","createdAt":"..."}
+}
+```
+
+The `key` field is returned only at creation time. Returns `409` if the email already exists.
 
 ## SaaS API Key Auth
 
