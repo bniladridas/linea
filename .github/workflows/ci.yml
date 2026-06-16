@@ -1,11 +1,11 @@
-name: ci
+name: CI
 
 on:
   push:
   pull_request:
 
 jobs:
-  check:
+  test:
     runs-on: ubuntu-latest
 
     steps:
@@ -13,7 +13,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -41,3 +41,7 @@ jobs:
       - name: Build backend
         working-directory: backend
         run: go build -o ../bin/linea ./cmd/server
+
+      - name: Doctor check (provider wiring)
+        working-directory: backend
+        run: ./bin/linea check || true
