@@ -172,6 +172,42 @@ func (s *RemoteStore) DeleteSession(_ context.Context, _ string) error {
 	return errors.New("remote store: DeleteSession not supported")
 }
 
+func (s *RemoteStore) CreateSaasAPIKey(_ context.Context, _ SaasAPIKey) (SaasAPIKey, error) {
+	return SaasAPIKey{}, errors.New("remote store: CreateSaasAPIKey not supported")
+}
+
+func (s *RemoteStore) ListSaasAPIKeys(_ context.Context) ([]SaasAPIKey, error) {
+	return nil, errors.New("remote store: ListSaasAPIKeys not supported")
+}
+
+func (s *RemoteStore) DeleteSaasAPIKey(_ context.Context, _ string) error {
+	return errors.New("remote store: DeleteSaasAPIKey not supported")
+}
+
+func (s *RemoteStore) GetSaasAPIKeyByHash(_ context.Context, _ string) (SaasAPIKey, error) {
+	return SaasAPIKey{}, errors.New("remote store: GetSaasAPIKeyByHash not supported")
+}
+
+func (s *RemoteStore) CreateWorkspace(_ context.Context, _ string) (Workspace, error) {
+	return Workspace{}, errors.New("remote store: CreateWorkspace not supported")
+}
+
+func (s *RemoteStore) ListWorkspaces(_ context.Context) ([]Workspace, error) {
+	return nil, errors.New("remote store: ListWorkspaces not supported")
+}
+
+func (s *RemoteStore) AddWorkspaceMember(_ context.Context, _, _ string) error {
+	return errors.New("remote store: AddWorkspaceMember not supported")
+}
+
+func (s *RemoteStore) RemoveWorkspaceMember(_ context.Context, _, _ string) error {
+	return errors.New("remote store: RemoveWorkspaceMember not supported")
+}
+
+func (s *RemoteStore) ListWorkspaceMembers(_ context.Context, _ string) ([]WorkspaceMember, error) {
+	return nil, errors.New("remote store: ListWorkspaceMembers not supported")
+}
+
 func (s *RemoteStore) Close() error { return nil }
 
 func (s *RemoteStore) AddAgentRun(ctx context.Context, state string, summary json.RawMessage) (AgentRun, error) {

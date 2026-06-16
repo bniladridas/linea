@@ -25,6 +25,7 @@ import (
 	"linea/backend/internal/llm"
 	"linea/backend/internal/migrate"
 	"linea/backend/internal/oauth"
+	"linea/backend/internal/saas"
 	"linea/backend/internal/search"
 	"linea/backend/internal/store"
 	"linea/backend/internal/tui"
@@ -203,7 +204,12 @@ func runServer() {
 
 	apiServer := api.NewServerWithAgentRuntime(appStore, llmClient, newSearchClient(cfg), staticFiles, cfg.WebOrigin, version, func(ctx context.Context) api.Status { return appStatus(ctx, cfg, settingsStore.GetSettings()) }, settingsStore, agentRuntime)
 	apiServer.SetOAuthRegistry(oauthRegistry)
-	if cfg.EnableAPI {
+
+	if cfg.LineaSaasMode {
+		apiServer.EnableSaaS()
+		apiServer.EnableAPIRoutes()
+		slog.Info("saas mode enabled")
+	} else if cfg.EnableAPI {
 		if cfg.APIKey == "" {
 			slog.Warn("LINEA_ENABLE_API is set but LINEA_API_KEY is empty; server continuing without /api/v1/* routes")
 		} else {
@@ -217,9 +223,25 @@ func runServer() {
 		apiServer.EnableAccounts()
 	}
 
+	handler := apiServer.Handler()
+	if cfg.LineaSaasMode {
+		saasMgr := saas.NewManager(appStore)
+		saasMgr.SetAdminKey(cfg.LineaSaasAdminKey)
+		if cfg.LineaSaasAdminKey == "" {
+			slog.Warn("saas mode active without LINEA_SAAS_ADMIN_KEY; admin endpoints are unprotected")
+		}
+		saasH := saas.NewHandler(saasMgr)
+		saasMux := http.NewServeMux()
+		saasH.Register(saasMux)
+		adminHandler := saas.AdminMiddleware(saasMgr, saasMux)
+		mux := http.NewServeMux()
+		mux.Handle("/", handler)
+		handler = saas.Middleware(saasMgr, adminHandler, mux)
+	}
+
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           apiServer.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -981,12 +1003,12 @@ func newRoutingAssistant(cfg config.Config, settings *providerSettingsStore) *ro
 	return &routingAssistant{
 		settings: settings,
 		clients: map[string]llm.Streamer{
-			"gemini":    llm.NewCooldownClient("gemini", llm.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel), providerCooldown),
-			"sambanova": llm.NewCooldownClient("sambanova", llm.NewOpenAICompatibleClient("sambanova", cfg.SambaNovaBaseURL, cfg.SambaNovaAPIKey, cfg.SambaNovaModel), providerCooldown),
-			"cerebras":  llm.NewCooldownClient("cerebras", llm.NewOpenAICompatibleClient("cerebras", cfg.CerebrasBaseURL, cfg.CerebrasAPIKey, cfg.CerebrasModel), providerCooldown),
-			"ollama":    llm.NewCooldownClient("ollama", llm.NewOllamaClient(cfg.OllamaBaseURL, cfg.OllamaModel), providerCooldown),
-			"vllm":     llm.NewCooldownClient("vllm", llm.NewOpenAICompatibleClient("vllm", cfg.VLLMBaseURL, "", cfg.VLLMModel), providerCooldown),
-			"mlx":      llm.NewCooldownClient("mlx", llm.NewOpenAICompatibleClient("mlx", cfg.MLXBaseURL, "", cfg.MLXModel), providerCooldown),
+			"gemini":            llm.NewCooldownClient("gemini", llm.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel), providerCooldown),
+			"sambanova":         llm.NewCooldownClient("sambanova", llm.NewOpenAICompatibleClient("sambanova", cfg.SambaNovaBaseURL, cfg.SambaNovaAPIKey, cfg.SambaNovaModel), providerCooldown),
+			"cerebras":          llm.NewCooldownClient("cerebras", llm.NewOpenAICompatibleClient("cerebras", cfg.CerebrasBaseURL, cfg.CerebrasAPIKey, cfg.CerebrasModel), providerCooldown),
+			"ollama":            llm.NewCooldownClient("ollama", llm.NewOllamaClient(cfg.OllamaBaseURL, cfg.OllamaModel), providerCooldown),
+			"vllm":              llm.NewCooldownClient("vllm", llm.NewOpenAICompatibleClient("vllm", cfg.VLLMBaseURL, "", cfg.VLLMModel), providerCooldown),
+			"mlx":               llm.NewCooldownClient("mlx", llm.NewOpenAICompatibleClient("mlx", cfg.MLXBaseURL, "", cfg.MLXModel), providerCooldown),
 			"openai-compatible": llm.NewCooldownClient("openai-compatible", llm.NewOpenAICompatibleClient("openai-compatible", cfg.OpenAICompatibleBaseURL, cfg.OpenAICompatibleAPIKey, cfg.OpenAICompatibleModel), providerCooldown),
 		},
 	}

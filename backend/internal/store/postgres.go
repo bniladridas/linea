@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -22,8 +23,9 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 
 func (s *PostgresStore) ListConversations(ctx context.Context) ([]Conversation, error) {
 	userID := UserIDFromContext(ctx)
+	workspaceID := WorkspaceIDFromContext(ctx)
 	query := `
-		select c.id, c.title, c.created_at, c.updated_at, c.user_id, (
+		select c.id, c.title, c.created_at, c.updated_at, c.user_id, c.workspace_id, (
 			select m.content
 			from messages m
 			where m.conversation_id = c.id and m.role = 'user'
@@ -31,18 +33,26 @@ func (s *PostgresStore) ListConversations(ctx context.Context) ([]Conversation, 
 			limit 1
 		)
 		from conversations c`
+	args := []any{}
+	argIdx := 1
 	if userID != "" {
-		query += ` where (c.user_id = $1 or c.user_id is null)`
+		query += fmt.Sprintf(` where (c.user_id = $%d or c.user_id is null)`, argIdx)
+		args = append(args, userID)
+		argIdx++
+	}
+	if workspaceID != "" {
+		if argIdx > 1 {
+			query += ` and`
+		} else {
+			query += ` where`
+		}
+		query += fmt.Sprintf(` (c.workspace_id = $%d or c.workspace_id is null)`, argIdx)
+		args = append(args, workspaceID)
+		argIdx++
 	}
 	query += ` order by c.updated_at desc`
 
-	var rows pgx.Rows
-	var err error
-	if userID != "" {
-		rows, err = s.pool.Query(ctx, query, userID)
-	} else {
-		rows, err = s.pool.Query(ctx, query)
-	}
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -53,18 +63,23 @@ func (s *PostgresStore) ListConversations(ctx context.Context) ([]Conversation, 
 		var conversation Conversation
 		var firstUserMessage *string
 		var dbUserID *string
+		var dbWorkspaceID *string
 		if err := rows.Scan(
 			&conversation.ID,
 			&conversation.Title,
 			&conversation.CreatedAt,
 			&conversation.UpdatedAt,
 			&dbUserID,
+			&dbWorkspaceID,
 			&firstUserMessage,
 		); err != nil {
 			return nil, err
 		}
 		if dbUserID != nil {
 			conversation.UserID = *dbUserID
+		}
+		if dbWorkspaceID != nil {
+			conversation.WorkspaceID = *dbWorkspaceID
 		}
 		conversation.Title = displayTitle(conversation.Title, firstUserMessage)
 		conversations = append(conversations, conversation)
@@ -74,20 +89,28 @@ func (s *PostgresStore) ListConversations(ctx context.Context) ([]Conversation, 
 
 func (s *PostgresStore) CreateConversation(ctx context.Context, title string) (Conversation, error) {
 	userID := UserIDFromContext(ctx)
+	workspaceID := WorkspaceIDFromContext(ctx)
 	id := NewID()
 	if override := ConversationIDFromContext(ctx); override != "" {
 		id = override
 	}
 	conversation := Conversation{ID: id, Title: title}
 	var dbUserID *string
+	var dbWorkspaceID *string
 	err := s.pool.QueryRow(ctx, `
-		insert into conversations (id, title, user_id)
-		values ($1, $2, nullif($3, ''))
-		returning id, title, user_id, created_at, updated_at`,
-		conversation.ID, conversation.Title, userID,
-	).Scan(&conversation.ID, &conversation.Title, &dbUserID, &conversation.CreatedAt, &conversation.UpdatedAt)
+		insert into conversations (id, title, user_id, workspace_id)
+		values ($1, $2, nullif($3, ''), nullif($4, ''))
+		returning id, title, user_id, workspace_id, created_at, updated_at`,
+		conversation.ID, conversation.Title, userID, workspaceID,
+	).Scan(&conversation.ID, &conversation.Title, &dbUserID, &dbWorkspaceID, &conversation.CreatedAt, &conversation.UpdatedAt)
+	if err != nil {
+		return Conversation{}, err
+	}
 	if dbUserID != nil {
 		conversation.UserID = *dbUserID
+	}
+	if dbWorkspaceID != nil {
+		conversation.WorkspaceID = *dbWorkspaceID
 	}
 	return conversation, err
 }
@@ -418,6 +441,136 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, id string) error {
 		return ErrSessionNotFound
 	}
 	return nil
+}
+
+func (s *PostgresStore) CreateSaasAPIKey(ctx context.Context, key SaasAPIKey) (SaasAPIKey, error) {
+	if key.ID == "" {
+		key.ID = NewID()
+	}
+	err := s.pool.QueryRow(ctx, `
+		insert into saas_api_keys (id, key_hash, user_id, workspace_id, name)
+		values ($1, $2, $3, nullif($4, ''), $5)
+		returning id, key_hash, user_id, workspace_id, name, created_at`,
+		key.ID, key.KeyHash, key.UserID, key.WorkspaceID, key.Name,
+	).Scan(&key.ID, &key.KeyHash, &key.UserID, &key.WorkspaceID, &key.Name, &key.CreatedAt)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return SaasAPIKey{}, ErrKeyExists
+		}
+		return SaasAPIKey{}, err
+	}
+	return key, nil
+}
+
+func (s *PostgresStore) ListSaasAPIKeys(ctx context.Context) ([]SaasAPIKey, error) {
+	rows, err := s.pool.Query(ctx, `select id, key_hash, user_id, workspace_id, name, created_at from saas_api_keys order by created_at desc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SaasAPIKey
+	for rows.Next() {
+		var k SaasAPIKey
+		if err := rows.Scan(&k.ID, &k.KeyHash, &k.UserID, &k.WorkspaceID, &k.Name, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, k)
+	}
+	return items, rows.Err()
+}
+
+func (s *PostgresStore) DeleteSaasAPIKey(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `delete from saas_api_keys where id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrKeyNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetSaasAPIKeyByHash(ctx context.Context, hash string) (SaasAPIKey, error) {
+	var k SaasAPIKey
+	err := s.pool.QueryRow(ctx, `
+		select id, key_hash, user_id, workspace_id, name, created_at
+		from saas_api_keys
+		where key_hash = $1`, hash,
+	).Scan(&k.ID, &k.KeyHash, &k.UserID, &k.WorkspaceID, &k.Name, &k.CreatedAt)
+	if IsNoRows(err) {
+		return SaasAPIKey{}, ErrKeyNotFound
+	}
+	return k, err
+}
+
+func (s *PostgresStore) CreateWorkspace(ctx context.Context, name string) (Workspace, error) {
+	id := NewID()
+	w := Workspace{ID: id}
+	err := s.pool.QueryRow(ctx, `
+		insert into workspaces (id, name)
+		values ($1, $2)
+		returning id, name, created_at`,
+		id, name,
+	).Scan(&w.ID, &w.Name, &w.CreatedAt)
+	return w, err
+}
+
+func (s *PostgresStore) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
+	rows, err := s.pool.Query(ctx, `select id, name, created_at from workspaces order by created_at desc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Workspace
+	for rows.Next() {
+		var w Workspace
+		if err := rows.Scan(&w.ID, &w.Name, &w.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, w)
+	}
+	return items, rows.Err()
+}
+
+func (s *PostgresStore) AddWorkspaceMember(ctx context.Context, workspaceID, userID string) error {
+	_, err := s.pool.Exec(ctx, `
+		insert into workspace_members (workspace_id, user_id)
+		values ($1, $2)
+		on conflict do nothing`, workspaceID, userID)
+	return err
+}
+
+func (s *PostgresStore) RemoveWorkspaceMember(ctx context.Context, workspaceID, userID string) error {
+	tag, err := s.pool.Exec(ctx, `delete from workspace_members where workspace_id = $1 and user_id = $2`, workspaceID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID string) ([]WorkspaceMember, error) {
+	rows, err := s.pool.Query(ctx, `
+		select workspace_id, user_id, created_at
+		from workspace_members
+		where workspace_id = $1
+		order by created_at desc`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceMember
+	for rows.Next() {
+		var m WorkspaceMember
+		if err := rows.Scan(&m.WorkspaceID, &m.UserID, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, m)
+	}
+	return items, rows.Err()
 }
 
 func (s *PostgresStore) Close() error { s.pool.Close(); return nil }

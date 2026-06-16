@@ -2,7 +2,7 @@
 
 import { readFileSync } from 'node:fs';
 
-const server = readFileSync('backend/internal/api/server.go', 'utf8');
+const server = readFileSync('backend/internal/api/server.go', 'utf8') + readFileSync('backend/internal/saas/handler.go', 'utf8');
 
 const backendRoutes = [...server.matchAll(/(?:HandleFunc|Handle)\("([^"]+)"/g)]
   .map((match) => match[1])

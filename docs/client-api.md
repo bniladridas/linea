@@ -1142,6 +1142,86 @@ Returns all users.
 
 Creates a user.
 
+# SaaS Admin API
+
+SaaS mode (`LINEA_SAAS_MODE=true`) enables multi-tenant API key auth. Endpoints under `/api/saas/*` are management endpoints for users and API keys.
+
+All `/api/saas/*` requests require `Authorization: Bearer <admin-key>` when `LINEA_SAAS_ADMIN_KEY` is set. When unset (dev/setup only), management endpoints are unauthenticated.
+
+`GET /api/saas/users`
+
+Returns all users. Requires admin key when configured.
+
+`POST /api/saas/users`
+
+Creates a user.
+
+```json
+{"email":"user@example.com","name":"User"}
+```
+
+Returns `201` with the created user. Returns `409` if email already exists.
+
+`POST /api/saas/keys`
+
+Creates an API key for a user. The raw key is returned only at creation time. Optionally scoped to a workspace.
+
+```json
+{"userId":"user-id","name":"my-key"}
+```
+
+With workspace scope:
+
+```json
+{"userId":"user-id","workspaceId":"workspace-id","name":"my-key"}
+```
+
+Returns `201` with the created key (including the raw key in the `key` field). When `workspaceId` is set, API requests using this key will be scoped to that workspace.
+
+`GET /api/saas/keys`
+
+Returns all API keys (without raw key values).
+
+`DELETE /api/saas/keys/{id}`
+
+Deletes an API key. Returns `204` on success, `404` if not found.
+
+`POST /api/saas/workspaces`
+
+Creates a workspace.
+
+```json
+{"name":"My Workspace"}
+```
+
+Returns `201` with the created workspace (id, name, createdAt).
+
+`GET /api/saas/workspaces`
+
+Returns all workspaces.
+
+`POST /api/saas/workspaces/{id}/members`
+
+Adds a user as a member of a workspace.
+
+```json
+{"userId":"user-id"}
+```
+
+Returns `204` on success.
+
+`DELETE /api/saas/workspaces/{id}/members/{userId}`
+
+Removes a member from a workspace. Returns `204` on success, `404` if not found.
+
+`GET /api/saas/workspaces/{id}/members`
+
+Returns all members of a workspace.
+
+## SaaS API Key Auth
+
+When SaaS mode is active, the same `/api/v1/*` routes are available but authenticated via SaaS API keys instead of the static `LINEA_API_KEY`. Requests must include `Authorization: Bearer <saas-api-key>`. The middleware injects the user context, and data is scoped to that user.
+
 # Client Rules
 
 Create a conversation before sending a message.

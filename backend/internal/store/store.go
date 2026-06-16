@@ -18,6 +18,8 @@ const contextKeyUserID contextKey = "userID"
 
 const contextKeyConversationID contextKey = "conversationID"
 
+const contextKeyWorkspaceID contextKey = "workspaceID"
+
 func WithUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, contextKeyUserID, userID)
 }
@@ -36,9 +38,20 @@ func ConversationIDFromContext(ctx context.Context) string {
 	return id
 }
 
+func WithWorkspaceID(ctx context.Context, workspaceID string) context.Context {
+	return context.WithValue(ctx, contextKeyWorkspaceID, workspaceID)
+}
+
+func WorkspaceIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(contextKeyWorkspaceID).(string)
+	return id
+}
+
 var ErrNotFound = errors.New("not found")
 var ErrEmailExists = errors.New("email already exists")
 var ErrSessionNotFound = errors.New("session not found")
+var ErrKeyNotFound = errors.New("key not found")
+var ErrKeyExists = errors.New("key already exists")
 
 type Session struct {
 	ID        string    `json:"id"`
@@ -48,12 +61,25 @@ type Session struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-type Conversation struct {
+type Workspace struct {
 	ID        string    `json:"id"`
-	UserID    string    `json:"userId,omitempty"`
-	Title     string    `json:"title"`
+	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type WorkspaceMember struct {
+	WorkspaceID string    `json:"workspaceId"`
+	UserID      string    `json:"userId"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
+type Conversation struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"userId,omitempty"`
+	WorkspaceID string    `json:"workspaceId,omitempty"`
+	Title       string    `json:"title"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type Message struct {
@@ -77,6 +103,15 @@ type User struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type SaasAPIKey struct {
+	ID          string    `json:"id"`
+	KeyHash     string    `json:"-"`
+	UserID      string    `json:"userId"`
+	WorkspaceID string    `json:"workspaceId,omitempty"`
+	Name        string    `json:"name"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 type OAuthToken struct {
@@ -111,6 +146,15 @@ type Store interface {
 	CreateSession(context.Context, string) (Session, error)
 	GetSessionByToken(context.Context, string) (Session, error)
 	DeleteSession(context.Context, string) error
+	CreateSaasAPIKey(context.Context, SaasAPIKey) (SaasAPIKey, error)
+	ListSaasAPIKeys(context.Context) ([]SaasAPIKey, error)
+	DeleteSaasAPIKey(context.Context, string) error
+	GetSaasAPIKeyByHash(context.Context, string) (SaasAPIKey, error)
+	CreateWorkspace(context.Context, string) (Workspace, error)
+	ListWorkspaces(context.Context) ([]Workspace, error)
+	AddWorkspaceMember(context.Context, string, string) error
+	RemoveWorkspaceMember(context.Context, string, string) error
+	ListWorkspaceMembers(context.Context, string) ([]WorkspaceMember, error)
 	Close() error
 }
 
@@ -162,24 +206,30 @@ func nextTimestamp(after time.Time) time.Time {
 }
 
 type MemoryStore struct {
-	mu            sync.RWMutex
-	conversations map[string]Conversation
-	messages      map[string][]Message
-	agentRuns     []AgentRun
-	users         map[string]User
-	oauthTokens   map[string]OAuthToken
-	sessions      map[string]Session
-	sessionByToken map[string]string
+	mu               sync.RWMutex
+	conversations    map[string]Conversation
+	messages         map[string][]Message
+	agentRuns        []AgentRun
+	users            map[string]User
+	oauthTokens      map[string]OAuthToken
+	sessions         map[string]Session
+	sessionByToken   map[string]string
+	saasAPIKeys      map[string]SaasAPIKey // key hash -> SaasAPIKey
+	workspaces       map[string]Workspace
+	workspaceMembers map[string]map[string]time.Time // workspaceID -> userID -> createdAt
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		conversations:  map[string]Conversation{},
-		messages:       map[string][]Message{},
-		users:          map[string]User{},
-		oauthTokens:    map[string]OAuthToken{},
-		sessions:       map[string]Session{},
-		sessionByToken: map[string]string{},
+		conversations:    map[string]Conversation{},
+		messages:         map[string][]Message{},
+		users:            map[string]User{},
+		oauthTokens:      map[string]OAuthToken{},
+		sessions:         map[string]Session{},
+		sessionByToken:   map[string]string{},
+		saasAPIKeys:      map[string]SaasAPIKey{},
+		workspaces:       map[string]Workspace{},
+		workspaceMembers: map[string]map[string]time.Time{},
 	}
 }
 
@@ -187,9 +237,13 @@ func (s *MemoryStore) ListConversations(ctx context.Context) ([]Conversation, er
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	userID := UserIDFromContext(ctx)
+	workspaceID := WorkspaceIDFromContext(ctx)
 	items := make([]Conversation, 0, len(s.conversations))
 	for _, conversation := range s.conversations {
 		if userID != "" && conversation.UserID != "" && conversation.UserID != userID {
+			continue
+		}
+		if workspaceID != "" && conversation.WorkspaceID != "" && conversation.WorkspaceID != workspaceID {
 			continue
 		}
 		for _, message := range s.messages[conversation.ID] {
@@ -214,7 +268,7 @@ func (s *MemoryStore) CreateConversation(ctx context.Context, title string) (Con
 		id = override
 	}
 	now := time.Now().UTC()
-	conversation := Conversation{ID: id, Title: title, CreatedAt: now, UpdatedAt: now, UserID: UserIDFromContext(ctx)}
+	conversation := Conversation{ID: id, Title: title, CreatedAt: now, UpdatedAt: now, UserID: UserIDFromContext(ctx), WorkspaceID: WorkspaceIDFromContext(ctx)}
 	s.conversations[conversation.ID] = conversation
 	return conversation, nil
 }
@@ -427,6 +481,131 @@ func (s *MemoryStore) DeleteOAuthToken(_ context.Context, id string) error {
 	}
 	delete(s.oauthTokens, id)
 	return nil
+}
+
+func (s *MemoryStore) CreateSaasAPIKey(_ context.Context, key SaasAPIKey) (SaasAPIKey, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.saasAPIKeys[key.KeyHash]; ok {
+		return SaasAPIKey{}, ErrKeyExists
+	}
+	if key.ID == "" {
+		key.ID = NewID()
+	}
+	key.CreatedAt = time.Now().UTC()
+	s.saasAPIKeys[key.KeyHash] = key
+	return key, nil
+}
+
+func (s *MemoryStore) CreateWorkspace(_ context.Context, name string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := NewID()
+	now := time.Now().UTC()
+	w := Workspace{ID: id, Name: name, CreatedAt: now}
+	s.workspaces[id] = w
+	s.workspaceMembers[id] = map[string]time.Time{}
+	return w, nil
+}
+
+func (s *MemoryStore) ListWorkspaces(_ context.Context) ([]Workspace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]Workspace, 0, len(s.workspaces))
+	for _, w := range s.workspaces {
+		items = append(items, w)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) AddWorkspaceMember(_ context.Context, workspaceID, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.workspaces[workspaceID]; !ok {
+		return ErrNotFound
+	}
+	if _, ok := s.users[userID]; !ok {
+		return ErrNotFound
+	}
+	members, ok := s.workspaceMembers[workspaceID]
+	if !ok {
+		members = map[string]time.Time{}
+		s.workspaceMembers[workspaceID] = members
+	}
+	if _, exists := members[userID]; exists {
+		return nil
+	}
+	members[userID] = time.Now().UTC()
+	return nil
+}
+
+func (s *MemoryStore) RemoveWorkspaceMember(_ context.Context, workspaceID, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	members, ok := s.workspaceMembers[workspaceID]
+	if !ok {
+		return ErrNotFound
+	}
+	if _, exists := members[userID]; !exists {
+		return ErrNotFound
+	}
+	delete(members, userID)
+	return nil
+}
+
+func (s *MemoryStore) ListWorkspaceMembers(_ context.Context, workspaceID string) ([]WorkspaceMember, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	members, ok := s.workspaceMembers[workspaceID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	items := make([]WorkspaceMember, 0, len(members))
+	for userID, createdAt := range members {
+		items = append(items, WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, CreatedAt: createdAt})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) ListSaasAPIKeys(_ context.Context) ([]SaasAPIKey, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]SaasAPIKey, 0, len(s.saasAPIKeys))
+	for _, k := range s.saasAPIKeys {
+		items = append(items, k)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+	return items, nil
+}
+
+func (s *MemoryStore) DeleteSaasAPIKey(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for hash, k := range s.saasAPIKeys {
+		if k.ID == id {
+			delete(s.saasAPIKeys, hash)
+			return nil
+		}
+	}
+	return ErrKeyNotFound
+}
+
+func (s *MemoryStore) GetSaasAPIKeyByHash(_ context.Context, hash string) (SaasAPIKey, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	k, ok := s.saasAPIKeys[hash]
+	if !ok {
+		return SaasAPIKey{}, ErrKeyNotFound
+	}
+	return k, nil
 }
 
 func (s *MemoryStore) Close() error { return nil }
