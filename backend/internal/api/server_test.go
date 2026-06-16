@@ -1370,6 +1370,102 @@ func TestAgentSubagentPlanEndpoints(t *testing.T) {
 	}
 }
 
+func TestAgentSubagentRegisterEndpoint(t *testing.T) {
+	root := t.TempDir()
+	writeAPITestFile(t, filepath.Join(root, "notes.md"), "agent notes\n")
+	appStore := store.NewMemoryStore()
+	runtime := agent.NewRuntime("", agent.WithWorkspaceRoot(root))
+	server := NewServerWithAgentRuntime(appStore, fakeAssistant{}, nil, testFiles(), "", "", func(context.Context) Status {
+		return Status{}
+	}, nil, runtime).Handler()
+
+	t.Run("register custom subagent", func(t *testing.T) {
+		body := `{"id":"custom-reg","name":"Custom Registry","purpose":"test registry","tools":["read_file"]}`
+		req := httptest.NewRequest(http.MethodPost, "/api/agent/subagents/register", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		server.ServeHTTP(res, req)
+
+		if res.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+		}
+		var sa agent.Subagent
+		if err := json.NewDecoder(res.Body).Decode(&sa); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		if sa.ID != "custom-reg" || sa.Name != "Custom Registry" || sa.Purpose != "test registry" {
+			t.Fatalf("subagent = %#v", sa)
+		}
+	})
+
+	t.Run("appears in listing", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/agent/subagents", nil)
+		res := httptest.NewRecorder()
+		server.ServeHTTP(res, req)
+
+		if res.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+		}
+		var subagents []agent.Subagent
+		if err := json.NewDecoder(res.Body).Decode(&subagents); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		found := false
+		for _, sa := range subagents {
+			if sa.ID == "custom-reg" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("custom subagent not found in listing")
+		}
+	})
+
+	t.Run("plan with custom subagent", func(t *testing.T) {
+		body := `{"goal":"test custom","subagentIds":["custom-reg","search"]}`
+		req := httptest.NewRequest(http.MethodPost, "/api/agent/subagents/run", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		server.ServeHTTP(res, req)
+
+		if res.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusCreated, res.Body.String())
+		}
+		var plan agent.SubagentPlanRun
+		if err := json.NewDecoder(res.Body).Decode(&plan); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		if len(plan.SubagentIDs) != 2 || plan.SubagentIDs[0] != "custom-reg" {
+			t.Fatalf("plan ids = %#v", plan.SubagentIDs)
+		}
+	})
+
+	t.Run("missing id returns 400", func(t *testing.T) {
+		body := `{"name":"no-id"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/agent/subagents/register", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		server.ServeHTTP(res, req)
+
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusBadRequest, res.Body.String())
+		}
+	})
+
+	t.Run("duplicate id returns 409", func(t *testing.T) {
+		body := `{"id":"custom-reg"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/agent/subagents/register", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		server.ServeHTTP(res, req)
+
+		if res.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusConflict, res.Body.String())
+		}
+	})
+}
+
 func TestAgentMCPServersEndpoint(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "mcp.json")
 	writeAPITestFile(t, configPath, `{"mcpServers":{"docs":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"},"tools":[{"name":"search_docs","description":"Search docs"}]}}}`)
