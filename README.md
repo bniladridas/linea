@@ -1,6 +1,6 @@
 # Linea
 
-<img src="https://www.npmjs.com/npm-avatar/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdmF0YXJVUkwiOiJodHRwczovL3MuZ3JhdmF0YXIuY29tL2F2YXRhci84MmMyMGIzNWJjNTdmZWEwZjYwMzNkYzFhYzY4NmYxND9zaXplPTQ5NiZkZWZhdWx0PXJldHJvIn0.dk6JBdzczvyEAcyOANs90nE_EoQbMGUt0tOo5u9ACU8" width="48" /><img src="./assets/linea-route.svg" width="48" />
+<img src="https://s.gravatar.com/avatar/82c20b35bc57fea0f6033dc1ac686f14?size=496&default=retro" width="48" /><img src="./assets/linea-route.svg" width="48" />
 
 **Local-first, agent-native design tool.**
 
