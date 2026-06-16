@@ -58,6 +58,7 @@ type Config struct {
 	APIKey                  string
 	EnableAccounts          bool
 	EnableSync              bool
+	AgentUnrestricted       bool
 }
 
 func Load() Config {
@@ -71,6 +72,7 @@ func Load() Config {
 		AgentLSPCommand:         os.Getenv("LINEA_LSP_COMMAND"),
 		AgentMCPConfig:          os.Getenv("LINEA_MCP_CONFIG"),
 		AgentCommandAllowlist:   envList("LINEA_COMMAND_ALLOWLIST"),
+		AgentUnrestricted:       envBool("LINEA_AGENT_UNRESTRICTED", false),
 		DatabaseURL:             os.Getenv("DATABASE_URL"),
 		GeminiAPIKey:            os.Getenv("GEMINI_API_KEY"),
 		GeminiModel:             env("GEMINI_MODEL", "gemini-2.5-flash-lite"),

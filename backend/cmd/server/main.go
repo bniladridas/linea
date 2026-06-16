@@ -194,6 +194,7 @@ func runServer() {
 	}
 
 	agentRuntime := newAgentRuntime(cfg, llmEditPlanner{assistant: llmClient}, agent.WithIntegrationServer(agent.NewIntegrationServer(tokenFn)))
+	agentRuntime.SetBackgroundJobStorer(appStore)
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -235,6 +236,7 @@ func runServer() {
 		saasH.Register(saasMux)
 		adminHandler := saas.AdminMiddleware(saasMgr, saasMux)
 		mux := http.NewServeMux()
+		saasH.RegisterPublic(mux)
 		mux.Handle("/", handler)
 		handler = saas.Middleware(saasMgr, adminHandler, mux)
 	}
@@ -491,6 +493,9 @@ func newAgentRuntime(cfg config.Config, planners ...any) *agent.Runtime {
 		options...,
 	)
 	runtime.LoadAuditLog()
+	if cfg.AgentUnrestricted {
+		runtime.SetUnrestricted(true)
+	}
 	return runtime
 }
 
