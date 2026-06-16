@@ -105,6 +105,20 @@ type User struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type BackgroundJobRecord struct {
+	ID            string    `json:"id"`
+	Goal          string    `json:"goal"`
+	Mode          string    `json:"mode"`
+	State         string    `json:"state"`
+	Summary       string    `json:"summary"`
+	MaxIterations int       `json:"maxIterations"`
+	AutoApply     bool      `json:"autoApply"`
+	CreatedBy     string    `json:"createdBy,omitempty"`
+	WorkspaceID   string    `json:"workspaceId,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
 type SaasAPIKey struct {
 	ID          string    `json:"id"`
 	KeyHash     string    `json:"-"`
@@ -155,6 +169,9 @@ type Store interface {
 	AddWorkspaceMember(context.Context, string, string) error
 	RemoveWorkspaceMember(context.Context, string, string) error
 	ListWorkspaceMembers(context.Context, string) ([]WorkspaceMember, error)
+	ListBackgroundJobRecords(context.Context) ([]BackgroundJobRecord, error)
+	CreateBackgroundJobRecord(context.Context, BackgroundJobRecord) (BackgroundJobRecord, error)
+	UpdateBackgroundJobRecordState(context.Context, string, string, string) error
 	Close() error
 }
 
@@ -215,8 +232,9 @@ type MemoryStore struct {
 	sessions         map[string]Session
 	sessionByToken   map[string]string
 	saasAPIKeys      map[string]SaasAPIKey // key hash -> SaasAPIKey
-	workspaces       map[string]Workspace
-	workspaceMembers map[string]map[string]time.Time // workspaceID -> userID -> createdAt
+	workspaces            map[string]Workspace
+	workspaceMembers      map[string]map[string]time.Time // workspaceID -> userID -> createdAt
+	backgroundJobRecords  []BackgroundJobRecord
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -228,8 +246,9 @@ func NewMemoryStore() *MemoryStore {
 		sessions:         map[string]Session{},
 		sessionByToken:   map[string]string{},
 		saasAPIKeys:      map[string]SaasAPIKey{},
-		workspaces:       map[string]Workspace{},
-		workspaceMembers: map[string]map[string]time.Time{},
+		workspaces:           map[string]Workspace{},
+		workspaceMembers:     map[string]map[string]time.Time{},
+		backgroundJobRecords: []BackgroundJobRecord{},
 	}
 }
 
@@ -606,6 +625,45 @@ func (s *MemoryStore) GetSaasAPIKeyByHash(_ context.Context, hash string) (SaasA
 		return SaasAPIKey{}, ErrKeyNotFound
 	}
 	return k, nil
+}
+
+func (s *MemoryStore) ListBackgroundJobRecords(_ context.Context) ([]BackgroundJobRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]BackgroundJobRecord(nil), s.backgroundJobRecords...), nil
+}
+
+func (s *MemoryStore) CreateBackgroundJobRecord(_ context.Context, job BackgroundJobRecord) (BackgroundJobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if job.ID == "" {
+		job.ID = NewID()
+	}
+	now := time.Now().UTC()
+	job.CreatedAt = now
+	job.UpdatedAt = now
+	if job.State == "" {
+		job.State = "pending"
+	}
+	if job.Mode == "" {
+		job.Mode = "auto"
+	}
+	s.backgroundJobRecords = append(s.backgroundJobRecords, job)
+	return job, nil
+}
+
+func (s *MemoryStore) UpdateBackgroundJobRecordState(_ context.Context, id, state, summary string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, job := range s.backgroundJobRecords {
+		if job.ID == id {
+			s.backgroundJobRecords[i].State = state
+			s.backgroundJobRecords[i].Summary = summary
+			s.backgroundJobRecords[i].UpdatedAt = time.Now().UTC()
+			return nil
+		}
+	}
+	return ErrNotFound
 }
 
 func (s *MemoryStore) Close() error { return nil }

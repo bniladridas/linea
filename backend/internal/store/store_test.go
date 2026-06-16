@@ -531,6 +531,246 @@ func TestMemoryStoreSaasAPIKeys(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreWorkspaceIsolation(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+
+	// Create two workspaces
+	aliceWorkspace, err := s.CreateWorkspace(ctx, "Alice Corp")
+	if err != nil {
+		t.Fatalf("CreateWorkspace(alice) error = %v", err)
+	}
+	bobWorkspace, err := s.CreateWorkspace(ctx, "Bob Inc")
+	if err != nil {
+		t.Fatalf("CreateWorkspace(bob) error = %v", err)
+	}
+
+	// Create users
+	aliceUser, err := s.CreateUser(ctx, "alice@example.com", "Alice")
+	if err != nil {
+		t.Fatalf("CreateUser(alice) error = %v", err)
+	}
+	bobUser, err := s.CreateUser(ctx, "bob@example.com", "Bob")
+	if err != nil {
+		t.Fatalf("CreateUser(bob) error = %v", err)
+	}
+
+	// Add workspace members
+	if err := s.AddWorkspaceMember(ctx, aliceWorkspace.ID, aliceUser.ID); err != nil {
+		t.Fatalf("AddWorkspaceMember(alice) error = %v", err)
+	}
+	if err := s.AddWorkspaceMember(ctx, bobWorkspace.ID, bobUser.ID); err != nil {
+		t.Fatalf("AddWorkspaceMember(bob) error = %v", err)
+	}
+	if err := s.AddWorkspaceMember(ctx, aliceWorkspace.ID, bobUser.ID); err != nil {
+		t.Fatalf("AddWorkspaceMember(bob->alice) error = %v", err)
+	}
+
+	// Verify workspace members
+	aliceMembers, err := s.ListWorkspaceMembers(ctx, aliceWorkspace.ID)
+	if err != nil {
+		t.Fatalf("ListWorkspaceMembers(alice) error = %v", err)
+	}
+	if len(aliceMembers) != 2 {
+		t.Fatalf("alice workspace members = %d, want 2", len(aliceMembers))
+	}
+
+	bobMembers, err := s.ListWorkspaceMembers(ctx, bobWorkspace.ID)
+	if err != nil {
+		t.Fatalf("ListWorkspaceMembers(bob) error = %v", err)
+	}
+	if len(bobMembers) != 1 || bobMembers[0].UserID != bobUser.ID {
+		t.Fatalf("bob workspace members = %#v", bobMembers)
+	}
+
+	// Workspace-scoped conversations
+	aliceCtx := WithWorkspaceID(ctx, aliceWorkspace.ID)
+	bobCtx := WithWorkspaceID(ctx, bobWorkspace.ID)
+
+	aliceConv, err := s.CreateConversation(aliceCtx, "Alice project")
+	if err != nil {
+		t.Fatalf("CreateConversation(alice) error = %v", err)
+	}
+	if aliceConv.WorkspaceID != aliceWorkspace.ID {
+		t.Fatalf("alice conversation workspaceID = %q, want %q", aliceConv.WorkspaceID, aliceWorkspace.ID)
+	}
+
+	bobConv, err := s.CreateConversation(bobCtx, "Bob project")
+	if err != nil {
+		t.Fatalf("CreateConversation(bob) error = %v", err)
+	}
+	if bobConv.WorkspaceID != bobWorkspace.ID {
+		t.Fatalf("bob conversation workspaceID = %q, want %q", bobConv.WorkspaceID, bobWorkspace.ID)
+	}
+
+	// Alice should only see her own conversations
+	aliceConvs, err := s.ListConversations(aliceCtx)
+	if err != nil {
+		t.Fatalf("ListConversations(alice) error = %v", err)
+	}
+	if len(aliceConvs) != 1 || aliceConvs[0].ID != aliceConv.ID {
+		t.Fatalf("alice conversations = %#v, want only alice's", aliceConvs)
+	}
+
+	// Bob should only see his own conversations
+	bobConvs, err := s.ListConversations(bobCtx)
+	if err != nil {
+		t.Fatalf("ListConversations(bob) error = %v", err)
+	}
+	if len(bobConvs) != 1 || bobConvs[0].ID != bobConv.ID {
+		t.Fatalf("bob conversations = %#v, want only bob's", bobConvs)
+	}
+
+	// Admin (no workspace context) should see all conversations
+	allConvs, err := s.ListConversations(ctx)
+	if err != nil {
+		t.Fatalf("ListConversations() error = %v", err)
+	}
+	if len(allConvs) != 2 {
+		t.Fatalf("total conversations = %d, want 2", len(allConvs))
+	}
+
+	// Workspace-scoped API keys
+	aliceKey := SaasAPIKey{KeyHash: "hash-alice", UserID: aliceUser.ID, WorkspaceID: aliceWorkspace.ID, Name: "alice-key"}
+	if _, err := s.CreateSaasAPIKey(ctx, aliceKey); err != nil {
+		t.Fatalf("CreateSaasAPIKey(alice) error = %v", err)
+	}
+	bobKey := SaasAPIKey{KeyHash: "hash-bob", UserID: bobUser.ID, WorkspaceID: bobWorkspace.ID, Name: "bob-key"}
+	if _, err := s.CreateSaasAPIKey(ctx, bobKey); err != nil {
+		t.Fatalf("CreateSaasAPIKey(bob) error = %v", err)
+	}
+
+	// Remove bob from Alice's workspace
+	if err := s.RemoveWorkspaceMember(ctx, aliceWorkspace.ID, bobUser.ID); err != nil {
+		t.Fatalf("RemoveWorkspaceMember error = %v", err)
+	}
+	aliceMembers, err = s.ListWorkspaceMembers(ctx, aliceWorkspace.ID)
+	if err != nil {
+		t.Fatalf("ListWorkspaceMembers after remove error = %v", err)
+	}
+	if len(aliceMembers) != 1 {
+		t.Fatalf("alice workspace members after remove = %d, want 1", len(aliceMembers))
+	}
+}
+
+func TestMemoryStoreBackgroundJobRecords(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+
+	t.Run("list empty", func(t *testing.T) {
+		jobs, err := s.ListBackgroundJobRecords(ctx)
+		if err != nil {
+			t.Fatalf("ListBackgroundJobRecords error = %v", err)
+		}
+		if len(jobs) != 0 {
+			t.Fatalf("len = %d, want 0", len(jobs))
+		}
+	})
+
+	t.Run("create and list", func(t *testing.T) {
+		job1 := BackgroundJobRecord{Goal: "test goal 1", State: "running"}
+		created1, err := s.CreateBackgroundJobRecord(ctx, job1)
+		if err != nil {
+			t.Fatalf("CreateBackgroundJobRecord error = %v", err)
+		}
+		if created1.ID == "" {
+			t.Fatal("expected non-empty ID")
+		}
+		if created1.Goal != "test goal 1" {
+			t.Fatalf("goal = %q, want %q", created1.Goal, "test goal 1")
+		}
+		if created1.State != "running" {
+			t.Fatalf("state = %q, want %q", created1.State, "running")
+		}
+		if created1.CreatedAt.IsZero() {
+			t.Fatal("expected non-zero CreatedAt")
+		}
+
+		job2 := BackgroundJobRecord{Goal: "test goal 2"}
+		created2, err := s.CreateBackgroundJobRecord(ctx, job2)
+		if err != nil {
+			t.Fatalf("CreateBackgroundJobRecord error = %v", err)
+		}
+		if created2.ID == "" {
+			t.Fatal("expected non-empty ID")
+		}
+		if created2.State != "pending" {
+			t.Fatalf("state = %q, want %q (default)", created2.State, "pending")
+		}
+		if created2.Mode != "auto" {
+			t.Fatalf("mode = %q, want %q (default)", created2.Mode, "auto")
+		}
+
+		jobs, err := s.ListBackgroundJobRecords(ctx)
+		if err != nil {
+			t.Fatalf("ListBackgroundJobRecords error = %v", err)
+		}
+		if len(jobs) != 2 {
+			t.Fatalf("len = %d, want 2", len(jobs))
+		}
+	})
+
+	t.Run("update state", func(t *testing.T) {
+		jobs, _ := s.ListBackgroundJobRecords(ctx)
+		if len(jobs) == 0 {
+			t.Fatal("no jobs to update")
+		}
+		job := jobs[0]
+
+		err := s.UpdateBackgroundJobRecordState(ctx, job.ID, "completed", "done successfully")
+		if err != nil {
+			t.Fatalf("UpdateBackgroundJobRecordState error = %v", err)
+		}
+
+		jobs, _ = s.ListBackgroundJobRecords(ctx)
+		var updated BackgroundJobRecord
+		for _, j := range jobs {
+			if j.ID == job.ID {
+				updated = j
+				break
+			}
+		}
+		if updated.State != "completed" {
+			t.Fatalf("state = %q, want %q", updated.State, "completed")
+		}
+		if updated.Summary != "done successfully" {
+			t.Fatalf("summary = %q, want %q", updated.Summary, "done successfully")
+		}
+	})
+
+	t.Run("update nonexistent", func(t *testing.T) {
+		err := s.UpdateBackgroundJobRecordState(ctx, "nonexistent", "completed", "")
+		if err != ErrNotFound {
+			t.Fatalf("error = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("list returns copy", func(t *testing.T) {
+		jobs, _ := s.ListBackgroundJobRecords(ctx)
+		origLen := len(jobs)
+		// Mutate returned slice
+		jobs = append(jobs, BackgroundJobRecord{Goal: "mutated"})
+		jobs2, _ := s.ListBackgroundJobRecords(ctx)
+		if len(jobs2) != origLen {
+			t.Fatalf("second list len = %d, want %d (original unchanged)", len(jobs2), origLen)
+		}
+	})
+}
+
+func TestMemoryStoreBackgroundJobRecordsPreservesExplicitID(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+
+	job := BackgroundJobRecord{ID: "my-explicit-id", Goal: "explicit id"}
+	created, err := s.CreateBackgroundJobRecord(ctx, job)
+	if err != nil {
+		t.Fatalf("CreateBackgroundJobRecord error = %v", err)
+	}
+	if created.ID != "my-explicit-id" {
+		t.Fatalf("id = %q, want %q", created.ID, "my-explicit-id")
+	}
+}
+
 func TestTitleFromMessage(t *testing.T) {
 	if got := TitleFromMessage("  hello   linea  "); got != "hello linea" {
 		t.Fatalf("TitleFromMessage() = %q", got)

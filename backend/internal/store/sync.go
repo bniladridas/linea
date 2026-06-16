@@ -213,6 +213,33 @@ func (s *SyncStore) ListWorkspaceMembers(ctx context.Context, workspaceID string
 	return s.local.ListWorkspaceMembers(ctx, workspaceID)
 }
 
+func (s *SyncStore) ListBackgroundJobRecords(ctx context.Context) ([]BackgroundJobRecord, error) {
+	return s.local.ListBackgroundJobRecords(ctx)
+}
+
+func (s *SyncStore) CreateBackgroundJobRecord(ctx context.Context, job BackgroundJobRecord) (BackgroundJobRecord, error) {
+	j, err := s.local.CreateBackgroundJobRecord(ctx, job)
+	if err != nil {
+		return j, err
+	}
+	s.syncRemote(func() error {
+		_, err := s.remote.CreateBackgroundJobRecord(ctx, j)
+		return err
+	})
+	return j, nil
+}
+
+func (s *SyncStore) UpdateBackgroundJobRecordState(ctx context.Context, id, state, summary string) error {
+	err := s.local.UpdateBackgroundJobRecordState(ctx, id, state, summary)
+	if err != nil {
+		return err
+	}
+	s.syncRemote(func() error {
+		return s.remote.UpdateBackgroundJobRecordState(ctx, id, state, summary)
+	})
+	return nil
+}
+
 func (s *SyncStore) Close() error {
 	if err := s.local.Close(); err != nil {
 		slog.Warn("sync: local close", "error", err)
