@@ -152,11 +152,15 @@ Initial scope:
 
 Active scope:
 
-* Android app
-* Deeper subagent orchestration
-* Background autonomous jobs
-* Unrestricted terminal autonomy
-* Potential hosted SaaS extending the local-first app
+* (none)
+
+Needs refinement:
+
+* Deeper MCP tool/resource/prompt schema completion
+* Background autonomous job scheduling (cron expressions)
+* User-facing settings/management UI for SaaS admin
+* Production deployment (Docker, K8s, backup/restore)
+* Billing and usage metering for hosted SaaS
 
 Completed:
 
@@ -167,8 +171,13 @@ Completed:
 * vLLM, MLX, and generic OpenAI-compatible providers as local model backends
 * Multi-tenant SaaS mode (`LINEA_SAAS_MODE=true`) with API key auth, user management, admin endpoints, and data isolation via store user ID scoping
 * Production hardening (replace placeholder crypto, fix dead code, consistent error handling)
-* Workspace-level isolation (multi-tenant workspaces) — workspaces, workspace members, workspace-scoped API keys, data isolation via workspace context, full management API
+* Workspace-level isolation (multi-tenant workspaces): workspaces, workspace members, workspace-scoped API keys, data isolation via workspace context, full management API
 * SaaS sync round-trip verification
+* Android app: bundles Go server binary as an asset, extracts and spawns it on-device, then loads the React UI in a WebView. Builds via `make android-check`. Follows the macOS app pattern.
+* Deeper subagent orchestration: parallel subagent execution in `RunSubagentPlan` (goroutines + WaitGroup), dynamic subagent registration via `POST /api/agent/subagents/register`, runtime custom subagents via `RegisterSubagent` API, `findSubagentCustom` method for discovery. Structured results with per-subagent state tracking in plans.
+* Background autonomous jobs persistence: `BackgroundJobRecord` type in store, `Store` interface methods (`ListBackgroundJobRecords`, `CreateBackgroundJobRecord`, `UpdateBackgroundJobRecordState`), migration `008_background_jobs.sql`, `BackgroundJobStorer` interface in agent, `WithBackgroundJobStorer` option, automatic persistence on `StartBackgroundJob`/`CancelBackgroundJob`/`tickBackgroundJobs` state transitions.
+* Unrestricted terminal autonomy: `LINEA_AGENT_UNRESTRICTED` env var to set unrestricted mode at startup, `POST /api/agent/unrestricted` endpoint already existed, `SetUnrestricted` already bypasses `checkDeveloperCommand` and `isAutoApproved`. Extended timeouts and unlimited output in unrestricted mode.
+* Hosted SaaS self-service signup: `POST /api/v1/auth/register` endpoint (public, no auth required) creates user + generates API key in one call. Bypasses SaaS middleware (whitelisted in `Middleware`). `RegisterPublic` method on `saas.Handler`. API key returned once with the user record.
 
 ## Non-goals
 

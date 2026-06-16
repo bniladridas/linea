@@ -53,10 +53,17 @@ Provider order and fallback toggles are saved in `~/.config/linea/settings.json`
 ```sh
 API_ADDR=127.0.0.1:8080
 LINEA_RULES_FILE=AGENTS.md
+LINEA_AGENT_DEVELOPER_MODE=false
+LINEA_AGENT_WORKSPACE_TRUST=
+LINEA_AGENT_UNRESTRICTED=false
 LINEA_SKILLS_DIR=
 LINEA_WORKSPACE_DIR=
+LINEA_LSP_COMMAND=
 LINEA_MCP_CONFIG=
 LINEA_COMMAND_ALLOWLIST=
+LINEA_AUTO_APPROVE_CATEGORIES=
+LINEA_AUDIT_LOG_PATH=
+LINEA_PREVIEW_CACHE_DIR=
 LINEA_OAUTH_ENCRYPTION_KEY=
 LINEA_GITHUB_CLIENT_ID=
 LINEA_GITHUB_CLIENT_SECRET=
@@ -68,6 +75,10 @@ LINEA_SAAS_MODE=false
 LINEA_SAAS_ADMIN_KEY=
 LINEA_ENABLE_API=false
 LINEA_API_KEY=
+LINEA_ENABLE_ACCOUNTS=false
+LINEA_SYNC_URL=
+LINEA_SYNC_TOKEN=
+LINEA_ENABLE_SYNC=false
 DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
 BRAVE_SEARCH_API_KEY=
 SEARXNG_URL=
@@ -119,13 +130,14 @@ WEB_ORIGIN=http://localhost:5173
 | `LINEA_GOOGLE_CLIENT_ID` | Google OAuth client ID. |
 | `LINEA_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
 | `LINEA_ENABLE_API` | Enables `/api/v1/*` endpoints with API key auth. Requires `LINEA_API_KEY`. |
+| `LINEA_AGENT_UNRESTRICTED` | When set to `1`, all developer mode commands are auto-approved with extended timeouts and no command restrictions. Equivalent to calling `POST /api/agent/unrestricted` at startup. |
 | `LINEA_API_KEY` | Bearer token for authenticating `/api/v1/*` requests. |
 | `LINEA_SAAS_MODE` | Enables multi-tenant SaaS mode. API keys map to users; `/api/v1/*` routes use SaaS middleware instead of static API key auth. |
 | `LINEA_SAAS_ADMIN_KEY` | Optional bearer token for SaaS management endpoints. When empty, management endpoints are open (dev/setup only). |
 | `LINEA_ENABLE_ACCOUNTS` | Enables optional user accounts via OAuth identity providers. Reuses `LINEA_GITHUB_CLIENT_ID`, `LINEA_GOOGLE_CLIENT_ID`, etc. for login. |
 | `LINEA_SYNC_URL` | Remote Linea instance URL for sync. Works with `LINEA_ENABLE_SYNC`. |
 | `LINEA_SYNC_TOKEN` | Bearer token for authenticating with the sync remote. |
-| `LINEA_ENABLE_SYNC` | Enables dual-write sync to a remote Linea instance. Requires `LINEA_SYNC_URL`. Strongly recommended with a local database (`DATABASE_URL`) — in-memory local store loses synced data on restart. |
+| `LINEA_ENABLE_SYNC` | Enables dual-write sync to a remote Linea instance. Requires `LINEA_SYNC_URL`. Strongly recommended with a local database (`DATABASE_URL`); in-memory local store loses synced data on restart. |
 | `DATABASE_URL` | PostgreSQL. Empty means memory. |
 | `BRAVE_SEARCH_API_KEY` | Optional Brave Search API key. When set, Brave results are tried before free fallbacks. |
 | `SEARXNG_URL` | Optional self-hosted SearXNG base URL. When set, SearXNG results are tried before DuckDuckGo fallback. |
@@ -276,6 +288,7 @@ UI checks need Chrome. Message checks need one working text model.
 | `GET` | `/api/agent/subagent-plans` |
 | `POST` | `/api/agent/subagents/run` |
 | `POST` | `/api/agent/subagents/{id}/run` |
+| `POST` | `/api/agent/subagents/register` |
 | `GET` | `/api/agent/mcp-servers` |
 | `GET` | `/api/agent/mcp-tools` |
 | `GET` | `/api/agent/mcp-resources` |
@@ -355,6 +368,7 @@ UI checks need Chrome. Message checks need one working text model.
 | `POST` | `/api/v1/chat/temp` |
 | `GET` | `/api/v1/users` |
 | `POST` | `/api/v1/users` |
+| `POST` | `/api/v1/auth/register` |
 | `POST` | `/api/saas/users` |
 | `GET` | `/api/saas/users` |
 | `POST` | `/api/saas/keys` |
