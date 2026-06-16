@@ -47,15 +47,18 @@ func Run(ctx context.Context, cfg config.Config) []Result {
 	results = append(results, ollamaResult)
 	hasFallback := (cfg.SambaNovaEnabled && cfg.SambaNovaAPIKey != "") ||
 		(cfg.CerebrasEnabled && cfg.CerebrasAPIKey != "") ||
-		(ollamaResult.Status == Pass && cfg.OllamaFallback)
+		(ollamaResult.Status == Pass && cfg.OllamaFallback) ||
+		(cfg.VLLMEnabled && cfg.VLLMBaseURL != "") ||
+		(cfg.MLXEnabled && cfg.MLXBaseURL != "") ||
+		(cfg.OpenAICompatibleEnabled && cfg.OpenAICompatibleBaseURL != "")
 	results = append(results, checkGemini(ctx, cfg, hasFallback))
 	if cfg.SambaNovaEnabled {
-		results = append(results, checkOpenAICompatibleGeneration(ctx, "sambanova generation", cfg.SambaNovaAPIKey, cfg.SambaNovaBaseURL, cfg.SambaNovaModel))
+		results = append(results, checkOpenAICompatibleGeneration(ctx, "sambanova generation", cfg.SambaNovaAPIKey, cfg.SambaNovaBaseURL, cfg.SambaNovaModel, false))
 	} else {
 		results = append(results, Result{Name: "sambanova generation", Status: Warn, Message: "disabled"})
 	}
 	if cfg.CerebrasEnabled {
-		results = append(results, checkOpenAICompatibleGeneration(ctx, "cerebras generation", cfg.CerebrasAPIKey, cfg.CerebrasBaseURL, cfg.CerebrasModel))
+		results = append(results, checkOpenAICompatibleGeneration(ctx, "cerebras generation", cfg.CerebrasAPIKey, cfg.CerebrasBaseURL, cfg.CerebrasModel, false))
 	} else {
 		results = append(results, Result{Name: "cerebras generation", Status: Warn, Message: "disabled"})
 	}
@@ -63,6 +66,25 @@ func Run(ctx context.Context, cfg config.Config) []Result {
 		results = append(results, checkOllamaGeneration(ctx, cfg, ollamaResult.Status == Pass))
 	} else {
 		results = append(results, Result{Name: "ollama generation", Status: Warn, Message: "disabled"})
+	}
+	vllmResult := checkVLLM(ctx, cfg)
+	results = append(results, vllmResult)
+	if cfg.VLLMEnabled {
+		results = append(results, checkVLLMGeneration(ctx, cfg, vllmResult.Status == Pass))
+	} else {
+		results = append(results, Result{Name: "vllm generation", Status: Warn, Message: "disabled"})
+	}
+	mlxResult := checkMLX(ctx, cfg)
+	results = append(results, mlxResult)
+	if cfg.MLXEnabled {
+		results = append(results, checkMLXGeneration(ctx, cfg, mlxResult.Status == Pass))
+	} else {
+		results = append(results, Result{Name: "mlx generation", Status: Warn, Message: "disabled"})
+	}
+	if cfg.OpenAICompatibleEnabled {
+		results = append(results, checkOpenAICompatibleGeneration(ctx, "openai-compatible generation", cfg.OpenAICompatibleAPIKey, cfg.OpenAICompatibleBaseURL, cfg.OpenAICompatibleModel, true))
+	} else {
+		results = append(results, Result{Name: "openai-compatible generation", Status: Warn, Message: "disabled"})
 	}
 	return results
 }
@@ -147,8 +169,11 @@ func checkConfig(cfg config.Config) []Result {
 	} else {
 		results = append(results, Result{Name: "gemini model", Status: Pass, Message: cfg.GeminiModel})
 	}
-	results = append(results, checkOpenAICompatibleConfig("sambanova", cfg.SambaNovaEnabled, cfg.SambaNovaAPIKey, cfg.SambaNovaBaseURL, cfg.SambaNovaModel))
-	results = append(results, checkOpenAICompatibleConfig("cerebras", cfg.CerebrasEnabled, cfg.CerebrasAPIKey, cfg.CerebrasBaseURL, cfg.CerebrasModel))
+	results = append(results, checkOpenAICompatibleConfig("sambanova", cfg.SambaNovaEnabled, cfg.SambaNovaAPIKey, cfg.SambaNovaBaseURL, cfg.SambaNovaModel, true))
+	results = append(results, checkOpenAICompatibleConfig("cerebras", cfg.CerebrasEnabled, cfg.CerebrasAPIKey, cfg.CerebrasBaseURL, cfg.CerebrasModel, true))
+	results = append(results, checkVLLMConfig(cfg))
+	results = append(results, checkMLXConfig(cfg))
+	results = append(results, checkOpenAICompatibleConfig("openai-compatible", cfg.OpenAICompatibleEnabled, cfg.OpenAICompatibleAPIKey, cfg.OpenAICompatibleBaseURL, cfg.OpenAICompatibleModel, false))
 	if cfg.OllamaFallback {
 		results = append(results, Result{Name: "ollama fallback", Status: Pass, Message: cfg.OllamaModel + " at " + cfg.OllamaBaseURL})
 	} else {
@@ -157,20 +182,20 @@ func checkConfig(cfg config.Config) []Result {
 	return results
 }
 
-func checkOpenAICompatibleConfig(name string, enabled bool, apiKey, baseURL, model string) Result {
+func checkOpenAICompatibleConfig(name string, enabled bool, apiKey, baseURL, model string, requireAPIKey bool) Result {
 	if !enabled {
-		return Result{Name: name + " fallback", Status: Warn, Message: "disabled"}
+		return Result{Name: name + " config", Status: Warn, Message: "disabled"}
 	}
-	if apiKey == "" {
-		return Result{Name: name + " fallback", Status: Warn, Message: "API key not set"}
+	if requireAPIKey && apiKey == "" {
+		return Result{Name: name + " config", Status: Warn, Message: "API key not set"}
 	}
 	if baseURL == "" {
-		return Result{Name: name + " fallback", Status: Fail, Message: "base URL is empty"}
+		return Result{Name: name + " config", Status: Fail, Message: "base URL is empty"}
 	}
 	if model == "" {
-		return Result{Name: name + " fallback", Status: Fail, Message: "model is empty"}
+		return Result{Name: name + " config", Status: Fail, Message: "model is empty"}
 	}
-	return Result{Name: name + " fallback", Status: Pass, Message: model + " at " + baseURL}
+	return Result{Name: name + " config", Status: Pass, Message: model + " at " + baseURL}
 }
 
 func checkEmbeddedWeb() Result {
@@ -234,6 +259,190 @@ func checkSearch(ctx context.Context) Result {
 		return Result{Name: "web search", Status: Warn, Message: "provider responded with no instant-answer results"}
 	}
 	return Result{Name: "web search", Status: Pass, Message: "provider reachable"}
+}
+
+func CheckVLLMLocalModel(ctx context.Context, cfg config.Config) Result {
+	if !cfg.VLLMEnabled {
+		return Result{Name: "vllm local model", Status: Warn, Message: "disabled"}
+	}
+	if cfg.VLLMModel == "" {
+		return Result{Name: "vllm local model", Status: Fail, Message: "VLLM_MODEL is empty"}
+	}
+	if cfg.VLLMBaseURL == "" {
+		return Result{Name: "vllm local model", Status: Fail, Message: "VLLM_BASE_URL is empty"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.VLLMBaseURL, "/")+"/models", nil)
+	if err != nil {
+		return Result{Name: "vllm local model", Status: Warn, Message: err.Error()}
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return Result{Name: "vllm local model", Status: Warn, Message: "vLLM not running. Start with: vllm serve " + cfg.VLLMModel}
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return Result{Name: "vllm local model", Status: Warn, Message: res.Status}
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&payload); err != nil {
+		return Result{Name: "vllm local model", Status: Warn, Message: err.Error()}
+	}
+	for _, model := range payload.Data {
+		if model.ID == cfg.VLLMModel {
+			return Result{Name: "vllm local model", Status: Pass, Message: cfg.VLLMModel + " available"}
+		}
+	}
+	return Result{Name: "vllm local model", Status: Warn, Message: cfg.VLLMModel + " is not in the model list"}
+}
+
+func checkVLLM(ctx context.Context, cfg config.Config) Result {
+	return CheckVLLMLocalModel(ctx, cfg)
+}
+
+func checkVLLMConfig(cfg config.Config) Result {
+	if !cfg.VLLMEnabled {
+		return Result{Name: "vllm config", Status: Warn, Message: "disabled"}
+	}
+	if cfg.VLLMBaseURL == "" {
+		return Result{Name: "vllm config", Status: Fail, Message: "VLLM_BASE_URL is empty"}
+	}
+	if cfg.VLLMModel == "" {
+		return Result{Name: "vllm config", Status: Fail, Message: "VLLM_MODEL is empty"}
+	}
+	return Result{Name: "vllm config", Status: Pass, Message: cfg.VLLMModel + " at " + cfg.VLLMBaseURL}
+}
+
+func checkVLLMGeneration(ctx context.Context, cfg config.Config, modelAvailable bool) Result {
+	if !modelAvailable {
+		return Result{Name: "vllm generation", Status: Warn, Message: "local model unavailable"}
+	}
+	if cfg.VLLMBaseURL == "" {
+		return Result{Name: "vllm generation", Status: Fail, Message: "base URL is empty"}
+	}
+	if cfg.VLLMModel == "" {
+		return Result{Name: "vllm generation", Status: Fail, Message: "model is empty"}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	var reply strings.Builder
+	err := llm.NewOpenAICompatibleClient("vllm", cfg.VLLMBaseURL, "", cfg.VLLMModel).GenerateStream(
+		ctx,
+		[]store.Message{{Role: "user", Content: "Reply with only the word ok."}},
+		nil,
+		nil,
+		func(chunk string) error {
+			reply.WriteString(chunk)
+			return nil
+		},
+	)
+	if err != nil {
+		return Result{Name: "vllm generation", Status: Warn, Message: "unavailable: " + redact(err.Error())}
+	}
+	if strings.TrimSpace(reply.String()) == "" {
+		return Result{Name: "vllm generation", Status: Warn, Message: "empty response"}
+	}
+	return Result{Name: "vllm generation", Status: Pass, Message: "response received"}
+}
+
+func CheckMLXLocalModel(ctx context.Context, cfg config.Config) Result {
+	if !cfg.MLXEnabled {
+		return Result{Name: "mlx local model", Status: Warn, Message: "disabled"}
+	}
+	if cfg.MLXModel == "" {
+		return Result{Name: "mlx local model", Status: Fail, Message: "MLX_MODEL is empty"}
+	}
+	if cfg.MLXBaseURL == "" {
+		return Result{Name: "mlx local model", Status: Fail, Message: "MLX_BASE_URL is empty"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.MLXBaseURL, "/")+"/models", nil)
+	if err != nil {
+		return Result{Name: "mlx local model", Status: Warn, Message: err.Error()}
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return Result{Name: "mlx local model", Status: Warn, Message: "MLX not running. Start with: mlx_lm.server --model " + cfg.MLXModel}
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return Result{Name: "mlx local model", Status: Warn, Message: res.Status}
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&payload); err != nil {
+		return Result{Name: "mlx local model", Status: Warn, Message: err.Error()}
+	}
+	for _, model := range payload.Data {
+		if model.ID == cfg.MLXModel {
+			return Result{Name: "mlx local model", Status: Pass, Message: cfg.MLXModel + " available"}
+		}
+	}
+	return Result{Name: "mlx local model", Status: Warn, Message: cfg.MLXModel + " is not in the model list"}
+}
+
+func checkMLX(ctx context.Context, cfg config.Config) Result {
+	return CheckMLXLocalModel(ctx, cfg)
+}
+
+func checkMLXConfig(cfg config.Config) Result {
+	if !cfg.MLXEnabled {
+		return Result{Name: "mlx config", Status: Warn, Message: "disabled"}
+	}
+	if cfg.MLXBaseURL == "" {
+		return Result{Name: "mlx config", Status: Fail, Message: "MLX_BASE_URL is empty"}
+	}
+	if cfg.MLXModel == "" {
+		return Result{Name: "mlx config", Status: Fail, Message: "MLX_MODEL is empty"}
+	}
+	return Result{Name: "mlx config", Status: Pass, Message: cfg.MLXModel + " at " + cfg.MLXBaseURL}
+}
+
+func checkMLXGeneration(ctx context.Context, cfg config.Config, modelAvailable bool) Result {
+	if !modelAvailable {
+		return Result{Name: "mlx generation", Status: Warn, Message: "local model unavailable"}
+	}
+	if cfg.MLXBaseURL == "" {
+		return Result{Name: "mlx generation", Status: Fail, Message: "base URL is empty"}
+	}
+	if cfg.MLXModel == "" {
+		return Result{Name: "mlx generation", Status: Fail, Message: "model is empty"}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	var reply strings.Builder
+	err := llm.NewOpenAICompatibleClient("mlx", cfg.MLXBaseURL, "", cfg.MLXModel).GenerateStream(
+		ctx,
+		[]store.Message{{Role: "user", Content: "Reply with only the word ok."}},
+		nil,
+		nil,
+		func(chunk string) error {
+			reply.WriteString(chunk)
+			return nil
+		},
+	)
+	if err != nil {
+		return Result{Name: "mlx generation", Status: Warn, Message: "unavailable: " + redact(err.Error())}
+	}
+	if strings.TrimSpace(reply.String()) == "" {
+		return Result{Name: "mlx generation", Status: Warn, Message: "empty response"}
+	}
+	return Result{Name: "mlx generation", Status: Pass, Message: "response received"}
 }
 
 func checkOllama(ctx context.Context, cfg config.Config) Result {
@@ -322,9 +531,9 @@ func ollamaUnavailableMessage(err error) string {
 	return message
 }
 
-func checkOpenAICompatibleGeneration(ctx context.Context, name, apiKey, baseURL, model string) Result {
+func checkOpenAICompatibleGeneration(ctx context.Context, name, apiKey, baseURL, model string, skipAPIKeyCheck bool) Result {
 	providerName := strings.TrimSuffix(name, " generation")
-	if apiKey == "" {
+	if !skipAPIKeyCheck && apiKey == "" {
 		return Result{Name: name, Status: Warn, Message: "API key not set"}
 	}
 	if baseURL == "" {

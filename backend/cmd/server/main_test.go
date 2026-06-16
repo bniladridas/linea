@@ -438,8 +438,8 @@ func TestDefaultProviderSettings(t *testing.T) {
 		OllamaFallback:     true,
 		OllamaModel:        "qwen",
 	})
-	if len(settings.Providers) != 4 {
-		t.Fatalf("got %d providers, want 4", len(settings.Providers))
+	if len(settings.Providers) != 7 {
+		t.Fatalf("got %d providers, want 7", len(settings.Providers))
 	}
 	for _, p := range settings.Providers {
 		switch p.ID {
@@ -459,6 +459,18 @@ func TestDefaultProviderSettings(t *testing.T) {
 			if !p.Enabled || !p.Configured {
 				t.Fatalf("ollama: enabled=%v configured=%v", p.Enabled, p.Configured)
 			}
+		case "vllm":
+			if p.Enabled || p.Configured {
+				t.Fatalf("vllm: enabled=%v configured=%v", p.Enabled, p.Configured)
+			}
+		case "mlx":
+			if p.Enabled || p.Configured {
+				t.Fatalf("mlx: enabled=%v configured=%v", p.Enabled, p.Configured)
+			}
+		case "openai-compatible":
+			if p.Enabled || p.Configured {
+				t.Fatalf("openai-compatible: enabled=%v configured=%v", p.Enabled, p.Configured)
+			}
 		}
 	}
 }
@@ -472,6 +484,9 @@ func TestProviderSupportsImages(t *testing.T) {
 		{"sambanova", false},
 		{"cerebras", false},
 		{"ollama", false},
+		{"vllm", false},
+		{"mlx", false},
+		{"openai-compatible", false},
 	}
 	for _, tt := range tests {
 		if got := providerSupportsImages(tt.id); got != tt.want {

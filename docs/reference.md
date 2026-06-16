@@ -79,6 +79,16 @@ CEREBRAS_API_KEY=
 CEREBRAS_BASE_URL=https://api.cerebras.ai/v1
 CEREBRAS_ENABLED=true
 CEREBRAS_MODEL=gpt-oss-120b
+VLLM_BASE_URL=http://localhost:8000/v1
+VLLM_MODEL=Qwen/Qwen2.5-Coder-1.5B-Instruct
+VLLM_ENABLED=false
+MLX_BASE_URL=http://localhost:8080/v1
+MLX_MODEL=mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit
+MLX_ENABLED=false
+OPENAI_COMPATIBLE_BASE_URL=
+OPENAI_COMPATIBLE_API_KEY=
+OPENAI_COMPATIBLE_MODEL=
+OPENAI_COMPATIBLE_ENABLED=false
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5-coder:1.5b
 OLLAMA_FALLBACK=true
@@ -125,6 +135,16 @@ WEB_ORIGIN=http://localhost:5173
 | `CEREBRAS_BASE_URL` | OpenAI-compatible base URL. |
 | `CEREBRAS_ENABLED` | Use Cerebras. |
 | `CEREBRAS_MODEL` | Cerebras model. |
+| `VLLM_BASE_URL` | vLLM OpenAI-compatible endpoint. |
+| `VLLM_MODEL` | vLLM model name. |
+| `VLLM_ENABLED` | Use vLLM as a local provider. |
+| `MLX_BASE_URL` | MLX OpenAI-compatible endpoint. |
+| `MLX_MODEL` | MLX model name. |
+| `MLX_ENABLED` | Use MLX as a local provider. |
+| `OPENAI_COMPATIBLE_BASE_URL` | Generic OpenAI-compatible endpoint (vLLM, SGLang, TabbyAPI, etc.). |
+| `OPENAI_COMPATIBLE_API_KEY` | Optional API key for the generic endpoint. |
+| `OPENAI_COMPATIBLE_MODEL` | Model name for the generic endpoint. |
+| `OPENAI_COMPATIBLE_ENABLED` | Use the generic OpenAI-compatible provider. |
 | `OLLAMA_BASE_URL` | Ollama endpoint. |
 | `OLLAMA_MODEL` | Ollama model. |
 | `OLLAMA_FALLBACK` | Use local fallback. |

@@ -39,9 +39,6 @@ func (c *OpenAICompatibleClient) GenerateStream(ctx context.Context, messages []
 	if HasImageAttachments(attachments) {
 		return errors.New(c.name + " does not support image attachments in Linea")
 	}
-	if strings.TrimSpace(c.apiKey) == "" {
-		return fmt.Errorf("%w: missing %s API key", ErrMissingAPIKey, c.name)
-	}
 	if strings.TrimSpace(c.baseURL) == "" {
 		return fmt.Errorf("%s base URL is empty", c.name)
 	}
@@ -65,7 +62,9 @@ func (c *OpenAICompatibleClient) GenerateStream(ctx context.Context, messages []
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -127,6 +126,12 @@ func providerDisplayName(name string) string {
 		return "SambaNova"
 	case "cerebras":
 		return "Cerebras"
+	case "vllm":
+		return "vLLM"
+	case "mlx":
+		return "MLX"
+	case "openai-compatible":
+		return "OpenAI Compatible"
 	default:
 		if name == "" {
 			return "Provider"
