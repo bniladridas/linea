@@ -646,8 +646,8 @@ func providerStatuses(ctx context.Context, cfg config.Config, settings api.Setti
 	ollamaSetting := settingsByID["ollama"]
 	if cfg.OllamaFallback && ollamaSetting.Enabled {
 		statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
 		ollama = doctor.CheckOllamaLocalModel(statusCtx, cfg)
+		cancel()
 	}
 	ollamaRouteEnabled := cfg.OllamaFallback && ollamaSetting.Enabled
 	ollamaEnabled := ollamaRouteEnabled && ollama.Status == doctor.Pass
@@ -658,6 +658,54 @@ func providerStatuses(ctx context.Context, cfg config.Config, settings api.Setti
 		ollama.Message = localFallbackMessage(ollama.Message)
 	}
 	ollamaState := localFallbackState(ollamaRouteEnabled, ollamaEnabled)
+
+	openaiCompatSetting := settingsByID["openai-compatible"]
+	openaiCompatConfigured := cfg.OpenAICompatibleEnabled && cfg.OpenAICompatibleBaseURL != "" && cfg.OpenAICompatibleModel != ""
+	openaiCompatRouteEnabled := openaiCompatConfigured && openaiCompatSetting.Enabled
+
+	mlxSetting := settingsByID["mlx"]
+	mlxResult := doctor.Result{Status: doctor.Warn, Message: "disabled"}
+	if cfg.MLXEnabled && mlxSetting.Enabled {
+		statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		mlxResult = doctor.CheckMLXLocalModel(statusCtx, cfg)
+		cancel()
+	}
+	mlxEnabled := cfg.MLXEnabled && mlxSetting.Enabled && mlxResult.Status == doctor.Pass
+	mlxState := "off"
+	mlxDetail := ""
+	switch {
+	case !cfg.MLXEnabled || !mlxSetting.Enabled:
+		mlxState = "off"
+		mlxResult.Message = "off"
+	case mlxEnabled:
+		mlxState = "ready"
+		mlxDetail = mlxResult.Message
+	default:
+		mlxState = "off"
+		mlxDetail = mlxResult.Message
+	}
+
+	vllmSetting := settingsByID["vllm"]
+	vllmResult := doctor.Result{Status: doctor.Warn, Message: "disabled"}
+	if cfg.VLLMEnabled && vllmSetting.Enabled {
+		statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		vllmResult = doctor.CheckVLLMLocalModel(statusCtx, cfg)
+		cancel()
+	}
+	vllmEnabled := cfg.VLLMEnabled && vllmSetting.Enabled && vllmResult.Status == doctor.Pass
+	vllmState := "off"
+	vllmDetail := ""
+	switch {
+	case !cfg.VLLMEnabled || !vllmSetting.Enabled:
+		vllmState = "off"
+		vllmResult.Message = "off"
+	case vllmEnabled:
+		vllmState = "ready"
+		vllmDetail = vllmResult.Message
+	default:
+		vllmState = "off"
+		vllmDetail = vllmResult.Message
+	}
 
 	statusByID := map[string]api.ProviderStatus{
 		"gemini":    configuredProviderStatus("Gemini", cfg.GeminiModel, "primary", settingsByID["gemini"].Enabled, cfg.GeminiAPIKey != ""),
@@ -672,6 +720,25 @@ func providerStatuses(ctx context.Context, cfg config.Config, settings api.Setti
 			Message: ollama.Message,
 			Detail:  ollamaDetail,
 		},
+		"vllm": {
+			Name:    "vLLM",
+			Model:   cfg.VLLMModel,
+			Enabled: vllmEnabled,
+			Role:    "local",
+			State:   vllmState,
+			Message: vllmResult.Message,
+			Detail:  vllmDetail,
+		},
+		"mlx": {
+			Name:    "MLX",
+			Model:   cfg.MLXModel,
+			Enabled: mlxEnabled,
+			Role:    "local",
+			State:   mlxState,
+			Message: mlxResult.Message,
+			Detail:  mlxDetail,
+		},
+		"openai-compatible": configuredProviderStatus("OpenAI Compatible", cfg.OpenAICompatibleModel, "local", openaiCompatRouteEnabled, openaiCompatConfigured),
 	}
 	statuses := make([]api.ProviderStatus, 0, len(settings.Providers))
 	for _, provider := range settings.Providers {
@@ -885,6 +952,9 @@ func defaultProviderSettings(cfg config.Config) api.Settings {
 		{ID: "sambanova", Name: "SambaNova", Model: cfg.SambaNovaModel, Role: "fallback", Enabled: cfg.SambaNovaEnabled && cfg.SambaNovaAPIKey != "", Configured: cfg.SambaNovaEnabled && cfg.SambaNovaAPIKey != ""},
 		{ID: "cerebras", Name: "Cerebras", Model: cfg.CerebrasModel, Role: "fallback", Enabled: cfg.CerebrasEnabled && cfg.CerebrasAPIKey != "", Configured: cfg.CerebrasEnabled && cfg.CerebrasAPIKey != ""},
 		{ID: "ollama", Name: "Ollama", Model: cfg.OllamaModel, Role: "local", Enabled: cfg.OllamaFallback, Configured: cfg.OllamaFallback},
+		{ID: "vllm", Name: "vLLM", Model: cfg.VLLMModel, Role: "local", Enabled: cfg.VLLMEnabled, Configured: cfg.VLLMEnabled && cfg.VLLMBaseURL != ""},
+		{ID: "mlx", Name: "MLX", Model: cfg.MLXModel, Role: "local", Enabled: cfg.MLXEnabled, Configured: cfg.MLXEnabled && cfg.MLXBaseURL != ""},
+		{ID: "openai-compatible", Name: "OpenAI Compatible", Model: cfg.OpenAICompatibleModel, Role: "local", Enabled: cfg.OpenAICompatibleEnabled, Configured: cfg.OpenAICompatibleEnabled && cfg.OpenAICompatibleBaseURL != ""},
 	}}
 }
 
@@ -915,6 +985,9 @@ func newRoutingAssistant(cfg config.Config, settings *providerSettingsStore) *ro
 			"sambanova": llm.NewCooldownClient("sambanova", llm.NewOpenAICompatibleClient("sambanova", cfg.SambaNovaBaseURL, cfg.SambaNovaAPIKey, cfg.SambaNovaModel), providerCooldown),
 			"cerebras":  llm.NewCooldownClient("cerebras", llm.NewOpenAICompatibleClient("cerebras", cfg.CerebrasBaseURL, cfg.CerebrasAPIKey, cfg.CerebrasModel), providerCooldown),
 			"ollama":    llm.NewCooldownClient("ollama", llm.NewOllamaClient(cfg.OllamaBaseURL, cfg.OllamaModel), providerCooldown),
+			"vllm":     llm.NewCooldownClient("vllm", llm.NewOpenAICompatibleClient("vllm", cfg.VLLMBaseURL, "", cfg.VLLMModel), providerCooldown),
+			"mlx":      llm.NewCooldownClient("mlx", llm.NewOpenAICompatibleClient("mlx", cfg.MLXBaseURL, "", cfg.MLXModel), providerCooldown),
+			"openai-compatible": llm.NewCooldownClient("openai-compatible", llm.NewOpenAICompatibleClient("openai-compatible", cfg.OpenAICompatibleBaseURL, cfg.OpenAICompatibleAPIKey, cfg.OpenAICompatibleModel), providerCooldown),
 		},
 	}
 }

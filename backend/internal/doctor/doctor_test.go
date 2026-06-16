@@ -151,37 +151,190 @@ func TestCheckConfigFailsOnEmptyModel(t *testing.T) {
 }
 
 func TestCheckOpenAICompatibleConfigReturnsWarnWhenDisabled(t *testing.T) {
-	result := checkOpenAICompatibleConfig("test", false, "", "", "")
+	result := checkOpenAICompatibleConfig("test", false, "", "", "", false)
 	if result.Status != Warn {
 		t.Fatalf("status = %s, want Warn", result.Status)
 	}
 }
 
 func TestCheckOpenAICompatibleConfigReturnsWarnWhenMissingKey(t *testing.T) {
-	result := checkOpenAICompatibleConfig("test", true, "", "http://base", "model")
+	result := checkOpenAICompatibleConfig("test", true, "", "http://base", "model", true)
 	if result.Status != Warn {
 		t.Fatalf("status = %s, want Warn", result.Status)
 	}
 }
 
 func TestCheckOpenAICompatibleConfigReturnsFailWhenEmptyURL(t *testing.T) {
-	result := checkOpenAICompatibleConfig("test", true, "key", "", "model")
+	result := checkOpenAICompatibleConfig("test", true, "key", "", "model", true)
 	if result.Status != Fail {
 		t.Fatalf("status = %s, want Fail", result.Status)
 	}
 }
 
 func TestCheckOpenAICompatibleConfigReturnsFailWhenEmptyModel(t *testing.T) {
-	result := checkOpenAICompatibleConfig("test", true, "key", "http://base", "")
+	result := checkOpenAICompatibleConfig("test", true, "key", "http://base", "", true)
 	if result.Status != Fail {
 		t.Fatalf("status = %s, want Fail", result.Status)
 	}
 }
 
 func TestCheckOpenAICompatibleConfigReturnsPass(t *testing.T) {
-	result := checkOpenAICompatibleConfig("test", true, "key", "http://base", "model")
+	result := checkOpenAICompatibleConfig("test", true, "key", "http://base", "model", true)
 	if result.Status != Pass {
 		t.Fatalf("status = %s, want Pass", result.Status)
+	}
+}
+
+func TestCheckOpenAICompatibleConfigSkipsKeyCheckWhenNotRequired(t *testing.T) {
+	result := checkOpenAICompatibleConfig("test", true, "", "http://base", "model", false)
+	if result.Status != Pass {
+		t.Fatalf("status = %s, want Pass", result.Status)
+	}
+}
+
+func TestCheckVLLMConfigReturnsWarnWhenDisabled(t *testing.T) {
+	result := checkVLLMConfig(config.Config{VLLMEnabled: false})
+	if result.Status != Warn {
+		t.Fatalf("status = %s, want Warn", result.Status)
+	}
+}
+
+func TestCheckVLLMConfigReturnsFailWhenEmptyURL(t *testing.T) {
+	result := checkVLLMConfig(config.Config{VLLMEnabled: true, VLLMBaseURL: "", VLLMModel: "model"})
+	if result.Status != Fail {
+		t.Fatalf("status = %s, want Fail", result.Status)
+	}
+}
+
+func TestCheckVLLMConfigReturnsFailWhenEmptyModel(t *testing.T) {
+	result := checkVLLMConfig(config.Config{VLLMEnabled: true, VLLMBaseURL: "http://localhost:8000", VLLMModel: ""})
+	if result.Status != Fail {
+		t.Fatalf("status = %s, want Fail", result.Status)
+	}
+}
+
+func TestCheckVLLMConfigReturnsPass(t *testing.T) {
+	result := checkVLLMConfig(config.Config{VLLMEnabled: true, VLLMBaseURL: "http://localhost:8000", VLLMModel: "model"})
+	if result.Status != Pass {
+		t.Fatalf("status = %s, want Pass", result.Status)
+	}
+}
+
+func TestCheckMLXConfigReturnsWarnWhenDisabled(t *testing.T) {
+	result := checkMLXConfig(config.Config{MLXEnabled: false})
+	if result.Status != Warn {
+		t.Fatalf("status = %s, want Warn", result.Status)
+	}
+}
+
+func TestCheckMLXConfigReturnsFailWhenEmptyURL(t *testing.T) {
+	result := checkMLXConfig(config.Config{MLXEnabled: true, MLXBaseURL: "", MLXModel: "model"})
+	if result.Status != Fail {
+		t.Fatalf("status = %s, want Fail", result.Status)
+	}
+}
+
+func TestCheckMLXConfigReturnsFailWhenEmptyModel(t *testing.T) {
+	result := checkMLXConfig(config.Config{MLXEnabled: true, MLXBaseURL: "http://localhost:8080", MLXModel: ""})
+	if result.Status != Fail {
+		t.Fatalf("status = %s, want Fail", result.Status)
+	}
+}
+
+func TestCheckMLXConfigReturnsPass(t *testing.T) {
+	result := checkMLXConfig(config.Config{MLXEnabled: true, MLXBaseURL: "http://localhost:8080", MLXModel: "model"})
+	if result.Status != Pass {
+		t.Fatalf("status = %s, want Pass", result.Status)
+	}
+}
+
+func TestCheckVLLMWarnsWhenServerUnreachable(t *testing.T) {
+	result := checkVLLM(context.Background(), config.Config{
+		VLLMEnabled: true,
+		VLLMBaseURL: "http://127.0.0.1:1",
+		VLLMModel:   "model",
+	})
+	if result.Status != Warn {
+		t.Fatalf("status = %s, want Warn", result.Status)
+	}
+}
+
+func TestCheckVLLMPassesWhenModelFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model"},{"id":"other"}]}`))
+	}))
+	defer server.Close()
+
+	result := checkVLLM(context.Background(), config.Config{
+		VLLMEnabled: true,
+		VLLMBaseURL: server.URL,
+		VLLMModel:   "model",
+	})
+	if result.Status != Pass {
+		t.Fatalf("status = %s, want Pass", result.Status)
+	}
+}
+
+func TestCheckVLLMWarnsWhenModelMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"other"}]}`))
+	}))
+	defer server.Close()
+
+	result := checkVLLM(context.Background(), config.Config{
+		VLLMEnabled: true,
+		VLLMBaseURL: server.URL,
+		VLLMModel:   "model",
+	})
+	if result.Status != Warn {
+		t.Fatalf("status = %s, want Warn", result.Status)
+	}
+}
+
+func TestCheckMLXWarnsWhenServerUnreachable(t *testing.T) {
+	result := checkMLX(context.Background(), config.Config{
+		MLXEnabled: true,
+		MLXBaseURL: "http://127.0.0.1:1",
+		MLXModel:   "model",
+	})
+	if result.Status != Warn {
+		t.Fatalf("status = %s, want Warn", result.Status)
+	}
+}
+
+func TestCheckMLXPassesWhenModelFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model"}]}`))
+	}))
+	defer server.Close()
+
+	result := checkMLX(context.Background(), config.Config{
+		MLXEnabled: true,
+		MLXBaseURL: server.URL,
+		MLXModel:   "model",
+	})
+	if result.Status != Pass {
+		t.Fatalf("status = %s, want Pass", result.Status)
+	}
+}
+
+func TestCheckMLXWarnsWhenModelMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"other"}]}`))
+	}))
+	defer server.Close()
+
+	result := checkMLX(context.Background(), config.Config{
+		MLXEnabled: true,
+		MLXBaseURL: server.URL,
+		MLXModel:   "model",
+	})
+	if result.Status != Warn {
+		t.Fatalf("status = %s, want Warn", result.Status)
 	}
 }
 

@@ -28,9 +28,19 @@ type Config struct {
 	CerebrasModel         string
 	BraveSearchAPIKey     string
 	SearXNGURL            string
-	OllamaBaseURL         string
-	OllamaModel           string
-	OllamaFallback        bool
+	VLLMBaseURL             string
+	VLLMModel               string
+	VLLMEnabled             bool
+	MLXBaseURL              string
+	MLXModel                string
+	MLXEnabled              bool
+	OpenAICompatibleBaseURL string
+	OpenAICompatibleAPIKey  string
+	OpenAICompatibleModel   string
+	OpenAICompatibleEnabled bool
+	OllamaBaseURL           string
+	OllamaModel             string
+	OllamaFallback          bool
 	StaticDir             string
 	WebOrigin             string
 	SyncURL               string
@@ -72,9 +82,19 @@ func Load() Config {
 		CerebrasModel:         env("CEREBRAS_MODEL", "gpt-oss-120b"),
 		BraveSearchAPIKey:     os.Getenv("BRAVE_SEARCH_API_KEY"),
 		SearXNGURL:            os.Getenv("SEARXNG_URL"),
-		OllamaBaseURL:         env("OLLAMA_BASE_URL", "http://localhost:11434"),
-		OllamaModel:           env("OLLAMA_MODEL", "qwen2.5-coder:1.5b"),
-		OllamaFallback:        envBool("OLLAMA_FALLBACK", true),
+		VLLMBaseURL:             env("VLLM_BASE_URL", "http://localhost:8000"),
+		VLLMModel:               env("VLLM_MODEL", "Qwen/Qwen2.5-Coder-1.5B-Instruct"),
+		VLLMEnabled:             envBool("VLLM_ENABLED", false),
+		MLXBaseURL:              env("MLX_BASE_URL", "http://localhost:8080"),
+		MLXModel:                env("MLX_MODEL", "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit"),
+		MLXEnabled:              envBool("MLX_ENABLED", false),
+		OpenAICompatibleBaseURL: os.Getenv("OPENAI_COMPATIBLE_BASE_URL"),
+		OpenAICompatibleAPIKey:  os.Getenv("OPENAI_COMPATIBLE_API_KEY"),
+		OpenAICompatibleModel:   os.Getenv("OPENAI_COMPATIBLE_MODEL"),
+		OpenAICompatibleEnabled: envBool("OPENAI_COMPATIBLE_ENABLED", false),
+		OllamaBaseURL:           env("OLLAMA_BASE_URL", "http://localhost:11434"),
+		OllamaModel:             env("OLLAMA_MODEL", "qwen2.5-coder:1.5b"),
+		OllamaFallback:          envBool("OLLAMA_FALLBACK", true),
 		StaticDir:             os.Getenv("STATIC_DIR"),
 		WebOrigin:             env("WEB_ORIGIN", "http://localhost:5173"),
 		SyncURL:               os.Getenv("LINEA_SYNC_URL"),
