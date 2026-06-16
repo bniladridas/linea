@@ -1,4 +1,4 @@
-.PHONY: build test check run start stop install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full android-check
+.PHONY: build build-backend test check run start stop install-check release-check macos-package macos-check macos-ui-check model-check agent-check agent-autonomy-check agent-check-memory tui-check ui-check ui-check-agent ui-check-full android-check
 
 run: build
 	@if [ ! -f .env ]; then echo "!! .env not found"; exit 1; fi
@@ -7,7 +7,7 @@ run: build
 	@sleep 2
 	@curl -s http://127.0.0.1:8080/healthz && echo ""
 
-start:
+start: build-backend
 	ANDROID=$(ANDROID) IOS=$(IOS) MACOS=$(MACOS) NODB=$(NODB) ./scripts/start.sh
 
 stop:
@@ -17,9 +17,11 @@ BREW_LINEA_BIN = $$(brew --prefix bniladridas/linea/linea)/bin/linea
 
 VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo dev)
 
-build:
-	cd frontend && npm ci && npm run build
+build-backend:
 	cd backend && go build -ldflags "-X main.version=$(VERSION)" -o ../bin/linea ./cmd/server
+
+build: build-backend
+	cd frontend && npm ci && npm run build
 
 test:
 	node scripts/client-api-route-check.mjs
