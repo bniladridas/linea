@@ -1,54 +1,156 @@
 # Linea
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./assets/linea-route.svg">
-  <source media="(prefers-color-scheme: light)" srcset="./assets/linea-route-dark.svg">
-  <img src="./assets/linea-route-dark.svg" width="24" height="24" alt="">
-</picture>
+<img src="https://www.npmjs.com/npm-avatar/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdmF0YXJVUkwiOiJodHRwczovL3MuZ3JhdmF0YXIuY29tL2F2YXRhci84MmMyMGIzNWJjNTdmZWEwZjYwMzNkYzFhYzY4NmYxND9zaXplPTQ5NiZkZWZhdWx0PXJldHJvIn0.dk6JBdzczvyEAcyOANs90nE_EoQbMGUt0tOo5u9ACU8" width="48" /><img src="./assets/linea-route.svg" width="48" />
 
-<img src="./.github/assets/linea-mcp.png" alt="Linea" width="720">
+**Local-first, agent-native design tool.**
 
-Local AI chat.
+Linea chats whit LLMs, searces the web, manages files, and automates local development tasks, all runing locally on your machine. Its built to be your personal agent without the clud.
 
-Public notes: [bniladridas.github.io/linea](https://bniladridas.github.io/linea/).
+```bash
+npm i @bniladridas/linea
+brew install linea
+linea
+```
 
-Runs as one Go server with a React UI.
+[Docs](./docs/reference.md) · [API](./docs/client-api.md)
 
-Stores conversations in PostgreSQL when `DATABASE_URL` is set.
+# Architcture
 
-Uses memory storage when `DATABASE_URL` is empty.
+Here is how the boxxess connect:
 
-# Run
+```text
++------------+
+| UI (Client)|
++------------+
+      | HTTP/API
++------------+
+| Go Daemon  | <---> [MCP Tools]
++------------+
+      |
++------------+
+| Models/Data|
++------------+
+```
 
-Run `linea`.
+---
 
-Open `http://localhost:8080`.
+# Platforms
 
-Run `linea -check` to check setup.
+For runin on different platforms, here is how you can set it up:
 
-Run `make install-check` to check the Homebrew formula.
+| Platform | Method |
+| :--- | :--- |
+| **macOS** | `brew install linea` or [Releases](https://github.com/bniladridas/linea/releases) |
+| **Android** | [Build from source](./android/README.md) |
+| **iOS** | [Build from source](./ios/README.md) |
 
-Run `make release-check` after a release.
+# macOS and Remote
 
-# Models
+macOS support uses a backgrond daemon via LaunchAgent. Remot access is enabld by settin `API_ADDR` to `0.0.0.0:8080` in `linea.env`.
 
-Gemini is primary.
+# SaaS Mode
 
-Gemini handles image input.
+Linea supports multi-tenant SaaS mode when `LINEA_SAAS_MODE=true` is set. This enables API-key-based auth, user management, and workspace-scoped data isolation.
 
-Cerebras and SambaNova use OpenAI-compatible endpoints.
+# OAuth Flow
 
-Ollama can run locally.
+Linea uses an OAuth 2.0 flow to integrate whit GitHub, GitLab, and Google for user authentication and authorization.
 
-Put keys in `~/.config/linea/linea.env` or shell variables.
+Here is the high-level mechanism:
 
-# More
+1. Initiation: When you start the auth flow, Linea generates a secure state parameter to prevent CSRF and redirects your browser to the chosen provider's authorization URL (e.g., GitHub's login page).
+2. Redirect & Code: After you approve, the provider redirects you back to a Linea callback URL (`/api/auth/<provider>/callback`) with an authorization code.
+3. Exchange: The backend receives the code and the state, verifies the state against its internal registry, and then makes a server-to-server request to the provider to exchange the authorization code for an `access_token`.
 
-Setup and checks: [docs/reference.md](./docs/reference.md).
+# Git Integration
 
-Client API: [docs/client-api.md](./docs/client-api.md).
+For GitHub/GitLab integraton, set your OAuth credentals in `linea.env`:
 
-macOS app: [docs/macos.md](./docs/macos.md).
+| Variable | Description |
+| :--- | :--- |
+| `LINEA_GITHUB_CLIENT_ID` | GitHub Client ID |
+| `LINEA_GITHUB_CLIENT_SECRET` | GitHub Client Secret |
+| `LINEA_GITLAB_CLIENT_ID` | GitLab Client ID |
+| `LINEA_GITLAB_CLIENT_SECRET` | GitLab Client Secret |
+
+# Subagent Orchestraton
+
+We use subagents to handle isolated work like review, search, or testin, keepin the main agent lean. The core engine handles dymanic registraton of new subagents at runtime.
+
+| Mechanism | Description |
+| :--- | :--- |
+| **Parallel Executon** | Uses goroutines + WaitGroups |
+| **State Trackin** | Sructures results per subagent in plans |
+| **Discovery** | `findSubagentCustom` for custom runtime agents |
+
+# Capabilities
+
+We keep the core features focused on what developers actually need, avoidin unnecessary complexity.
+
+| Feature | Scope |
+| :--- | :--- |
+| **Local-First** | PostgreSQL / Memory |
+| **Agentic** | Loops, tool execution, skills, edits |
+| **Multi-Platform** | Web, CLI (TUI), macOS, Android |
+| **Models** | Gemini, OpenAI, vLLM, MLX, Ollama |
+
+# Supported Languages
+
+Linea supports agentic development and interacton across major programming languages:
+
+| Language | Type |
+| :--- | :--- |
+| **TypeScript/JS** | Native |
+| **Python** | Native |
+| **Go** | Native |
+| **Java/Kotlin** | MCP |
+| **Ruby** | MCP |
+| **PHP/C#** | MCP |
+
+---
+
+# CLI
+
+Use the CLI to interact whit your daemon, startin the web server or jumpin into the terminal chat directly.
+
+```bash
+linea                # Start web server
+linea tui            # Terminal chat
+linea daemon         # Run as background daemon
+linea check          # Health checks
+linea status         # Daemon status
+linea migrate        # DB migrations
+```
+
+# API Access
+
+Authenticated programmatic access via `/api/v1/*` endpoints.
+
+[Client API Details](./docs/client-api.md)
+
+# Authentication
+
+Authetnicate requests usin a Bearer token in the Authorizaton header:
+
+```http
+Authorization: Bearer <token>
+```
+
+The backend verifies this token against the active session in the database before grantin access to API resources.
+
+# Configuration Reference
+
+`~/.config/linea/linea.env` or environment variables:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `API_ADDR` | `127.0.0.1:8080` | Server bind address |
+| `GEMINI_API_KEY` | - | API key |
+| `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Model ID |
+
+# Troubleshoting
+
+Audit logs are stored at `~/.cache/linea/audit.jsonl`.
 
 # License
 
