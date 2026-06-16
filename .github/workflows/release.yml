@@ -52,15 +52,23 @@ jobs:
           tar -C dist/bottle -czf "dist/linea-${version}.arm64_sequoia.bottle.tar.gz" linea
 
       - name: Build iOS app
+        continue-on-error: true
+        id: ios-build
         run: |
           cd ios
-          xcodebuild -project Linea.xcodeproj -scheme Linea -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -quiet
+          xcodebuild -project Linea.xcodeproj -scheme Linea -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO -quiet || exit 1
           cd ..
           mkdir -p dist/ios
-          cp -r "$(find ~/Library/Developer/Xcode/DerivedData -name 'Linea.app' -path '*/Release-iphoneos/*' | head -1)" dist/ios/
+          app_path="$(find ~/Library/Developer/Xcode/DerivedData -name 'Linea.app' -path '*/Release-iphoneos/*' | head -1)"
+          if [ -z "$app_path" ]; then
+            echo "iOS app not found, skipping"
+            exit 1
+          fi
+          cp -r "$app_path" dist/ios/
           cd dist/ios
           zip -r "Linea-${GITHUB_REF_NAME}.zip" Linea.app
           cd ../..
+          echo "ios_zip=dist/ios/Linea-${GITHUB_REF_NAME}.zip" >> "$GITHUB_OUTPUT"
 
       - name: Update package version
         run: |
@@ -110,7 +118,13 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/macos/Linea.dmg dist/ios/Linea-*.zip dist/checksums.txt --title "$GITHUB_REF_NAME" --generate-notes || echo "release already exists"
+        run: |
+          ios_asset="${{ steps.ios-build.outputs.ios_zip }}"
+          if [ -n "$ios_asset" ] && [ -f "$ios_asset" ]; then
+            gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/macos/Linea.dmg "$ios_asset" dist/checksums.txt --title "$GITHUB_REF_NAME" --generate-notes || echo "release already exists"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/macos/Linea.dmg dist/checksums.txt --title "$GITHUB_REF_NAME" --generate-notes || echo "release already exists"
+          fi
 
       - name: Publish to npm
         run: |
