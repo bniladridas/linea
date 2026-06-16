@@ -240,6 +240,7 @@ const page = `<!doctype html>
           </svg>
           <span>Linea</span>
         </a>
+        <button id="tbtn" class="theme-toggle" aria-label="Toggle theme"></button>
       </header>
 
       <article class="article">
@@ -251,6 +252,7 @@ ${editBlocks || '          <p>No page edits yet.</p>'}
         </div>
       </article>
     </main>
+    <script src="../theme.js"></script>
   </body>
 </html>
 `;
