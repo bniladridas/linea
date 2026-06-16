@@ -368,6 +368,132 @@ func TestMiddlewareSkipsSaasRoutes(t *testing.T) {
 	}
 }
 
+func TestHandlerRegisterPublic(t *testing.T) {
+	mgr := NewManager(newTestStore())
+	h := NewHandler(mgr)
+	mux := http.NewServeMux()
+	h.RegisterPublic(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	t.Run("success creates user and api key", func(t *testing.T) {
+		resp, err := http.Post(ts.URL+"/api/v1/auth/register", "application/json", strings.NewReader(`{"email":"reg@test.com","name":"Reginald"}`))
+		if err != nil {
+			t.Fatalf("POST register error = %v", err)
+		}
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("status = %d, want 201", resp.StatusCode)
+		}
+		var result RegisterResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatalf("decode error = %v", err)
+		}
+		resp.Body.Close()
+		if result.User.ID == "" || result.User.Email != "reg@test.com" || result.User.Name != "Reginald" {
+			t.Fatalf("user = %+v", result.User)
+		}
+		if result.APIKey.ID == "" || result.APIKey.Key == "" || result.APIKey.UserID != result.User.ID {
+			t.Fatalf("apiKey = %+v", result.APIKey)
+		}
+		// Key must be usable
+		got, err := mgr.ValidateKey(context.Background(), result.APIKey.Key)
+		if err != nil {
+			t.Fatalf("ValidateKey error = %v", err)
+		}
+		if got.UserID != result.User.ID {
+			t.Fatalf("key user = %q, want %q", got.UserID, result.User.ID)
+		}
+	})
+
+	t.Run("empty name defaults to email", func(t *testing.T) {
+		resp, err := http.Post(ts.URL+"/api/v1/auth/register", "application/json", strings.NewReader(`{"email":"noname@test.com"}`))
+		if err != nil {
+			t.Fatalf("POST register error = %v", err)
+		}
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("status = %d, want 201", resp.StatusCode)
+		}
+		var result RegisterResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatalf("decode error = %v", err)
+		}
+		resp.Body.Close()
+		if result.User.Name != "noname@test.com" {
+			t.Fatalf("name = %q, want email fallback", result.User.Name)
+		}
+	})
+
+	t.Run("missing email returns 400", func(t *testing.T) {
+		resp, err := http.Post(ts.URL+"/api/v1/auth/register", "application/json", strings.NewReader(`{"name":"No Email"}`))
+		if err != nil {
+			t.Fatalf("POST register error = %v", err)
+		}
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", resp.StatusCode)
+		}
+		resp.Body.Close()
+	})
+
+	t.Run("empty email returns 400", func(t *testing.T) {
+		resp, err := http.Post(ts.URL+"/api/v1/auth/register", "application/json", strings.NewReader(`{"email":"","name":"Empty"}`))
+		if err != nil {
+			t.Fatalf("POST register error = %v", err)
+		}
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", resp.StatusCode)
+		}
+		resp.Body.Close()
+	})
+
+	t.Run("duplicate email returns 409", func(t *testing.T) {
+		resp, err := http.Post(ts.URL+"/api/v1/auth/register", "application/json", strings.NewReader(`{"email":"reg@test.com","name":"Duplicate"}`))
+		if err != nil {
+			t.Fatalf("POST register error = %v", err)
+		}
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("status = %d, want 409", resp.StatusCode)
+		}
+		resp.Body.Close()
+	})
+
+	t.Run("invalid json returns 400", func(t *testing.T) {
+		resp, err := http.Post(ts.URL+"/api/v1/auth/register", "application/json", strings.NewReader(`not json`))
+		if err != nil {
+			t.Fatalf("POST register error = %v", err)
+		}
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", resp.StatusCode)
+		}
+		resp.Body.Close()
+	})
+}
+
+func TestMiddlewareSkipsAuthRegisterPath(t *testing.T) {
+	mgr := NewManager(newTestStore())
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := Middleware(mgr, http.NotFoundHandler(), inner)
+
+	t.Run("register path bypasses auth", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (bypass auth)", w.Code)
+		}
+	})
+
+	t.Run("other auth paths still require auth", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", w.Code)
+		}
+	})
+}
+
 func TestAdminMiddleware(t *testing.T) {
 	mgr := NewManager(newTestStore())
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

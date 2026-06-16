@@ -15,6 +15,10 @@ func Middleware(mgr *Manager, admin http.Handler, next http.Handler) http.Handle
 			admin.ServeHTTP(w, r)
 			return
 		}
+		if r.URL.Path == "/api/v1/auth/register" || r.URL.Path == "/api/v1/auth/register/" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
 			w.Header().Set("WWW-Authenticate", "Bearer")
