@@ -69,10 +69,7 @@ textarea {
   flex-direction: column;
   gap: 16px;
   min-height: 0;
-  border-right: 1px solid var(--glass-border);
-  background: var(--glass-bg-panel);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  background: #141414;
   padding: 16px;
   overflow: hidden;
 }
@@ -159,7 +156,7 @@ textarea {
 }
 
 .new-chat:hover {
-  background: #181818;
+  background: #1f1f1f;
 }
 
 .new-chat-menu {
@@ -170,8 +167,8 @@ textarea {
   z-index: 30;
   display: grid;
   gap: 3px;
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
+  border: 0;
+  border-radius: 12px;
   background: var(--glass-bg-float);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -249,11 +246,9 @@ textarea {
   display: grid;
   width: 100%;
   gap: 3px;
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  border: 0;
+  border-radius: 12px;
+  background: #181818;
   padding: 8px;
 }
 
@@ -320,11 +315,9 @@ textarea {
   display: grid;
   width: 100%;
   gap: 4px;
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  border: 0;
+  border-radius: 12px;
+  background: #181818;
   padding: 8px;
 }
 
@@ -337,6 +330,96 @@ textarea {
 
 .theme-panel-title:first-child {
   margin-top: 0;
+}
+
+.connections-panel {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+  border: 0;
+  border-radius: 12px;
+  background: #181818;
+  padding: 8px;
+}
+
+.connections-panel-title {
+  margin: 0;
+  color: #777777;
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.connections-loading,
+.connections-empty {
+  color: #777777;
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.connection-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.connection-card.disconnected {
+  opacity: 0.6;
+}
+
+.connection-info {
+  display: grid;
+  gap: 1px;
+}
+
+.connection-name {
+  color: #e7e7e7;
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.connection-status {
+  color: #8f8f8f;
+  font-size: 10px;
+}
+
+.connection-action {
+  border: 0;
+  border-radius: 999px;
+  background: #242424;
+  color: #cfcfcf;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.connection-action:hover:not(:disabled) {
+  background: #323232;
+  color: #eeeeee;
+}
+
+.connection-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.connections-close {
+  justify-self: start;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #a8a8a8;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-top: 4px;
+}
+
+.connections-close:hover {
+  background: #1d1d1d;
+  color: #eeeeee;
 }
 
 .about-report-link {
@@ -362,11 +445,9 @@ textarea {
   display: grid;
   width: 100%;
   gap: 6px;
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  border: 0;
+  border-radius: 12px;
+  background: #181818;
   padding: 8px;
 }
 
@@ -494,7 +575,7 @@ textarea {
   height: 14px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid #202020;
+  border: 0;
   border-radius: 5px;
   color: #eeeeee;
 }
@@ -609,7 +690,7 @@ textarea {
 .conversation-rename {
   min-width: 0;
   width: 100%;
-  border: 1px solid #1a1a1a;
+  border: 0;
   border-radius: 6px;
   outline: none;
   background: #111111;
@@ -735,9 +816,6 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--glass-bg-panel);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   padding: 12px 28px;
   z-index: 10;
 }
@@ -906,7 +984,7 @@ textarea {
 .message {
   position: relative;
   max-width: min(680px, 82%);
-  border: 1px solid #171717;
+  border: 0;
   border-radius: 14px;
   background: #141414;
   padding: 14px 16px;
@@ -926,8 +1004,8 @@ textarea {
   align-self: flex-start;
   max-width: min(620px, 82%);
   gap: 5px;
-  border: 1px solid #171717;
-  border-radius: 10px;
+  border: 0;
+  border-radius: 12px;
   background: #101010;
   padding: 9px 10px;
 }
@@ -1272,19 +1350,11 @@ textarea {
   align-items: center;
   gap: 8px;
   min-width: max-content;
-  opacity: 0;
-  transition: opacity 120ms ease;
 }
 
 .feedback-row {
   display: flex;
   gap: 2px;
-}
-
-.message.assistant:hover .response-tools,
-.message.assistant:focus-within .response-tools,
-.message.assistant.has-feedback .response-tools {
-  opacity: 1;
 }
 
 .response-meta {
@@ -1359,7 +1429,7 @@ textarea {
   width: 38px;
   height: 38px;
   place-items: center;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #181818;
   color: #e4e4e4;
   font-weight: 700;
@@ -1392,7 +1462,7 @@ textarea {
   max-width: min(760px, 72vw);
   margin: 0 auto 10px;
   border: 1px solid #4a2424;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #201313;
   color: #e6b8b8;
   padding: 10px 12px;
@@ -1480,15 +1550,15 @@ textarea {
 
 .details-dialog {
   display: grid;
-  gap: 10px;
+  gap: 16px;
   width: min(820px, calc(100vw - 40px));
   max-height: min(720px, calc(100vh - 40px));
   overflow: auto;
-  border: 1px solid #181818;
-  border-radius: 10px;
+  border: 0;
+  border-radius: 28px;
   background: #121212;
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
-  padding: 12px;
+  padding: 24px;
 }
 
 .details-header {
@@ -1496,7 +1566,7 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 2px 2px;
+  padding: 0;
 }
 
 .details-header strong,
@@ -1511,7 +1581,7 @@ textarea {
 
 .details-header p,
 .details-list p {
-  margin: 3px 0 0;
+  margin: 4px 0 0;
   color: #9a9a9a;
   font-size: 11.5px;
   line-height: 1.45;
@@ -1519,8 +1589,8 @@ textarea {
 
 .details-close {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   border: 0;
   border-radius: 999px;
@@ -1539,17 +1609,17 @@ textarea {
 .details-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 12px;
 }
 
 .details-section,
 .details-list {
   display: grid;
   min-width: 0;
-  gap: 5px;
-  border: 1px solid #171717;
+  gap: 8px;
+  border: 0;
   border-radius: 8px;
-  padding: 8px;
+  padding: 0;
 }
 
 .details-list-header {
@@ -1573,6 +1643,7 @@ textarea {
   gap: 12px;
   color: #8f8f8f;
   font-size: 12px;
+  padding: 0 4px;
 }
 
 .detail-line span,
@@ -1640,10 +1711,10 @@ textarea {
 .agent-mcp-form select,
 .agent-mcp-form textarea {
   min-width: 0;
-  border: 1px solid #171717;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 6px;
   outline: none;
-  background: #101010;
+  background: transparent;
   color: #eeeeee;
   padding: 0 9px;
   font-size: 12px;
@@ -1719,12 +1790,12 @@ textarea {
 .agent-card button,
 .details-list-header button {
   min-height: 30px;
-  border: 1px solid #1a1a1a;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 999px;
   background: #181818;
   color: #d8d8d8;
   cursor: pointer;
-  padding: 0 10px;
+  padding: 0 16px;
   font-size: 11px;
   font-weight: 560;
 }
@@ -1877,8 +1948,6 @@ textarea {
   display: grid;
   min-width: 0;
   gap: 6px;
-  max-height: 260px;
-  overflow: auto;
   padding-right: 2px;
 }
 
@@ -1921,7 +1990,7 @@ textarea {
   display: grid;
   min-width: 0;
   gap: 6px;
-  border: 1px solid #171717;
+  border: 0;
   border-radius: 8px;
   background: #101010;
   padding: 8px;
@@ -2013,7 +2082,7 @@ textarea {
   display: grid;
   min-width: 0;
   gap: 5px;
-  border: 1px solid #171717;
+  border: 0;
   border-radius: 8px;
   background: #101010;
   padding: 8px;
@@ -2457,9 +2526,10 @@ textarea {
   align-items: end;
   max-width: min(760px, 72vw);
   margin: 0 auto;
-  border: 1px solid #171717;
+  border: 0;
   border-radius: 16px;
   background: #121212;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.36);
   padding: 6px;
   pointer-events: auto;
 }
@@ -2467,7 +2537,7 @@ textarea {
 .composer-row::before {
   position: absolute;
   z-index: -1;
-  inset: -1px;
+  inset: 0;
   border-radius: inherit;
   background: #25272d;
   content: "";
@@ -2481,16 +2551,12 @@ textarea {
 }
 
 .composer.is-dragging .composer-row {
-  border-color: transparent;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.36);
 }
 
 .composer.is-dragging .composer-row::before {
   background: #30343d;
   opacity: 0.7;
-}
-
-.composer-row:focus-within {
-  border-color: transparent;
 }
 
 .icon-button,
@@ -2517,7 +2583,7 @@ textarea {
 .composer-row .send-button {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
   color: #cfcfcf;
 }
@@ -2679,7 +2745,6 @@ textarea:focus {
   min-width: 0;
   flex-direction: column;
   gap: 10px;
-  border-left: 1px solid var(--glass-border);
   background: var(--glass-bg-panel);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -2975,15 +3040,16 @@ textarea:focus {
   background: #f7f7f4;
 }
 
-:root[data-theme="light"] .sidebar,
+:root[data-theme="light"] .sidebar {
+  background: #f0f0ec;
+}
+
 :root[data-theme="light"] .chat-header,
 :root[data-theme="light"] .sources-panel {
   border-color: #e8e8e3;
-  background: #f2f2ee;
 }
 
 :root[data-theme="light"] .chat-header.scrolled {
-  background: rgba(248, 248, 245, 0.82);
   box-shadow: 0 8px 24px -8px rgba(0,0,0,0.12);
 }
 
@@ -3072,6 +3138,7 @@ textarea:focus {
 :root[data-theme="light"] .system-panel,
 :root[data-theme="light"] .theme-panel,
 :root[data-theme="light"] .settings-panel,
+:root[data-theme="light"] .connections-panel,
 :root[data-theme="light"] .details-dialog,
 :root[data-theme="light"] .details-section,
 :root[data-theme="light"] .details-list,
@@ -3100,8 +3167,8 @@ textarea:focus {
 
 :root[data-theme="light"] .message,
 :root[data-theme="light"] .composer-row {
-  border-color: #eeeeea;
   background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
 :root[data-theme="light"] .scroll-note span,
@@ -3408,8 +3475,17 @@ textarea:focus {
   border: 1px solid #e8e8e3;
 }
 
+:root[data-theme="light"] .new-chat {
+  background: #ffffff;
+  color: #30302c;
+}
+
 :root[data-theme="light"] .system-button,
-:root[data-theme="light"] .icon-button,
+:root[data-theme="light"] .icon-button {
+  border: 0;
+  background: #ffffff;
+}
+
 :root[data-theme="light"] .sources-toggle,
 :root[data-theme="light"] .send-button {
   border: 1px solid #e8e8e3;
@@ -3620,4 +3696,38 @@ textarea:focus {
   background: #d4edda;
   border-color: #a3cfab;
   color: #155724;
+}
+
+:root[data-theme="light"] .connections-panel-title,
+:root[data-theme="light"] .connections-loading,
+:root[data-theme="light"] .connections-empty {
+  color: #767670;
+}
+
+:root[data-theme="light"] .connection-name {
+  color: #252522;
+}
+
+:root[data-theme="light"] .connection-status {
+  color: #767670;
+}
+
+:root[data-theme="light"] .connection-action {
+  border-color: #e3e3dc;
+  background: #ffffff;
+  color: #767670;
+}
+
+:root[data-theme="light"] .connection-action:hover:not(:disabled) {
+  background: #f4f4ef;
+  color: #252522;
+}
+
+:root[data-theme="light"] .connections-close {
+  color: #767670;
+}
+
+:root[data-theme="light"] .connections-close:hover {
+  background: #f4f4ef;
+  color: #252522;
 }

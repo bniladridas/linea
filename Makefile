@@ -10,7 +10,7 @@ run: site-dates build
 	@sleep 2
 	@curl -s http://127.0.0.1:8080/healthz && echo ""
 
-start: site-dates build-backend
+start: site-dates build
 	ANDROID=$(ANDROID) IOS=$(IOS) MACOS=$(MACOS) NODB=$(NODB) ./scripts/start.sh
 
 stop:

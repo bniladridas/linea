@@ -4,17 +4,23 @@ import {
   ArrowUpRight,
   ArrowDown,
   ArrowUp,
+  Activity,
   BadgeHelp,
   BellOff,
   Bookmark,
+  Brain,
   Brush,
   Check,
+  Clock,
   Copy,
   Crown,
   Cpu,
   Database,
   Eye,
+  FileDiff,
   FileText,
+  Folder,
+  GitBranch,
   Handshake,
   Heart,
   Info,
@@ -25,8 +31,9 @@ import {
   Moon,
   MoreHorizontal,
   Monitor,
+  Network,
   Palette,
-  PanelRight,
+  ChevronLeft,
   Paperclip,
   Plug,
   PartyPopper,
@@ -39,9 +46,13 @@ import {
   Search as SearchIcon,
   Share2,
   Smile,
+  Terminal,
   Trash2,
   Sun,
+  Users,
+  Wrench,
   X,
+  Zap,
 } from 'lucide-react';
 import './styles.css';
 
@@ -583,6 +594,7 @@ function App() {
     'shell',
     !isSidebarOpen ? 'sidebar-collapsed' : '',
     showSources ? 'sources-open' : '',
+    isSystemDetailsOpen ? 'dashboard-open' : '',
     (areTooltipsSuppressed || isNewChatMenuOpen || isSystemPanelOpen || isThemePanelOpen || isConnectionsPanelOpen)
       ? 'tooltips-suppressed'
       : '',
@@ -1891,7 +1903,8 @@ function App() {
   }
 
   return (
-    <main className={shellClassName}>
+    <>
+      <main className={shellClassName}>
       {isSidebarOpen && (
         <button
           aria-label="Hide conversations"
@@ -1915,7 +1928,7 @@ function App() {
               type="button"
               onClick={() => setIsSidebarOpen(false)}
             >
-              <PanelRight className="panel-toggle-icon" size={18} strokeWidth={ICON_STROKE} />
+              <ChevronLeft className="panel-toggle-icon" size={18} strokeWidth={ICON_STROKE} />
             </button>
           </div>
 
@@ -2134,7 +2147,7 @@ function App() {
               onPointerDown={() => setAreTooltipsSuppressed(true)}
               onClick={() => setIsSidebarOpen((open) => !open)}
             >
-              <PanelRight
+              <ChevronLeft
                 className={isSidebarOpen ? 'panel-toggle-icon' : 'panel-toggle-icon collapsed'}
                 size={18}
                 strokeWidth={ICON_STROKE}
@@ -2343,9 +2356,18 @@ function App() {
       </section>
 
       {showSources && <SourcesPanel results={activeSearchResults} />}
-
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete conversation"
+          detail={`Delete "${deleteTarget.title}" and its messages?`}
+          action="Delete"
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => void deleteConversation(deleteTarget)}
+        />
+      )}
+    </main>
       {isSystemDetailsOpen && (
-        <SystemDetailsDialog
+        <DashboardPage
           status={systemStatus}
           agentStatus={agentStatus}
           agentRuns={agentRuns}
@@ -2384,16 +2406,7 @@ function App() {
           onClose={() => setIsSystemDetailsOpen(false)}
         />
       )}
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete conversation"
-          detail={`Delete "${deleteTarget.title}" and its messages?`}
-          action="Delete"
-          onCancel={() => setDeleteTarget(null)}
-          onConfirm={() => void deleteConversation(deleteTarget)}
-        />
-      )}
-    </main>
+    </>
   );
 }
 
@@ -2928,7 +2941,7 @@ function SystemPanel({
   );
 }
 
-function SystemDetailsDialog({
+function DashboardPage({
   agentRuns,
   agentStatus,
   users,
@@ -3012,6 +3025,7 @@ function SystemDetailsDialog({
   const [loopProposalPathInput, setLoopProposalPathInput] = useState('');
   const [loopProposalContentInput, setLoopProposalContentInput] = useState('');
   const [loopModeInput, setLoopModeInput] = useState<AgentLoopMode>('guided');
+  const [section, setSection] = useState('runtime');
   const [unrestrictedConfirm, setUnrestrictedConfirm] = useState<boolean | null>(null);
   const [hookCommandInput, setHookCommandInput] = useState('');
   const [hookRunHookId, setHookRunHookId] = useState(agentStatus?.hooks?.[0]?.id ?? '');
@@ -3381,31 +3395,28 @@ function SystemDetailsDialog({
   }
 
   return (
-    <div className="dialog-backdrop" onPointerDown={onClose}>
-      <section
-        aria-modal="true"
-        aria-label="System details"
-        className="details-dialog"
-        role="dialog"
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <div className="details-header">
-          <div>
-            <strong>System</strong>
-            <p>Local status and agent checks.</p>
-          </div>
-          <button aria-label="Close system details" className="details-close" type="button" onClick={onClose}>
-            <X size={14} strokeWidth={ICON_STROKE} />
-          </button>
-        </div>
+    <div className="dashboard" role="region" aria-label="Dashboard">
+      <div className="dashboard-header">
+        <strong>Dashboard</strong>
+        <button className="close-btn" type="button" onClick={onClose}>Close</button>
+      </div>
+      <nav className="dashboard-nav">
+        {[{id:'runtime',label:'Runtime',icon:Monitor},{id:'agent',label:'Agent',icon:Brain},{id:'commands',label:'Commands',icon:Terminal},{id:'hooks',label:'Hooks',icon:GitBranch},{id:'skills',label:'Skills',icon:Zap},{id:'mcp',label:'MCP',icon:Network},{id:'workspace',label:'Workspace',icon:Folder},{id:'tools',label:'Tools',icon:Wrench},{id:'proposals',label:'Proposals',icon:FileDiff},{id:'users',label:'Users',icon:Users},{id:'jobs',label:'Jobs',icon:Clock},{id:'diagnostics',label:'Diagnostics',icon:Activity}].map((s) => (
+          <button key={s.id} className={`dashboard-nav-item${section===s.id?' active':''}`} type="button" onClick={() => setSection(s.id)}><s.icon size={14} strokeWidth={ICON_STROKE} /> {s.label}</button>
+        ))}
+      </nav>
+      <div className="dashboard-content">
 
-        <div className="details-grid">
+        {section === 'runtime' && (
           <DetailsSection title="Runtime">
             <DetailLine label="Storage" value={status?.storage ?? 'Ready'} />
             <DetailLine label="Search" value={status?.search ?? 'Ready'} />
             <DetailLine label="Providers" value={String(status?.providers.filter((provider) => provider.enabled).length ?? 0)} />
           </DetailsSection>
+        )}
 
+        {section === 'agent' && (
+          <>
           <DetailsSection title="Agent">
             <DetailLine label="Mode" value={agentStatus?.mode ?? 'local'} />
             <DetailLine label="State" value={agentStatus?.runSummary?.state ?? 'ready'} />
@@ -3423,7 +3434,10 @@ function SystemDetailsDialog({
             <DetailLine label="Runs" value={String(agentRuns.length)} />
             <DetailLine label="Users" value={String(users.length)} />
           </DetailsSection>
+          </>
+        )}
 
+        {section === 'mcp' && (
           <DetailsSection title="MCP">
             <DetailLine label="Servers" value={String(agentStatus?.mcpServers?.length ?? 0)} />
             <DetailLine label="Tools" value={String(agentStatus?.mcpTools?.length ?? 0)} />
@@ -3432,186 +3446,191 @@ function SystemDetailsDialog({
             <DetailLine label="Subscriptions" value={String(agentStatus?.mcpSubscriptions?.length ?? 0)} />
             <DetailLine label="Events" value={String(agentStatus?.mcpEvents?.length ?? 0)} />
           </DetailsSection>
-        </div>
-
-        {settings && (
-          <section className="details-list providers-review">
-            <SettingsPanel settings={settings} onChange={onSettingsChange} variant="details" />
-          </section>
         )}
 
-        <section className="details-list agent-session">
-          <div className="details-list-header">
-            <h3>Agent session</h3>
-            <span>{agentTimeline.length}</span>
-          </div>
-          <div className="agent-timeline">
-            {agentTimeline.length > 0 ? (
-              agentTimeline.map((item) => (
-                <div className={`agent-timeline-item ${item.state}`} key={item.id}>
-                  <div className="agent-timeline-main">
-                    <span>{item.kind}</span>
-                    <strong>{item.title}</strong>
-                    <em>{item.state}</em>
-                  </div>
-                  {item.detail && <p>{truncateText(item.detail.replace(/\s+/g, ' '), 140)}</p>}
-                  {item.children && item.children.length > 0 && (
-                    <div className="agent-timeline-children">
-                      {item.children.slice(0, 6).map((child) => (
-                        <span key={child.id}>
-                          {child.title}: {child.state}
-                          {child.detail ? ` · ${truncateText(child.detail, 90)}` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : (
-              <p>No agent activity</p>
-            )}
-          </div>
-        </section>
+        {section === 'agent' && (
+          <>
+          {settings && (
+            <section className="details-list providers-review">
+              <SettingsPanel settings={settings} onChange={onSettingsChange} variant="details" />
+            </section>
+          )}
 
-        <section className="details-list agent-control">
-          <div className="details-list-header">
-            <h3>Agent loop</h3>
-            <span>{agentStatus?.runSummary?.agentLoops ?? 0}</span>
-          </div>
-          <form className="agent-loop-form" onSubmit={submitAgentLoop}>
-            <div className="agent-loop-mode" aria-label="Loop mode" role="group">
-              <button
-                className={loopModeInput === 'guided' ? 'active' : ''}
-                type="button"
-                onClick={() => setLoopModeInput('guided')}
-              >
-                Guided
-              </button>
-              <button
-                className={loopModeInput === 'auto' ? 'active' : ''}
-                type="button"
-                onClick={() => setLoopModeInput('auto')}
-              >
-                Auto
-              </button>
-              <button
-                className={loopModeInput === 'developer' ? 'active' : ''}
-                type="button"
-                onClick={() => setLoopModeInput('developer')}
-              >
-                Developer
-              </button>
+          <section className="details-list agent-session">
+            <div className="details-list-header">
+              <h3>Agent session</h3>
+              <span>{agentTimeline.length}</span>
             </div>
-            {loopModeInput === 'developer' && (
-              <div className="agent-unrestricted">
-                {agentStatus?.unrestricted ? (
-                  <button type="button" className="unrestricted-toggle active" onClick={() => onSetUnrestricted(false)}>
-                    Unrestricted – ON
-                  </button>
-                ) : (
-                  <button type="button" className="unrestricted-toggle" onClick={() => setUnrestrictedConfirm(true)}>
-                    Enable unrestricted
-                  </button>
-                )}
-                <div className="auto-approve-categories">
-                  {['read', 'write', 'inspect', 'destructive'].map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      className={autoApproveCategories.includes(cat) ? 'active' : ''}
-                      onClick={() => {
-                        if (autoApproveCategories.includes(cat)) {
-                          onAutoApproveCategories(autoApproveCategories.filter((c) => c !== cat));
-                        } else {
-                          onAutoApproveCategories([...autoApproveCategories, cat]);
-                        }
-                      }}
-                    >
-                      Auto-approve {cat}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <input
-              aria-label="Agent goal"
-              placeholder="Goal"
-              value={loopGoalInput}
-              onChange={(event) => setLoopGoalInput(event.target.value)}
-            />
-            <div className="agent-loop-options">
-              <input
-                aria-label="Search query"
-                placeholder="Search query"
-                value={loopQueryInput}
-                onChange={(event) => setLoopQueryInput(event.target.value)}
-              />
-              <input
-                aria-label="File path"
-                placeholder="File path"
-                value={loopFileInput}
-                onChange={(event) => setLoopFileInput(event.target.value)}
-              />
-              <input
-                aria-label="Command"
-                placeholder="Command"
-                value={loopCommandInput}
-                onChange={(event) => setLoopCommandInput(event.target.value)}
-              />
-              <button disabled={!loopGoalInput.trim()} type="submit">
-                Start
-              </button>
-              {isAutonomousLoopMode(loopModeInput) && (
-                <button
-                  disabled={!loopGoalInput.trim()}
-                  type="button"
-                  onClick={() => onStartBackgroundJob({ goal: loopGoalInput, mode: loopModeInput, autoApply: true, maxIterations: 10 })}
-                >
-                  Start bg
-                </button>
+            <div className="agent-timeline">
+              {agentTimeline.length > 0 ? (
+                agentTimeline.map((item) => (
+                  <div className={`agent-timeline-item ${item.state}`} key={item.id}>
+                    <div className="agent-timeline-main">
+                      <span>{item.kind}</span>
+                      <strong>{item.title}</strong>
+                      <em>{item.state}</em>
+                    </div>
+                    {item.detail && <p>{truncateText(item.detail.replace(/\s+/g, ' '), 140)}</p>}
+                    {item.children && item.children.length > 0 && (
+                      <div className="agent-timeline-children">
+                        {item.children.slice(0, 6).map((child) => (
+                          <span key={child.id}>
+                            {child.title}: {child.state}
+                            {child.detail ? ` · ${truncateText(child.detail, 90)}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p>No agent activity</p>
               )}
             </div>
-            <div className="agent-loop-options proposal-options">
-              <input
-                aria-label="Proposal path"
-                placeholder="Proposal path"
-                value={loopProposalPathInput}
-                onChange={(event) => setLoopProposalPathInput(event.target.value)}
-              />
-              <textarea
-                aria-label="Proposal content"
-                placeholder="Proposal content"
-                rows={3}
-                value={loopProposalContentInput}
-                onChange={(event) => setLoopProposalContentInput(event.target.value)}
-              />
-            </div>
-          </form>
-          <div className="agent-card-list">
-            {(agentStatus?.agentLoops ?? []).slice(0, 3).map((loop) => (
-              <AgentLoopCard
-                editProposals={editProposals}
-                key={loop.id}
-                loop={loop}
-                onApplyProposal={onApplyProposal}
-                onApproveCommand={onApproveCommand}
-                onCancelLoop={onCancelLoop}
-                onContinueLoop={onContinueLoop}
-                onReviewProposal={onReviewProposal}
-                onSelectProposal={setSelectedProposalId}
-                continueInput={{
-                  command: loopCommandInput.trim() || undefined,
-                  query: loopQueryInput.trim() || undefined,
-                  filePath: loopFileInput.trim() || undefined,
-                  proposalPath: loopProposalPathInput.trim() || undefined,
-                  proposalContent: loopProposalPathInput.trim() ? loopProposalContentInput : undefined,
-                }}
-              />
-            ))}
-            {(agentStatus?.agentLoops ?? []).length === 0 && <p>No loops</p>}
-          </div>
-        </section>
+          </section>
 
+          <section className="details-list agent-control">
+            <div className="details-list-header">
+              <h3>Agent loop</h3>
+              <span>{agentStatus?.runSummary?.agentLoops ?? 0}</span>
+            </div>
+            <form className="agent-loop-form" onSubmit={submitAgentLoop}>
+              <div className="agent-loop-mode" aria-label="Loop mode" role="group">
+                <button
+                  className={loopModeInput === 'guided' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setLoopModeInput('guided')}
+                >
+                  Guided
+                </button>
+                <button
+                  className={loopModeInput === 'auto' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setLoopModeInput('auto')}
+                >
+                  Auto
+                </button>
+                <button
+                  className={loopModeInput === 'developer' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setLoopModeInput('developer')}
+                >
+                  Developer
+                </button>
+              </div>
+              {loopModeInput === 'developer' && (
+                <div className="agent-unrestricted">
+                  {agentStatus?.unrestricted ? (
+                    <button type="button" className="unrestricted-toggle active" onClick={() => onSetUnrestricted(false)}>
+                      Unrestricted – ON
+                    </button>
+                  ) : (
+                    <button type="button" className="unrestricted-toggle" onClick={() => setUnrestrictedConfirm(true)}>
+                      Enable unrestricted
+                    </button>
+                  )}
+                  <div className="auto-approve-categories">
+                    {['read', 'write', 'inspect', 'destructive'].map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        className={autoApproveCategories.includes(cat) ? 'active' : ''}
+                        onClick={() => {
+                          if (autoApproveCategories.includes(cat)) {
+                            onAutoApproveCategories(autoApproveCategories.filter((c) => c !== cat));
+                          } else {
+                            onAutoApproveCategories([...autoApproveCategories, cat]);
+                          }
+                        }}
+                      >
+                        Auto-approve {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <input
+                aria-label="Agent goal"
+                placeholder="Goal"
+                value={loopGoalInput}
+                onChange={(event) => setLoopGoalInput(event.target.value)}
+              />
+              <div className="agent-loop-options">
+                <input
+                  aria-label="Search query"
+                  placeholder="Search query"
+                  value={loopQueryInput}
+                  onChange={(event) => setLoopQueryInput(event.target.value)}
+                />
+                <input
+                  aria-label="File path"
+                  placeholder="File path"
+                  value={loopFileInput}
+                  onChange={(event) => setLoopFileInput(event.target.value)}
+                />
+                <input
+                  aria-label="Command"
+                  placeholder="Command"
+                  value={loopCommandInput}
+                  onChange={(event) => setLoopCommandInput(event.target.value)}
+                />
+                <button disabled={!loopGoalInput.trim()} type="submit">
+                  Start
+                </button>
+                {isAutonomousLoopMode(loopModeInput) && (
+                  <button
+                    disabled={!loopGoalInput.trim()}
+                    type="button"
+                    onClick={() => onStartBackgroundJob({ goal: loopGoalInput, mode: loopModeInput, autoApply: true, maxIterations: 10 })}
+                  >
+                    Start bg
+                  </button>
+                )}
+              </div>
+              <div className="agent-loop-options proposal-options">
+                <input
+                  aria-label="Proposal path"
+                  placeholder="Proposal path"
+                  value={loopProposalPathInput}
+                  onChange={(event) => setLoopProposalPathInput(event.target.value)}
+                />
+                <textarea
+                  aria-label="Proposal content"
+                  placeholder="Proposal content"
+                  rows={3}
+                  value={loopProposalContentInput}
+                  onChange={(event) => setLoopProposalContentInput(event.target.value)}
+                />
+              </div>
+            </form>
+            <div className="agent-card-list">
+              {(agentStatus?.agentLoops ?? []).slice(0, 3).map((loop) => (
+                <AgentLoopCard
+                  editProposals={editProposals}
+                  key={loop.id}
+                  loop={loop}
+                  onApplyProposal={onApplyProposal}
+                  onApproveCommand={onApproveCommand}
+                  onCancelLoop={onCancelLoop}
+                  onContinueLoop={onContinueLoop}
+                  onReviewProposal={onReviewProposal}
+                  onSelectProposal={setSelectedProposalId}
+                  continueInput={{
+                    command: loopCommandInput.trim() || undefined,
+                    query: loopQueryInput.trim() || undefined,
+                    filePath: loopFileInput.trim() || undefined,
+                    proposalPath: loopProposalPathInput.trim() || undefined,
+                    proposalContent: loopProposalPathInput.trim() ? loopProposalContentInput : undefined,
+                  }}
+                />
+              ))}
+              {(agentStatus?.agentLoops ?? []).length === 0 && <p>No loops</p>}
+            </div>
+          </section>
+          </>
+        )}
+
+        {section === 'commands' && (
         <section className="details-list agent-control">
           <div className="details-list-header">
             <h3>Commands</h3>
@@ -3649,7 +3668,9 @@ function SystemDetailsDialog({
             {(agentStatus?.commandApprovals ?? []).length === 0 && <p>No approvals</p>}
           </div>
         </section>
+        )}
 
+        {section === 'hooks' && (
         <section className="details-list agent-control">
           <div className="details-list-header">
             <h3>Hooks</h3>
@@ -3709,7 +3730,9 @@ function SystemDetailsDialog({
             {(agentStatus?.hooks ?? []).length === 0 && <p>No hooks</p>}
           </div>
         </section>
+        )}
 
+        {section === 'skills' && (
         <section className="details-list agent-control">
           <div className="details-list-header">
             <h3>Skills</h3>
@@ -3746,7 +3769,10 @@ function SystemDetailsDialog({
             {(agentStatus?.skills ?? []).length === 0 && <p>No skills</p>}
           </div>
         </section>
+        )}
 
+        {section === 'tools' && (
+        <>
         <section className="details-list agent-control">
           <div className="details-list-header">
             <h3>Agent map</h3>
@@ -3776,7 +3802,11 @@ function SystemDetailsDialog({
             ))}
           </div>
         </section>
+        </>
+        )}
 
+        {section === 'mcp' && (
+        <>
         <section className="details-list agent-control">
           <div className="details-list-header">
             <h3>MCP</h3>
@@ -3934,7 +3964,10 @@ function SystemDetailsDialog({
               (agentStatus?.mcpPrompts ?? []).length === 0 && <p>No MCP entries</p>}
           </div>
         </section>
+        </>
+        )}
 
+        {section === 'workspace' && (
         <section className="details-list workspace-review">
           <div className="details-list-header">
             <h3>Workspace</h3>
@@ -4061,7 +4094,9 @@ function SystemDetailsDialog({
             </div>
           </div>
         </section>
+        )}
 
+        {section === 'proposals' && (
         <section className="details-list proposal-review">
           <div className="details-list-header">
             <h3>Edit proposals</h3>
@@ -4153,21 +4188,17 @@ function SystemDetailsDialog({
             <p>No edit proposals</p>
           )}
         </section>
+        )}
 
-        <DetailsList
-          empty="No diagnostics"
-          items={diagnostics}
-          title="Diagnostics"
-          render={(diagnostic) =>
-            `${diagnostic.path}:${diagnostic.line}:${diagnostic.column} ${diagnostic.severity}: ${diagnostic.message}`
-          }
-        />
+        {section === 'tools' && (
         <DetailsList
           empty="No subagent runs"
           items={agentStatus?.subagentRuns ?? []}
           title="Subagent runs"
           render={(run) => `${run.subagentId}: ${run.state} · ${run.summary}`}
         />
+        )}
+        {section === 'agent' && (
         <section className="details-list">
           <div className="details-list-header">
             <h3>Recent traces</h3>
@@ -4207,7 +4238,9 @@ function SystemDetailsDialog({
             <p>No traces</p>
           )}
         </section>
+        )}
 
+        {section === 'users' && (
         <section className="details-list">
           <div className="details-list-header">
             <h3>Users</h3>
@@ -4242,7 +4275,10 @@ function SystemDetailsDialog({
             <p>No users</p>
           )}
         </section>
+        )}
 
+        {section === 'jobs' && (
+        <>
         {(agentStatus?.backgroundJobs ?? []).length > 0 && (
           <section className="details-list">
             <div className="details-list-header">
@@ -4265,6 +4301,20 @@ function SystemDetailsDialog({
             ))}
           </section>
         )}
+        {(agentStatus?.backgroundJobs ?? []).length === 0 && <p>No background jobs</p>}
+        </>
+        )}
+
+        {section === 'diagnostics' && (
+        <>
+        <DetailsList
+          empty="No diagnostics"
+          items={diagnostics}
+          title="Diagnostics"
+          render={(diagnostic) =>
+            `${diagnostic.path}:${diagnostic.line}:${diagnostic.column} ${diagnostic.severity}: ${diagnostic.message}`
+          }
+        />
         <DetailsList
           empty="No blocked checks"
           items={blockedChecks}
@@ -4283,7 +4333,15 @@ function SystemDetailsDialog({
           title="Latest runs"
           render={(run) => `${run.state} · ${new Date(run.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}
         />
-      </section>
+        </>
+        )}
+      </div>
+      <div className="app-footer">
+        <span>© 2026 Linea</span>
+        <a href="https://github.com/bniladridas/linea">GitHub</a>
+        <a href="https://github.com/bniladridas/linea/issues">Issues</a>
+        <a href="https://github.com/bniladridas/linea/releases">Releases</a>
+      </div>
       {unrestrictedConfirm && (
         <ConfirmDialog
           title="Enable unrestricted mode"
@@ -4892,8 +4950,8 @@ function ConnectionsPanel({
           </div>
         ))
       )}
-      <button className="connections-close" type="button" onClick={onClose}>
-        Done
+      <button className="connections-close" type="button" aria-label="Close connections" onClick={onClose}>
+        <X size={16} strokeWidth={ICON_STROKE} />
       </button>
     </div>
   );

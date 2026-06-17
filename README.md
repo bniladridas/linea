@@ -1,157 +1,102 @@
 # Linea
 
-<img src="https://s.gravatar.com/avatar/82c20b35bc57fea0f6033dc1ac686f14?size=496&default=retro" width="48" /><img src="./assets/linea-route.svg" width="48" />
+<img src="https://s.gravatar.com/avatar/82c20b35bc57fea0f6033dc1ac686f14?size=496&default=retro" width="48" height="48" alt="Linea" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/linea-route.svg">
+  <source media="(prefers-color-scheme: light)" srcset="./assets/linea-route-dark.svg">
+  <img src="./assets/linea-route-dark.svg" width="48" height="48" alt="Linea">
+</picture>
 
-**Local-first, agent-native design tool.**
-
-Linea chats whit LLMs, searces the web, manages files, and automates local development tasks, all runing locally on your machine. Its built to be your personal agent without the clud.
+Local-first AI assistant. Chats with LLMs, searches the web, manages files, automates local dev tasks. Runs on your machine.
 
 ```bash
-npm i @bniladridas/linea
 brew install linea
 linea
 ```
 
-[Docs](./docs/reference.md) · [API](./docs/client-api.md)
+[Docs](./docs/reference.md) · [API](./docs/client-api.md) · [Build](./docs/start.md) · [macOS](./docs/macos.md)
 
-# Architcture
-
-Here is how the boxxess connect:
-
-```text
-+------------+
-| UI (Client)|
-+------------+
-      | HTTP/API
-+------------+
-| Go Daemon  | <---> [MCP Tools]
-+------------+
-      |
-+------------+
-| Models/Data|
-+------------+
-```
+> Everything runs locally. No data leaves your network unless you explicitly use web search or third-party models.
 
 ---
 
-# Platforms
+## Setup
 
-For runin on different platforms, here is how you can set it up:
+1. Install Go 1.21+, Node.js 18+, and PostgreSQL.
+2. Create the database:
+   ```
+   createdb linea
+   createuser linea
+   psql -c "ALTER USER linea WITH PASSWORD 'linea';"
+   psql -c "GRANT ALL ON DATABASE linea TO linea;"
+   ```
+3. Copy `.env.example` to `.env` in the repo root. Add a Gemini API key:
+   ```
+   GEMINI_API_KEY=your-key-here
+   ```
+4. Build and start:
+   ```
+   make start
+   ```
+5. Open http://localhost:8080.
 
-| Platform | Method |
+Skip Postgres with `make start NODB=1`.
+
+## Quick Start
+
+| Method | Command |
 | :--- | :--- |
-| **macOS** | `brew install linea` or [Releases](https://github.com/bniladridas/linea/releases) |
-| **Android** | [Build from source](./android/README.md) |
-| **iOS** | [Build from source](./ios/README.md) |
+| Homebrew | `brew install linea && linea` |
+| npm | `npm i -g @bniladridas/linea && linea` |
+| Source | `git clone ... && cd linea && make start` |
 
-# macOS and Remote
+## CLI
 
-macOS support uses a backgrond daemon via LaunchAgent. Remot access is enabld by settin `API_ADDR` to `0.0.0.0:8080` in `linea.env`.
-
-# SaaS Mode
-
-Linea supports multi-tenant SaaS mode when `LINEA_SAAS_MODE=true` is set. This enables API-key-based auth, user management, and workspace-scoped data isolation.
-
-# OAuth Flow
-
-Linea uses an OAuth 2.0 flow to integrate whit GitHub, GitLab, and Google for user authentication and authorization.
-
-Here is the high-level mechanism:
-
-1. Initiation: When you start the auth flow, Linea generates a secure state parameter to prevent CSRF and redirects your browser to the chosen provider's authorization URL (e.g., GitHub's login page).
-2. Redirect & Code: After you approve, the provider redirects you back to a Linea callback URL (`/api/auth/<provider>/callback`) with an authorization code.
-3. Exchange: The backend receives the code and the state, verifies the state against its internal registry, and then makes a server-to-server request to the provider to exchange the authorization code for an `access_token`.
-
-# Git Integration
-
-For GitHub/GitLab integraton, set your OAuth credentals in `linea.env`:
-
-| Variable | Description |
-| :--- | :--- |
-| `LINEA_GITHUB_CLIENT_ID` | GitHub Client ID |
-| `LINEA_GITHUB_CLIENT_SECRET` | GitHub Client Secret |
-| `LINEA_GITLAB_CLIENT_ID` | GitLab Client ID |
-| `LINEA_GITLAB_CLIENT_SECRET` | GitLab Client Secret |
-
-# Subagent Orchestraton
-
-We use subagents to handle isolated work like review, search, or testin, keepin the main agent lean. The core engine handles dymanic registraton of new subagents at runtime.
-
-| Mechanism | Description |
-| :--- | :--- |
-| **Parallel Executon** | Uses goroutines + WaitGroups |
-| **State Trackin** | Sructures results per subagent in plans |
-| **Discovery** | `findSubagentCustom` for custom runtime agents |
-
-# Capabilities
-
-We keep the core features focused on what developers actually need, avoidin unnecessary complexity.
-
-| Feature | Scope |
-| :--- | :--- |
-| **Local-First** | PostgreSQL / Memory |
-| **Agentic** | Loops, tool execution, skills, edits |
-| **Multi-Platform** | Web, CLI (TUI), macOS, Android |
-| **Models** | Gemini, OpenAI, vLLM, MLX, Ollama |
-
-# Supported Languages
-
-Linea supports agentic development and interacton across major programming languages:
-
-| Language | Type |
-| :--- | :--- |
-| **TypeScript/JS** | Native |
-| **Python** | Native |
-| **Go** | Native |
-| **Java/Kotlin** | MCP |
-| **Ruby** | MCP |
-| **PHP/C#** | MCP |
-
----
-
-# CLI
-
-Use the CLI to interact whit your daemon, startin the web server or jumpin into the terminal chat directly.
-
-```bash
-linea                # Start web server
-linea tui            # Terminal chat
-linea daemon         # Run as background daemon
-linea check          # Health checks
-linea status         # Daemon status
-linea migrate        # DB migrations
+```
+linea              Start the web server
+linea tui          Terminal chat interface
+linea daemon       Background daemon
+linea check        Health checks
+linea status       Daemon status
+linea migrate      Database migrations
+linea version      Print version
+linea help         Show help
 ```
 
-# API Access
+## Configuration
 
-Authenticated programmatic access via `/api/v1/*` endpoints.
-
-[Client API Details](./docs/client-api.md)
-
-# Authentication
-
-Authetnicate requests usin a Bearer token in the Authorizaton header:
-
-```http
-Authorization: Bearer <token>
-```
-
-The backend verifies this token against the active session in the database before grantin access to API resources.
-
-# Configuration Reference
-
-`~/.config/linea/linea.env` or environment variables:
+Set variables in `~/.config/linea/linea.env` or as env vars.
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `API_ADDR` | `127.0.0.1:8080` | Server bind address |
-| `GEMINI_API_KEY` | - | API key |
+| `GEMINI_API_KEY` | - | Gemini API key |
 | `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Model ID |
 
-# Troubleshoting
+Full reference in [docs/reference.md](./docs/reference.md).
 
-Audit logs are stored at `~/.cache/linea/audit.jsonl`.
+## Integrations
 
-# License
+- [GitHub MCP](./docs/mcp.md#github) -- issues, PRs, code search
+- [GitLab MCP](./docs/mcp.md#gitlab) -- issues, MRs, code search
+- [Google MCP](./docs/mcp.md#google) -- Gmail, Calendar, Drive
+- [OAuth setup](./docs/oauth.md) -- connect GitHub, GitLab, Google accounts
+
+## Platforms
+
+| Platform | Method |
+| :--- | :--- |
+| macOS | `brew install linea` or [Releases](https://github.com/bniladridas/linea/releases) |
+| Android | [Build from source](./android/README.md) |
+| iOS | [Build from source](./ios/README.md) |
+
+## Troubleshooting
+
+```
+linea daemon --debug        # verbose output
+~/.cache/linea/audit.jsonl  # audit log
+```
+
+## License
 
 MIT.
