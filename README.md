@@ -1,6 +1,5 @@
 # Linea
 
-<img src="https://s.gravatar.com/avatar/82c20b35bc57fea0f6033dc1ac686f14?size=496&default=retro" width="48" height="48" alt="Linea" />
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./assets/linea-route.svg">
   <source media="(prefers-color-scheme: light)" srcset="./assets/linea-route-dark.svg">
