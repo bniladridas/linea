@@ -1,9 +1,9 @@
-# Start from scratch
+# Build from source
 
-Everything depends on the Go server - the web UI, iOS app, and Android app are all
+Everything depends on the Go server. The web UI, iOS app, and Android app are all
 WebView wrappers pointing at it.
 
-One command to build and start everything:
+One command to build and start:
 
 ```sh
 make start     # prompts which platforms to launch
@@ -17,28 +17,6 @@ make start ANDROID=1 IOS=1 MACOS=1   # launches all platforms
 make start NODB=1                    # no Postgres (in-memory storage)
 make start NODB=1 IOS=1 MACOS=1      # no DB, just iOS + macOS
 ```
-
-This builds the frontend and Go server, runs migrations, and starts the daemon.
-Visit `http://localhost:8080`.
-
-## 0. Prerequisites
-
-- **Postgres** running with a `linea` database owned by user `linea`:
-  ```sh
-  createdb linea
-  createuser linea
-  psql -c "ALTER USER linea WITH PASSWORD 'linea';"
-  psql -c "GRANT ALL ON DATABASE linea TO linea;"
-  ```
-- **`.env` file** in the repo root with:
-  ```
-  DATABASE_URL=postgres://linea:linea@localhost:5432/linea?sslmode=disable
-  ```
-- **Frontend dependencies** and Go binary:
-  ```sh
-  cd frontend && npm ci && npm run build
-  cd ../backend && go build -o ../bin/linea ./cmd/server
-  ```
 
 ## 1. Go server
 
@@ -132,6 +110,15 @@ adb shell am start -n com.bniladridas.linea/.MainActivity
 ```
 
 Connects to `http://10.0.2.2:8080` (emulator alias for host localhost).
+
+## Release
+
+```sh
+make release-check    # pull latest, check Homebrew formula info, upgrade
+make install-check    # tap, pull, upgrade, link the Homebrew formula
+
+linea check           # health checks
+```
 
 ## Stop everything
 

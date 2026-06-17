@@ -1,15 +1,6 @@
 # Reference
 
-This file keeps setup details out of the main README.
-
-# Requirements
-
-| Need | Version |
-| --- | --- |
-| Go | 1.25+ |
-| Node.js | 22+ |
-| PostgreSQL | 16+ |
-| Model access | Gemini, Cerebras, SambaNova, or Ollama |
+Config reference, checks, API endpoints, and install details.
 
 # Install
 
@@ -181,19 +172,6 @@ WEB_ORIGIN=http://employee-machine.local:8080
 ```
 
 Only use LAN mode behind a trusted network, VPN, or reverse proxy with access controls. Linea currently streams chat over HTTP/SSE, not WebSockets, so office routing needs normal HTTP streaming support rather than WebSocket upgrade support.
-
-# Source
-
-```sh
-cp .env.example .env
-cd backend
-go run ./cmd/server migrate
-cd ../frontend
-npm ci
-npm run build
-cd ../backend
-go run ./cmd/server
-```
 
 The binary uses subcommands:
 
