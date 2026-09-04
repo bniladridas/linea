@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/palmshed/linea/main/.github/assets/thumbnail.png" alt="linea" width="100%">
+</p>
+
 # Linea
 
 <picture>
